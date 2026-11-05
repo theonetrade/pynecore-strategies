@@ -22,8 +22,15 @@ assets/
   README.md
   <category>/                 one folder per corpus status chip; strategies only
     links.txt                 TradingView URLs, one per line, in corpus order (most liked first)
+    unavailable.txt           URLs from links.txt that could not be downloaded (removed from
+                              TradingView, closed source), tab-separated: url, reason, date checked, title
     <slug>_<id>.pine          one file per script
 ```
+
+`links.txt` is what the corpus lists; `.pine` files plus `unavailable.txt` lines account for every
+one of its entries. The corpus was built from a snapshot of TradingView, and authors delete
+publications afterwards, so a category is complete when `files + unavailable == links`, not
+when `files == links`.
 
 A `<category>` is a status chip of the corpus table, lower-cased. With a single chip active the
 table shows the scripts whose primary status is that chip; the seven single-chip counts are
@@ -34,7 +41,7 @@ including the `libm` tier).
 
 | Folder | Corpus chip | Meaning (from the site's tooltips) | Strategies on the site | Downloaded |
 |---|---|---|---|---|
-| `bit-exact/` | Bit-exact | On every compared bar PyneCore produced the same IEEE-754 double as TradingView. | 406 | — |
+| `bit-exact/` | Bit-exact | On every compared bar PyneCore produced the same IEEE-754 double as TradingView. | 406 | **384, 2026-11-06** (22 removed from TradingView, see `unavailable.txt`) |
 | `verified/` | Verified | Output matched TradingView bar by bar and trade by trade within the published tolerance band, but not bit-exact. | 65 | **65, 2026-11-05** |
 | `divergent/` | Divergent | Output differs from TradingView beyond the band. Empty on the site as of 2026-11-05. | 0 | — |
 | `lookahead/` | Lookahead | The script's output depends on data its bars could not have had, so its TradingView reference is a lookahead result too. Kept out of the accuracy score. | 25 | — |
@@ -147,8 +154,30 @@ For every URL in `links.txt`:
 5. Record `title` (`document.title` minus ` — TradingView`), the final URL, the API source and
    the DOM text.
 
-Three tabs in parallel with a 400 ms pause between pages were enough for 65 scripts in about
-three minutes without any rate limiting; do not go much faster.
+Pace: four tabs in parallel, 400 ms pause between pages, batches of 80 URLs per call. That is
+about 90 s per batch and 406 scripts in roughly ten minutes, with no rate limiting seen; do not
+go much faster.
+
+#### Scripts that are gone or closed
+
+Roughly 5 % of the bit-exact corpus had been deleted by its authors between the corpus run and
+the download. Classify every failure instead of retrying blindly:
+
+| Observation | Meaning | Action |
+|---|---|---|
+| `goto` response status **404**, page title `Publication not found — TradingView`, body says "Publication has ghosted" | The author removed the publication. | Record in `unavailable.txt` with reason `removed`. Do not retry. |
+| Status 200, badge reads `PROTECTED SCRIPT` or `INVITE-ONLY SCRIPT`, no *Source code* tab | The author closed the source after the corpus run. | Record with reason `closed_source`. Do not retry. |
+| Status 200, badge `OPEN-SOURCE SCRIPT`, tabs include *Source code* but it took longer than the 30 s wait | Slow page load. | Retry once with a 45 s wait; two of 406 needed this. |
+
+Check `resp.status()` of the `goto` call first: a 404 answers immediately, while waiting for the
+tab wastes the full timeout. In code:
+
+```js
+const resp = await p.goto(url, { waitUntil: 'domcontentloaded' });
+if (resp.status() >= 400) return { url, ok: false, reason: 'removed', err: `HTTP ${resp.status()}` };
+try { await tab.waitFor({ state: 'visible', timeout: 30000 }); }
+catch { /* read the badge text: PROTECTED / INVITE-ONLY -> closed_source, else -> retry later */ }
+```
 
 In the Claude Code setup the browser sandbox has no file access, so a batch is stashed on a page
 (`page.evaluate(b => { window.__batchN = b }, batch)` on a page that is not navigated again)
@@ -160,10 +189,14 @@ is git-ignored; delete the batch files once the sources are written.
 
 For each record, in Python:
 
-- content = `source` with `\r\n` → `\n`, trailing newlines collapsed to exactly one;
+- content = `source` with `\r\n` → `\n`, trailing newlines collapsed to exactly one. Leading
+  blank lines stay: a few authors start the file with an empty line and the API keeps it;
 - fall back to the DOM text only if the API response was missed;
-- compare `norm(api) == norm(dom)` where `norm` replaces `\r\n`→`\n`, NBSP→space, tab→4 spaces
-  and strips trailing whitespace per line. Every record must match; investigate any that do not;
+- compare `norm(api) == norm(dom)` where `norm` replaces `\r\n`→`\n`, NBSP→space, tab→4 spaces,
+  strips trailing whitespace per line and drops leading and trailing blank lines (the viewer
+  trims those). Every record must match; investigate any that do not;
+- write `unavailable.txt` from the failures classified `removed` or `closed_source`; anything
+  else is a retry, not a result;
 - file name per the rule above; assert there are no collisions;
 - write with UTF-8, no BOM, no header comment: the file is the author's source and nothing else.
 
@@ -172,7 +205,10 @@ are part of the original and are what TradingView serves.
 
 ### 4. Verify before reporting
 
-- number of `.pine` files == number of lines in `links.txt` == counter total on the site;
+- number of `.pine` files + number of lines in `unavailable.txt` == number of lines in
+  `links.txt` == counter total on the site;
+- every line of `unavailable.txt` has a reason of `removed` or `closed_source`; a timeout is not
+  a reason;
 - every file contains a `//@version=` line;
 - `grep -l $'\r'` finds nothing;
 - spot check: SHA-256 of a local file equals SHA-256 of the current API `source` for that
@@ -185,12 +221,12 @@ are part of the original and are what TradingView serves.
 2. Leave only the target chip on and check the counter against the table above.
 3. `mkdir -p assets/<category>`.
 4. Run step 1 and save `links.txt`; all records must be `STR`.
-5. Run steps 2 and 3; batch the download, keep batches in `.playwright-mcp/`.
-6. Run the checks in step 4, then fill the "Downloaded" cell of the table above with the count
-   and the date.
+5. Run steps 2 and 3; batch the download, keep batches in `.playwright-mcp/`. Classify every
+   failure (removed / closed source / slow) and retry only the slow ones.
+6. Run the checks in step 4, then fill the "Downloaded" cell of the table above with the count,
+   the date and the number of unavailable scripts.
 
-`bit-exact/` (406 strategies) is the obvious next one; expect roughly 20 minutes of browser
-time at the pace above.
+Remaining strategy categories on 2026-11-06: `lookahead/` (25), `data-limited/` (1), `runs/` (1).
 
 ## Licensing
 

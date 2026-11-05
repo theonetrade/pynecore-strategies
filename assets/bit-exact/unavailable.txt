@@ -1,0 +1,22 @@
+https://www.tradingview.com/script/EaBACrDi/	removed	2026-11-06	VWAP + Fibo Dev Extensions Strategy by UnknownUnicorn4889556 · MPL-2.0
+https://www.tradingview.com/script/5fVw87rQ/	removed	2026-11-06	Trend Signals with TP & SL [UAlgo] Strategy by UAlgo · CC
+https://www.tradingview.com/script/d0FZtMLp/	removed	2026-11-06	RSI-VWAP Indicator % by UnknownUnicorn2151907 · MPL-2.0
+https://www.tradingview.com/script/syRkfqhT/	removed	2026-11-06	Swing Hull/rsi/EMA Strategy by Windwaker
+https://www.tradingview.com/script/ZsKsLiUU/	removed	2026-11-06	Noro's Trend Ribbon Strategy by ROBO_Trading · MPL-2.0
+https://www.tradingview.com/script/1OX9Wu8g/	removed	2026-11-06	Instrument-Z (3Commas Bot) by UnknownUnicorn28067390
+https://www.tradingview.com/script/futPZepe/	removed	2026-11-06	888 BOT #backtest by UnknownUnicorn2151907 · MPL-2.0
+https://www.tradingview.com/script/Q5TPHHLs/	removed	2026-11-06	RSI on VWAP Upgraded strategy by UnknownUnicorn4889556 · MPL-2.0
+https://www.tradingview.com/script/kUncyS8L/	removed	2026-11-06	Ema Scalp by Shauryam_or · MPL-2.0
+https://www.tradingview.com/script/ewZ8T4K3/	removed	2026-11-06	Master Trend Strategy v1.0 by jake_theboss
+https://www.tradingview.com/script/hNPuoyrz/	removed	2026-11-06	Tick-Tock (UT Bot Alert + Linear Regression Candles) by MrPencilBox · MPL-2.0
+https://www.tradingview.com/script/ddFmph9w/	removed	2026-11-06	robotrading ZZ-8 fractals by ROBO_Trading
+https://www.tradingview.com/script/uwTtGSAR/	removed	2026-11-06	Momentum Reversal / Dip Buyer [Score Based] by TheTRADRS · MPL-2.0
+https://www.tradingview.com/script/3kMUl7fJ/	removed	2026-11-06	CoGrid Management by UnknownUnicorn2151907 · MPL-2.0
+https://www.tradingview.com/script/hHfPXUTx/	removed	2026-11-06	CCI+EMA Strategy with Percentage or ATR TP/SL [Alifer] by UnknownUnicorn55719247 · MPL-2.0
+https://www.tradingview.com/script/9KvLceQ9/	removed	2026-11-06	Robot WhiteBox ShiftMA by ROBO_Trading
+https://www.tradingview.com/script/jCFatPh6/	removed	2026-11-06	Bollinger Stop Strategy by ROBO_Trading · MPL-2.0
+https://www.tradingview.com/script/p2y7o8RN/	removed	2026-11-06	Robot WhiteBox MultiMA by ROBO_Trading
+https://www.tradingview.com/script/cUBda2di/	removed	2026-11-06	Noro's RiskTurtle Strategy by ROBO_Trading
+https://www.tradingview.com/script/BRDFaufy/	removed	2026-11-06	Noro's TrendMA Strategy by ROBO_Trading · MPL-2.0
+https://www.tradingview.com/script/M9mByw1M/	removed	2026-11-06	Fractal Proximity MA Aligment Scalping Strategy by UnknownUnicorn13336802
+https://www.tradingview.com/script/kZVrTReu/	removed	2026-11-06	SuperTrend AI Adaptive - Strategy [BTC] by DefinedEdge · MPL-2.0
