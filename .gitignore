@@ -14,3 +14,6 @@ data/*.ohlcv
 data/*.extra.csv
 
 # config/ has its own .gitignore (keys live there)
+
+# Playwright MCP session artefacts
+.playwright-mcp/
