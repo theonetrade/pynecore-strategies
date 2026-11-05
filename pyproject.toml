@@ -1,0 +1,11 @@
+[project]
+name = "pynecore-strategies"
+version = "0.1.0"
+description = "PyneCore trading strategies and indicators"
+requires-python = ">=3.11"
+dependencies = [
+    "pynesys-pynecore[cli,ccxt]>=6.12",
+]
+
+[tool.uv]
+package = false

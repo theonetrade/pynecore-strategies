@@ -1,0 +1,109 @@
+# Indicator / Strategy / Library Settings
+
+[script]
+#overlay = true
+#format = "inherit"
+#precision =
+#scale =
+#pyramiding = 1
+#calc_on_order_fills = false
+#calc_on_every_tick = false
+#calc_on_every_history_tick = false
+#max_bars_back = 0
+#timeframe =
+#timeframe_gaps = true
+#explicit_plot_zorder = false
+#max_lines_count = 50
+#max_labels_count = 50
+#max_boxes_count = 50
+#calc_bars_count = 0
+#max_polylines_count = 50
+#dynamic_requests = false
+#behind_chart = true
+#backtest_fill_limits_assumption = 0
+#default_qty_type = "percent_of_equity"
+#default_qty_value = 10
+#initial_capital = 10000
+#currency = "NONE"
+#slippage = 1
+#commission_type = "percent"
+#commission_value = 0.05
+#process_orders_on_close = false
+#close_entries_rule = "FIFO"
+#margin_long = 100.0
+#margin_short = 100.0
+#risk_free_rate = 2.0
+#use_bar_magnifier = true
+#fill_orders_on_standard_ohlc = false
+
+# Input Settings
+
+[inputs.src]
+# Input metadata, cannot be modified
+# input_type: "source"
+#     defval: "close"
+#      title: "Source"
+#    confirm: false
+# Change here to modify the input value
+#value =
+
+[inputs.fast_length]
+# Input metadata, cannot be modified
+# input_type: "int"
+#     defval: 12
+#      title: "Fast EMA"
+#     minval: 1
+#    confirm: false
+# Change here to modify the input value
+#value =
+
+[inputs.slow_length]
+# Input metadata, cannot be modified
+# input_type: "int"
+#     defval: 26
+#      title: "Slow EMA"
+#     minval: 2
+#    confirm: false
+# Change here to modify the input value
+#value =
+
+[inputs.atr_length]
+# Input metadata, cannot be modified
+# input_type: "int"
+#     defval: 14
+#      title: "ATR length"
+#     minval: 1
+#    confirm: false
+# Change here to modify the input value
+#value =
+
+[inputs.stop_mult]
+# Input metadata, cannot be modified
+# input_type: "float"
+#     defval: 2.0
+#      title: "Stop distance = ATR x"
+#     minval: 0.1
+#       step: 0.1
+#    confirm: false
+# Change here to modify the input value
+#value =
+
+[inputs.reward_ratio]
+# Input metadata, cannot be modified
+# input_type: "float"
+#     defval: 1.5
+#      title: "Target = stop x (0 = no target)"
+#     minval: 0.0
+#       step: 0.1
+#    confirm: false
+# Change here to modify the input value
+#value =
+
+[inputs.allow_short]
+# Input metadata, cannot be modified
+# input_type: "bool"
+#     defval: true
+#      title: "Allow shorts"
+#    confirm: false
+# Change here to modify the input value
+#value =

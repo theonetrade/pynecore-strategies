@@ -1,0 +1,12 @@
+{
+  "venvPath": ".",
+  "venv": ".venv",
+  "extraPaths": ["scripts/lib"],
+  "typeCheckingMode": "basic",
+  "reportIndexIssue": "none",
+  "reportAssignmentType": "none",
+  "reportRedeclaration": "none",
+  "reportArgumentType": "none",
+  "exclude": ["data", "output", "cache", "**/__pycache__"],
+  "defineConstant": { "TYPECHECKER": "pyright" }
+}

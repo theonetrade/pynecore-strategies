@@ -1,0 +1,16 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# PyneCore run artefacts
+output/
+cache/
+*_profile.json
+
+# market data: large binaries; keep data/*.toml (symbol info)
+data/*.ohlcv
+data/*.extra.csv
+
+# config/ has its own .gitignore (keys live there)
