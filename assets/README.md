@@ -9,15 +9,20 @@ This folder keeps the **original Pine Script source** of those scripts, grouped 
 category they were taken from. Files are byte-identical to what TradingView's *Source code* tab
 shows, except that line endings are normalized to LF.
 
+> **Scope: STRATEGIES only.** The corpus mixes indicators and strategies (`IND` / `STR` in the
+> Type column) and the page opens on **All**. This repository collects strategies, i.e. scripts
+> that place orders and are verified trade by trade. Indicators are out of scope. Before any
+> download make sure the **Strategies** tab is the active one; the whole link list is wrong
+> otherwise, and nothing later in the pipeline will notice.
+
 ## Layout
 
 ```
 assets/
   README.md
-  <category>/                 one folder per corpus filter chip (strategies)
+  <category>/                 one folder per corpus status chip; strategies only
     links.txt                 TradingView URLs, one per line, in corpus order (most liked first)
     <slug>_<id>.pine          one file per script
-  indicators/<category>/      same layout for indicators (reserved, not populated yet)
 ```
 
 A `<category>` is a status chip of the corpus table, lower-cased. With a single chip active the
@@ -27,20 +32,22 @@ disjoint and add up to 1,000. The status column may add a tier label next to the
 and the **Verified** chip selects the remaining verified scripts (within the tolerance band,
 including the `libm` tier).
 
-| Folder | Corpus chip | Meaning (from the site's tooltips) | Strategies | Indicators |
+| Folder | Corpus chip | Meaning (from the site's tooltips) | Strategies on the site | Downloaded |
 |---|---|---|---|---|
-| `bit-exact/` | Bit-exact | On every compared bar PyneCore produced the same IEEE-754 double as TradingView. | 406 | 461 |
-| `verified/` | Verified | Output matched TradingView bar by bar and trade by trade within the published tolerance band, but not bit-exact. | **65, downloaded 2026-11-05** | 13 |
-| `divergent/` | Divergent | Output differs from TradingView beyond the band. Empty on the site as of 2026-11-05. | 0 | 0 |
-| `lookahead/` | Lookahead | The script's output depends on data its bars could not have had, so its TradingView reference is a lookahead result too. Kept out of the accuracy score. | 25 | 1 |
-| `data-limited/` | Data-limited | Needs a feed the comparison lacks (`request.footprint`); runs with it as `na`. Excluded from the accuracy score. | 1 | 0 |
-| `runs/` | Runs | Compiled and ran on real data without errors, but there was no comparable TradingView reference. | 1 | 27 |
-| `failed/` | Failed | Did not compile or run. Empty on the site as of 2026-11-05. | 0 | 0 |
+| `bit-exact/` | Bit-exact | On every compared bar PyneCore produced the same IEEE-754 double as TradingView. | 406 | — |
+| `verified/` | Verified | Output matched TradingView bar by bar and trade by trade within the published tolerance band, but not bit-exact. | 65 | **65, 2026-11-05** |
+| `divergent/` | Divergent | Output differs from TradingView beyond the band. Empty on the site as of 2026-11-05. | 0 | — |
+| `lookahead/` | Lookahead | The script's output depends on data its bars could not have had, so its TradingView reference is a lookahead result too. Kept out of the accuracy score. | 25 | — |
+| `data-limited/` | Data-limited | Needs a feed the comparison lacks (`request.footprint`); runs with it as `na`. Excluded from the accuracy score. | 1 | — |
+| `runs/` | Runs | Compiled and ran on real data without errors, but there was no comparable TradingView reference. | 1 | — |
+| `failed/` | Failed | Did not compile or run. Empty on the site as of 2026-11-05. | 0 | — |
 
-Counts are what the counter line showed on 2026-11-05 with exactly one chip active (corpus run
-of 2026-10-24). Recheck them before downloading: the corpus is re-run periodically. After
-clicking chips wait about a second before reading the counter; the table re-renders with a
-delay and a too-early read returns stale text.
+Counts are what the counter line showed on 2026-11-05 with the **Strategies** tab active and
+exactly one chip on (corpus run of 2026-10-24). With **All** active the same chips count
+indicators too (Bit-exact 867, Verified 78, Runs 28), which is how a wrong tab shows up in the
+numbers. Recheck before downloading: the corpus is re-run periodically. After clicking a tab
+or a chip wait about a second before reading the counter; the table re-renders with a delay
+and a too-early read returns stale text.
 
 ## File naming
 
@@ -68,10 +75,15 @@ to anonymous visitors.
 ### 1. Collect the links for a category
 
 1. Open `https://wild.pynesys.io/#scripts`.
-2. In "The Corpus" section press **Strategies** (or **Indicators**).
+2. In "The Corpus" section press **Strategies**. The page opens on **All**, and the site
+   remembers the last tab and chips in the browser, so never assume the state: confirm that the
+   **Strategies** button is the highlighted one (`button.filter-btn.active` with text
+   `Strategies`) and that every visible row shows `STR` in the Type column. Do not continue
+   until both hold.
 3. All status chips are active by default. Click every chip except the one you want so that only
    it stays active. Read the counter line (`65 of 1000 scripts, showing 1 to 25`) and note the
-   total.
+   total. It must match the Strategies column of the table above (or the site's current number
+   for that chip with the Strategies tab active), not the larger All number.
 4. The corpus table is `table#script-table`. It is **not** the first `<table>` on the page: the
    methodology section above it has its own small table.
 5. Each script is a `tr.script-row` followed by a hidden `tr.detail-row`. Clicking the script row
@@ -106,8 +118,14 @@ for (;;) {
 }
 ```
 
-Sanity-check `status` and `kind` on every record before saving the links: they must all be the
-category and type you filtered for.
+Sanity-check every record before saving the links: `kind` must be `STR` on all of them (an
+`IND` anywhere means the tab was wrong, start over) and `status` must be the chip you selected.
+Check the tab state in code as well, right before the loop:
+
+```js
+const tab = await page.locator('button.filter-btn.active').textContent();
+if (tab.trim() !== 'Strategies') throw new Error(`wrong tab: ${tab}`);
+```
 
 ### 2. Download each script's source
 
@@ -162,14 +180,17 @@ are part of the original and are what TradingView serves.
 
 ## Adding a new category
 
-1. Check the counter on the site for the chip and type you want.
-2. `mkdir -p assets/<category>` (or `assets/indicators/<category>`).
-3. Run step 1 and save `links.txt`.
-4. Run steps 2 and 3; batch the download, keep batches in `.playwright-mcp/`.
-5. Run the checks in step 4, add the category's row or count to the table above with the date.
+1. Select the **Strategies** tab and verify it is active (step 1.2). This is the step that is
+   easiest to skip and most expensive to get wrong.
+2. Leave only the target chip on and check the counter against the table above.
+3. `mkdir -p assets/<category>`.
+4. Run step 1 and save `links.txt`; all records must be `STR`.
+5. Run steps 2 and 3; batch the download, keep batches in `.playwright-mcp/`.
+6. Run the checks in step 4, then fill the "Downloaded" cell of the table above with the count
+   and the date.
 
-`bit-exact/` for strategies (406 scripts) is the obvious next one; expect roughly 20 minutes of
-browser time at the pace above.
+`bit-exact/` (406 strategies) is the obvious next one; expect roughly 20 minutes of browser
+time at the pace above.
 
 ## Licensing
 
