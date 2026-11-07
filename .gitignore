@@ -9,11 +9,20 @@ output/
 cache/
 *_profile.json
 
+# PyneIDE temp files
+AGENT_RULES.md
+AGENTS.md
+CLAUDE.md
+.vscode
+.claude
+.agents
+.cursor
+
 # market data: large binaries; keep data/*.toml (symbol info)
 data/*.ohlcv
 data/*.extra.csv
 
-# config/ has its own .gitignore (keys live there)
-
 # Playwright MCP session artefacts
 .playwright-mcp/
+
+# config/ has its own .gitignore (keys live there)
