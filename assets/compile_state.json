@@ -1,4 +1,196 @@
 {
+ "assets/lib/HeWhoMustNotBeNamed/_matrix/v5.pine": {
+  "dst": "v5.py",
+  "sha256": "650221ac583c5b6240328f4ce2e20c14b2370d0b955fac0f263fa590be477909",
+  "status": "ok",
+  "at": "2026-11-07T20:05:09+00:00"
+ },
+ "assets/lib/HeWhoMustNotBeNamed/arrays/v1.pine": {
+  "dst": "v1.py",
+  "sha256": "836073c9c951be5e23f9ac84ff161ce8b0f3b050d2259393517a359c8143c0a3",
+  "status": "ok",
+  "at": "2026-11-07T20:05:11+00:00"
+ },
+ "assets/lib/HeWhoMustNotBeNamed/arrayutils/v10.pine": {
+  "dst": "v10.py",
+  "sha256": "0881809cc44e98bc0091c0ae2f051211cdbc1bb20391b2b609815d583a1e9cdb",
+  "status": "ok",
+  "at": "2026-11-07T20:05:13+00:00"
+ },
+ "assets/lib/HeWhoMustNotBeNamed/arrayutils/v17.pine": {
+  "dst": "v17.py",
+  "sha256": "e1bb91ce35c4b972530f2767e31a7a693c6d766d3bafcc488a9d823121587b53",
+  "status": "ok",
+  "at": "2026-11-07T20:05:16+00:00"
+ },
+ "assets/lib/HeWhoMustNotBeNamed/arrayutils/v21.pine": {
+  "dst": "v21.py",
+  "sha256": "ce36520e3b20a0a4967919bc6ec666876781b426b9163724248fc0b50db91cf1",
+  "status": "ok",
+  "at": "2026-11-07T20:05:18+00:00"
+ },
+ "assets/lib/HeWhoMustNotBeNamed/arrayutils/v22.pine": {
+  "dst": "v22.py",
+  "sha256": "485b5c07b916126975d13de2f3c4abdc70f3100a3ff3cc658db20e3297865065",
+  "status": "ok",
+  "at": "2026-11-07T20:05:24+00:00"
+ },
+ "assets/lib/HeWhoMustNotBeNamed/drawingutils/v8.pine": {
+  "dst": "v8.py",
+  "sha256": "7f0719c40f8309b7976cc2a1774c946716ac1fe3a6e9a6883b1e969519079da1",
+  "status": "ok",
+  "at": "2026-11-07T20:05:25+00:00"
+ },
+ "assets/lib/HeWhoMustNotBeNamed/eHarmonicpatternsExtended/v6.pine": {
+  "dst": "v6.py",
+  "sha256": "42e63e3cb5e634172b25058339293c51ae537dedf5f8acc0fbf02c278b938d20",
+  "status": "ok",
+  "at": "2026-11-07T20:05:32+00:00"
+ },
+ "assets/lib/HeWhoMustNotBeNamed/enhanced_ta/v10.pine": {
+  "dst": "v10.py",
+  "sha256": "c59d161279bc0d700e484177a949767acda2fa0bf9ad3b21d63ce2ec1210db42",
+  "status": "ok",
+  "at": "2026-11-07T20:05:35+00:00"
+ },
+ "assets/lib/HeWhoMustNotBeNamed/enhanced_ta/v14.pine": {
+  "dst": "v14.py",
+  "sha256": "23fc93cc076a7f22c3d94e3ed280043b908ec8fe23607f27ace275479cdd7f4f",
+  "status": "ok",
+  "at": "2026-11-07T20:05:39+00:00"
+ },
+ "assets/lib/HeWhoMustNotBeNamed/mZigzag/v12.pine": {
+  "dst": "v12.py",
+  "sha256": "ef352358c52c6f0ee650f2470f764e1709c0b3aa34c2c53fd7a57d66d0d5237d",
+  "status": "ok",
+  "at": "2026-11-07T20:05:48+00:00"
+ },
+ "assets/lib/HeWhoMustNotBeNamed/rzigzag/v10.pine": {
+  "dst": "v10.py",
+  "sha256": "f1111425da382da383b789fd2e9de380ceead69e980d3b7bdde3f2d9c59b7241",
+  "status": "ok",
+  "at": "2026-11-07T20:05:51+00:00"
+ },
+ "assets/lib/HeWhoMustNotBeNamed/strategy/v3.pine": {
+  "dst": "v3.py",
+  "sha256": "8f75b8c60b93d9f0895b9ac256757e691b4f921d9a346a2217d643e78ed7a1d0",
+  "status": "ok",
+  "at": "2026-11-07T20:05:52+00:00"
+ },
+ "assets/lib/HeWhoMustNotBeNamed/strategy/v5.pine": {
+  "dst": "v5.py",
+  "sha256": "91cd67bd2420a7c3a5afd21b07457fe3496d1c868962ab64760b139541ef665d",
+  "status": "ok",
+  "at": "2026-11-07T20:05:53+00:00"
+ },
+ "assets/lib/HeWhoMustNotBeNamed/supertrend/v6.pine": {
+  "dst": "v6.py",
+  "sha256": "49827f9d45a7e0d2257744b11a649c5fdbac1f6dd172e41a4ffdb111724a3645",
+  "status": "ok",
+  "at": "2026-11-07T20:05:56+00:00"
+ },
+ "assets/lib/HeWhoMustNotBeNamed/ta/v1.pine": {
+  "dst": "v1.py",
+  "sha256": "21b8caee93a795ff6329bad7fc30442f2ec0351423efd9f537b38f3a1e8fb2bf",
+  "status": "ok",
+  "at": "2026-11-07T20:06:01+00:00"
+ },
+ "assets/lib/HeWhoMustNotBeNamed/utils/v1.pine": {
+  "dst": "v1.py",
+  "sha256": "bae7bbef439768be806a8b4bcc0532a167571d41205827d47e3c965a7b9ca327",
+  "status": "ok",
+  "at": "2026-11-07T20:06:02+00:00"
+ },
+ "assets/lib/HeWhoMustNotBeNamed/zigzag/v5.pine": {
+  "dst": "v5.py",
+  "sha256": "ab2285c8df21ade690a8824a1f0eb4298baa0fb68df398d0df6e765e0a1ccf81",
+  "status": "ok",
+  "at": "2026-11-07T20:06:05+00:00"
+ },
+ "assets/lib/HoanGhetti/SimpleTrendlines/v3.pine": {
+  "dst": "v3.py",
+  "sha256": "410cec72af6e95ecdd49e1fa46803a2c60a1bf4068bf5bebbf18915ca95b3b0d",
+  "status": "ok",
+  "at": "2026-11-07T20:06:06+00:00"
+ },
+ "assets/lib/LucF/ta/v3.pine": {
+  "dst": "v3.py",
+  "sha256": "fd8700f8e3801d1b80b49cf093a169db849fc379ce7ddd0e36c3d13d02ca50ca",
+  "status": "ok",
+  "at": "2026-11-07T20:06:07+00:00"
+ },
+ "assets/lib/MightyZinger/Chikou/v3.pine": {
+  "dst": "v3.py",
+  "sha256": "88c429314fbd7fefd23035b828966572550dbc3215ae7dc3b86969952fddc5a5",
+  "status": "ok",
+  "at": "2026-11-07T20:06:09+00:00"
+ },
+ "assets/lib/Naruephat/Cayoshi_Library/v1.pine": {
+  "dst": "v1.py",
+  "sha256": "f9b75fc2261536981f9a0a3b08591fdd167c27ccde98b68a43f123a5824052ac",
+  "status": "ok",
+  "at": "2026-11-07T20:06:11+00:00"
+ },
+ "assets/lib/Peter_O/MTFindicators/v8.pine": {
+  "dst": "v8.py",
+  "sha256": "30bce99631775779ddcc87a8e592ba2d943e6da8dfac3c48fa2b6d516672183c",
+  "status": "ok",
+  "at": "2026-11-07T20:06:12+00:00"
+ },
+ "assets/lib/PineCoders/ConditionalAverages/v2.pine": {
+  "dst": "v2.py",
+  "sha256": "eb06e5d70b8c153285b9548d07762e2a4c7c821139d0c3d6183ea2122bf2c56f",
+  "status": "ok",
+  "at": "2026-11-07T20:06:13+00:00"
+ },
+ "assets/lib/PineCoders/Time/v2.pine": {
+  "dst": "v2.py",
+  "sha256": "2347b2bb0c73b96804c75ed9b5505cff2dd5f4c692c2fa27c9dec30a63ff96af",
+  "status": "ok",
+  "at": "2026-11-07T20:06:15+00:00"
+ },
+ "assets/lib/PineCoders/Time/v4.pine": {
+  "dst": "v4.py",
+  "sha256": "224765772582a7b0265702e4a3782d14171565f8de1ed90c8ada78ab3df83c43",
+  "status": "ok",
+  "at": "2026-11-07T20:06:20+00:00"
+ },
+ "assets/lib/PineCoders/Time/v5.pine": {
+  "dst": "v5.py",
+  "sha256": "ba61764e752b031d058b26e5ce875182e5a826d0baa0fd026e07501937e3d7c3",
+  "status": "ok",
+  "at": "2026-11-07T20:06:21+00:00"
+ },
+ "assets/lib/PineCoders/VisibleChart/v4.pine": {
+  "dst": "v4.py",
+  "sha256": "0d30cb039f8f3c11adb2b91af1f2512457779983c5ebd99139ec1a825ce8783d",
+  "status": "ok",
+  "at": "2026-11-07T20:06:23+00:00"
+ },
+ "assets/lib/PineCoders/VisibleChart/v5.pine": {
+  "dst": "v5.py",
+  "sha256": "3bc461f0f06364bd1c5098970b4457cbbccefcd8fd6b54ebf3f2bd3b76d32566",
+  "status": "ok",
+  "at": "2026-11-07T20:06:24+00:00"
+ },
+ "assets/lib/PineCoders/lower_tf/v4.pine": {
+  "dst": "v4.py",
+  "sha256": "62f615a2dfa7f1814cde05d6d3414d9a932c7ad8898336902d33c40677984292",
+  "status": "ok",
+  "at": "2026-11-07T20:06:25+00:00"
+ },
+ "assets/lib/PineCoders/lower_tf/v5.pine": {
+  "dst": "v5.py",
+  "sha256": "2896f3c02ce5d6a8318d388477b9d779678abbfbfc05abc18331a72cdecb970e",
+  "status": "ok",
+  "at": "2026-11-07T20:06:26+00:00"
+ },
+ "assets/lib/RicardoSantos/ColorExtension/v4.pine": {
+  "dst": "v4.py",
+  "sha256": "febcfcfa9aaa12b337844187b0b13b1cd36f486d48d3b3eb9fe4fdb324c8b52d",
+  "status": "ok",
+  "at": "2026-11-07T20:06:28+00:00"
+ },
  "assets/strategy/bit-exact/20_200_sma_strategy_ZqnuKIAw.pine": {
   "dst": "strategy_20_200_sma_strategy_ZqnuKIAw.py",
   "sha256": "9a633815c70dee605a8968fbb928d0982ad01929b4e0d621b09adda6b4663930",
@@ -1774,6 +1966,528 @@
   "sha256": "268d2f04ec7e7a112b9f343db4c8469c56d7ebe8e256e1d24c829d213be41b96",
   "status": "ok",
   "at": "2026-11-07T19:04:56+00:00"
+ },
+ "assets/strategy/bit-exact/super_8_30m_btc_zFPZofwt.pine": {
+  "dst": "strategy_super_8_30m_btc_zFPZofwt.py",
+  "sha256": "6234d17e25b59e1f677b1a463e09842ea70b8668c37b7b1470af30d739cdfbc7",
+  "status": "ok",
+  "at": "2026-11-07T20:00:43+00:00"
+ },
+ "assets/strategy/bit-exact/super_guppy_strategy_vPStjyWz.pine": {
+  "dst": "strategy_super_guppy_strategy_vPStjyWz.py",
+  "sha256": "3a859eb510df430f2bfcc2ddf0b66d0cd56769b9e27cc33cc4af8b72c165a902",
+  "status": "ok",
+  "at": "2026-11-07T20:00:44+00:00"
+ },
+ "assets/strategy/bit-exact/super_scalper_5_min_15_min_4ORGCiTh.pine": {
+  "dst": "strategy_super_scalper_5_min_15_min_4ORGCiTh.py",
+  "sha256": "900b8b6002f5a758d00581f911dc2789937cc8dc753fe040924e44c74f9b06d6",
+  "status": "ok",
+  "at": "2026-11-07T20:00:45+00:00"
+ },
+ "assets/strategy/bit-exact/super_trend_v_strategy_version_7g8MF7f7.pine": {
+  "dst": "strategy_super_trend_v_strategy_version_7g8MF7f7.py",
+  "sha256": "b000934726e99c8129a8f578e9a40cbb645ced22c0b737f69da3eca076ef7b0c",
+  "status": "ok",
+  "at": "2026-11-07T20:00:47+00:00"
+ },
+ "assets/strategy/bit-exact/superatr_7_step_profit_strategy_presenttrading_FDYGrZVD.pine": {
+  "dst": "strategy_superatr_7_step_profit_strategy_presenttrading_FDYGrZVD.py",
+  "sha256": "f7c6793f760069be97f1e964dd9c16c38d2adce010bb4e7a73188d69e5518f4c",
+  "status": "ok",
+  "at": "2026-11-07T20:00:48+00:00"
+ },
+ "assets/strategy/bit-exact/supertrend_advance_pullback_strategy_IRCgOETG.pine": {
+  "dst": "strategy_supertrend_advance_pullback_strategy_IRCgOETG.py",
+  "sha256": "42cc87be3fc41f2ec103343dfeb9dfa833073618f2af1de20158c31534defa22",
+  "status": "ok",
+  "at": "2026-11-07T20:00:49+00:00"
+ },
+ "assets/strategy/bit-exact/supertrend_backtester_GMZLB374.pine": {
+  "dst": "strategy_supertrend_backtester_GMZLB374.py",
+  "sha256": "dcecbd9bbb3ca8d3d7166c521a201b164868c343069a31d134ad8f7ef71cd2e2",
+  "status": "ok",
+  "at": "2026-11-07T20:00:51+00:00"
+ },
+ "assets/strategy/bit-exact/supertrend_cloud_strategy_sO5mkXTE.pine": {
+  "dst": "strategy_supertrend_cloud_strategy_sO5mkXTE.py",
+  "sha256": "aa057cb953226f5db4be471374c0ee9cc3da7aaf957fc86c102a5899141d0f28",
+  "status": "ok",
+  "at": "2026-11-07T20:00:52+00:00"
+ },
+ "assets/strategy/bit-exact/supertrend_regime_confluence_mpjNqADq.pine": {
+  "dst": "strategy_supertrend_regime_confluence_mpjNqADq.py",
+  "sha256": "8a9c61ba6e3fb1b84dd2dfbcae6c4761669dfb15fc32d815f018697e2e1c216d",
+  "status": "ok",
+  "at": "2026-11-07T20:00:53+00:00"
+ },
+ "assets/strategy/bit-exact/supertrend_strategy_P5Gu6F8k.pine": {
+  "dst": "strategy_supertrend_strategy_P5Gu6F8k.py",
+  "sha256": "7e343cf8b46cb5aab4eb84ee28dcd76c1af2e2af8461dec02271b6a89133c00a",
+  "status": "ok",
+  "at": "2026-11-07T20:00:55+00:00"
+ },
+ "assets/strategy/bit-exact/supertrend_strategy_VLRj2sG9.pine": {
+  "dst": "strategy_supertrend_strategy_VLRj2sG9.py",
+  "sha256": "3e3463135d37e2a94e0e27184a1ee8e623dd5cc729af17c88e831789ca0ca251",
+  "status": "ok",
+  "at": "2026-11-07T20:00:55+00:00"
+ },
+ "assets/strategy/bit-exact/supertrex_strategy_K3U9opwQ.pine": {
+  "dst": "strategy_supertrex_strategy_K3U9opwQ.py",
+  "sha256": "42e56c2729a4cb72c7c577f8fe2e7d2bc1dd9ea5c5b4e8e43954d20db8beb1aa",
+  "status": "ok",
+  "at": "2026-11-07T20:00:58+00:00"
+ },
+ "assets/strategy/bit-exact/supply_demand_zones_order_block_pro_fusion_auto_order_lQ5zIOGa.pine": {
+  "dst": "strategy_supply_demand_zones_order_block_pro_fusion_auto_order_lQ5zIOGa.py",
+  "sha256": "03f23828d9adeac8ae26252ad007491344ff6e1a20d19688bd55e8408a1cddb4",
+  "status": "ok",
+  "at": "2026-11-07T20:01:00+00:00"
+ },
+ "assets/strategy/bit-exact/support_resistance_strategy_5min_tf_KOfsPM9h.pine": {
+  "dst": "strategy_support_resistance_strategy_5min_tf_KOfsPM9h.py",
+  "sha256": "3b73a010676aa06641e8ce6dcd2b0a96d346a54f95138a4aa9ba1ef499a219cf",
+  "status": "ok",
+  "at": "2026-11-07T20:01:01+00:00"
+ },
+ "assets/strategy/bit-exact/support_resistance_strategy_6GeSAYfE.pine": {
+  "dst": "strategy_support_resistance_strategy_6GeSAYfE.py",
+  "sha256": "0c1a5cde69a853a427ca1feccb4735b030c99f96233a4f9d3beba9f86a014a15",
+  "status": "ok",
+  "at": "2026-11-07T20:01:02+00:00"
+ },
+ "assets/strategy/bit-exact/take_profit_multi_timeframe_9lzBKqhc.pine": {
+  "dst": "strategy_take_profit_multi_timeframe_9lzBKqhc.py",
+  "sha256": "a9f0c82830d98411181d79c3de379a381729c12caac1c35097d65f11c1f3f46e",
+  "status": "ok",
+  "at": "2026-11-07T20:01:04+00:00"
+ },
+ "assets/strategy/bit-exact/tasc_2026_03_one_percent_a_week_nVECqIQx.pine": {
+  "dst": "strategy_tasc_2026_03_one_percent_a_week_nVECqIQx.py",
+  "sha256": "7d06ce5eda50ca7e6be526eabe6c8c1be828b7be79dfb8720323ee7cf0afc08f",
+  "status": "ok",
+  "at": "2026-11-07T20:01:04+00:00"
+ },
+ "assets/strategy/bit-exact/template_trailing_strategy_backtester_n8bgynWl.pine": {
+  "dst": "strategy_template_trailing_strategy_backtester_n8bgynWl.py",
+  "sha256": "3ce55686057306142e8b02067eb4478d4c24b0ff04c3559319dc7f958959bccd",
+  "status": "ok",
+  "at": "2026-11-07T20:01:21+00:00"
+ },
+ "assets/strategy/bit-exact/the_flash_strategy_momentum_rsi_ema_crossover_atr_XKgLfo15.pine": {
+  "dst": "strategy_the_flash_strategy_momentum_rsi_ema_crossover_atr_XKgLfo15.py",
+  "sha256": "0ad647c8e9465f28e70bfa14f8cdd708a2d7f98e615b2a9f847caeb9ccde4442",
+  "status": "ok",
+  "at": "2026-11-07T20:01:21+00:00"
+ },
+ "assets/strategy/bit-exact/thinktech_ai_signals_xJJYblbA.pine": {
+  "dst": "strategy_thinktech_ai_signals_xJJYblbA.py",
+  "sha256": "ddfc8853c962428d55e6aaac7c0aa38688dfe7b4513e5dc09ffc93eb92927f1a",
+  "status": "ok",
+  "at": "2026-11-07T20:01:22+00:00"
+ },
+ "assets/strategy/bit-exact/tick_scalping_strategy_spy_1_min_yiBwexdm.pine": {
+  "dst": "strategy_tick_scalping_strategy_spy_1_min_yiBwexdm.py",
+  "sha256": "285b52c7d7152075e3571165200b962db8d7235d5c00a87dd84938d9b4353be9",
+  "status": "ok",
+  "at": "2026-11-07T20:01:32+00:00"
+ },
+ "assets/strategy/bit-exact/tick_strategy_for_spy_options_5NpphIlt.pine": {
+  "dst": "strategy_tick_strategy_for_spy_options_5NpphIlt.py",
+  "sha256": "3a4804cb57ea5280b6f7e53b8ff782581dc08b916f92de0d45be36691b643636",
+  "status": "ok",
+  "at": "2026-11-07T20:01:34+00:00"
+ },
+ "assets/strategy/bit-exact/top_40_high_low_strategy_for_spy_5min_3BFuBf4F.pine": {
+  "dst": "strategy_top_40_high_low_strategy_for_spy_5min_3BFuBf4F.py",
+  "sha256": "3c73a36649c180ef6b43cc1b3a78a9586fb6d4830c3d3108dba2e2431606df0c",
+  "status": "ok",
+  "at": "2026-11-07T20:01:38+00:00"
+ },
+ "assets/strategy/bit-exact/tp_sl_toolkit_axealgo_iILE5e3m.pine": {
+  "dst": "strategy_tp_sl_toolkit_axealgo_iILE5e3m.py",
+  "sha256": "37e63825fec698abb8e4118c07c79c04baf1451b5237b7790a81afab8364cda3",
+  "status": "ok",
+  "at": "2026-11-07T20:01:40+00:00"
+ },
+ "assets/strategy/bit-exact/tradeiq_crazy_scalping_trading_strategy_kaspricci_R7OSA2ar.pine": {
+  "dst": "strategy_tradeiq_crazy_scalping_trading_strategy_kaspricci_R7OSA2ar.py",
+  "sha256": "1232f15a08f4c30f7247773d05be8978492e9f75b6e2ba5e3540998bd2cb8caf",
+  "status": "ok",
+  "at": "2026-11-07T20:01:43+00:00"
+ },
+ "assets/strategy/bit-exact/tradepro_s_2_ema_stoch_rsi_atr_strategy_BUsgoYjm.pine": {
+  "dst": "strategy_tradepro_s_2_ema_stoch_rsi_atr_strategy_BUsgoYjm.py",
+  "sha256": "9b09b42d874f5876612b76d0b5e21764c8ba34e25c8d8439e2bb4581de397164",
+  "status": "ok",
+  "at": "2026-11-07T20:01:43+00:00"
+ },
+ "assets/strategy/bit-exact/tradepro_s_trading_idea_cipher_divergence_ema_pb_strategy_ywcSiaaV.pine": {
+  "dst": "strategy_tradepro_s_trading_idea_cipher_divergence_ema_pb_strategy_ywcSiaaV.py",
+  "sha256": "24e1e6e1aa5b598971b9c6da2fdc46f86e12efa50d36afeb544cfaa24f643fef",
+  "status": "ok",
+  "at": "2026-11-07T20:01:46+00:00"
+ },
+ "assets/strategy/bit-exact/tradingview_alerts_to_mt4_mt5_dynamic_variables_non_repainting_9MJO3AgE.pine": {
+  "dst": "strategy_tradingview_alerts_to_mt4_mt5_dynamic_variables_non_repainting_9MJO3AgE.py",
+  "sha256": "3c7420b6db5da04f1c552f91c4dfea93539203068936d0630679fe356d81a8ed",
+  "status": "ok",
+  "at": "2026-11-07T20:01:47+00:00"
+ },
+ "assets/strategy/bit-exact/tradingview_alerts_to_mt4_mt5_forex_indices_commodities_BTSkg8IP.pine": {
+  "dst": "strategy_tradingview_alerts_to_mt4_mt5_forex_indices_commodities_BTSkg8IP.py",
+  "sha256": "555d1419e61005199bb2d5181a5f56fdff6ac37759b0f6420f7171c84eee4fe2",
+  "status": "ok",
+  "at": "2026-11-07T20:01:48+00:00"
+ },
+ "assets/strategy/bit-exact/trailing_sl_strategy_quantnomad_n3vj0MIi.pine": {
+  "dst": "strategy_trailing_sl_strategy_quantnomad_n3vj0MIi.py",
+  "sha256": "1a474d0016e51012ed06152764a838665f04e99be6d51fc94ad8ca1f15f465c1",
+  "status": "ok",
+  "at": "2026-11-07T20:01:50+00:00"
+ },
+ "assets/strategy/bit-exact/trailing_stop_loss_to_long_and_short_0KrB3hnV.pine": {
+  "dst": "strategy_trailing_stop_loss_to_long_and_short_0KrB3hnV.py",
+  "sha256": "951e8499b43146d0ba5729e4b0946480a33821b1b3bf3719be40e95c40ec7ce8",
+  "status": "ok",
+  "at": "2026-11-07T20:01:52+00:00"
+ },
+ "assets/strategy/bit-exact/trailing_take_profit_W8nc1c3V.pine": {
+  "dst": "strategy_trailing_take_profit_W8nc1c3V.py",
+  "sha256": "87a57282be1fb5c9760575f1395932626b07f756c995bd0cb03fdb2a90da7338",
+  "status": "ok",
+  "at": "2026-11-07T20:01:52+00:00"
+ },
+ "assets/strategy/bit-exact/trailing_take_profit_trailing_stop_loss_V7IfK3mr.pine": {
+  "dst": "strategy_trailing_take_profit_trailing_stop_loss_V7IfK3mr.py",
+  "sha256": "6776127cdecc4ea8fc87ab5a63572a9f708a9439db03241f1c23b70dd666f221",
+  "status": "ok",
+  "at": "2026-11-07T20:01:54+00:00"
+ },
+ "assets/strategy/bit-exact/traling_sl_target_4jxYYaGU.pine": {
+  "dst": "strategy_traling_sl_target_4jxYYaGU.py",
+  "sha256": "a2019b8f87a842f8afcd0291eb1a6f44aeb1ff6646b846ad6d7f1aac7bc06a6a",
+  "status": "ok",
+  "at": "2026-11-07T20:01:56+00:00"
+ },
+ "assets/strategy/bit-exact/trend_following_breakout_vOfNuQ8n.pine": {
+  "dst": "strategy_trend_following_breakout_vOfNuQ8n.py",
+  "sha256": "55d7f15feb3307d07d53a130cc06a154b5166810f2354884a638da72e34c308d",
+  "status": "ok",
+  "at": "2026-11-07T20:01:57+00:00"
+ },
+ "assets/strategy/bit-exact/trend_reversal_alerts_strategy_4h_3m_2DxTUzED.pine": {
+  "dst": "strategy_trend_reversal_alerts_strategy_4h_3m_2DxTUzED.py",
+  "sha256": "17af171e9669360769c77140336422d34ae87902367a2bd07dbd425d06754bd0",
+  "status": "ok",
+  "at": "2026-11-07T20:01:57+00:00"
+ },
+ "assets/strategy/bit-exact/trend_surfers_premium_breakout_alerts_w91kwvnX.pine": {
+  "dst": "strategy_trend_surfers_premium_breakout_alerts_w91kwvnX.py",
+  "sha256": "2a401fd7a2763dbe1245571a55167f5bc764d029594b4800704b0cb40bd870e8",
+  "status": "ok",
+  "at": "2026-11-07T20:01:58+00:00"
+ },
+ "assets/strategy/bit-exact/trend_trader_remastered_strategy_En4PabIp.pine": {
+  "dst": "strategy_trend_trader_remastered_strategy_En4PabIp.py",
+  "sha256": "fd2506d1005e65f1af6961b23254876359debad85a9664faac0ce177c9e5b47c",
+  "status": "ok",
+  "at": "2026-11-07T20:01:59+00:00"
+ },
+ "assets/strategy/bit-exact/trendline_breakout_strategy_kedarc_quant_grMQIRAr.pine": {
+  "dst": "strategy_trendline_breakout_strategy_kedarc_quant_grMQIRAr.py",
+  "sha256": "61a4af062290d9b1836e5d96dfeeac07c17ea88779b5db4fb4b4cd71ed9fccbd",
+  "status": "ok",
+  "at": "2026-11-07T20:02:00+00:00"
+ },
+ "assets/strategy/bit-exact/trendline_breaks_with_multi_fibonacci_supertrend_strategy_aVzNdTMg.pine": {
+  "dst": "strategy_trendline_breaks_with_multi_fibonacci_supertrend_strategy_aVzNdTMg.py",
+  "sha256": "519f1bbd1438c1e82341d8e1da729a1c3be2052f4016a602c41c25542a4834d0",
+  "status": "ok",
+  "at": "2026-11-07T20:02:01+00:00"
+ },
+ "assets/strategy/bit-exact/trendlines_with_alerts_vOyqoCwS.pine": {
+  "dst": "strategy_trendlines_with_alerts_vOyqoCwS.py",
+  "sha256": "5737e0a96f11741819184a7d65722b2732ed113d8792d2d4b922081a0a10fc26",
+  "status": "ok",
+  "at": "2026-11-07T20:02:03+00:00"
+ },
+ "assets/strategy/bit-exact/trendmaster_pro_2_3_with_alerts_mVkDf8qh.pine": {
+  "dst": "strategy_trendmaster_pro_2_3_with_alerts_mVkDf8qh.py",
+  "sha256": "453638a6d40d9e4ee4bc15bc467e21c2f01d944a0901ee80fe69abd77324f70a",
+  "status": "ok",
+  "at": "2026-11-07T20:02:04+00:00"
+ },
+ "assets/strategy/bit-exact/triangular_hull_moving_average_bigbeluga_x_pineindicators_gMeYb8Dp.pine": {
+  "dst": "strategy_triangular_hull_moving_average_bigbeluga_x_pineindicators_gMeYb8Dp.py",
+  "sha256": "dead5f40f2c9cf38ee041eb3aab867f91031f58a30238dfb1fa26ed208dbd592",
+  "status": "ok",
+  "at": "2026-11-07T20:02:05+00:00"
+ },
+ "assets/strategy/bit-exact/triple_cci_strategy_mfi_confirmed_skyrexio_PETNavGq.pine": {
+  "dst": "strategy_triple_cci_strategy_mfi_confirmed_skyrexio_PETNavGq.py",
+  "sha256": "87f8b2cd7e6fd102caa761b79a7313d97c3d2b39db27a19048b45fb8622f1d27",
+  "status": "ok",
+  "at": "2026-11-07T20:02:06+00:00"
+ },
+ "assets/strategy/bit-exact/triple_ema_qqe_trend_following_strategy_tradedots_M4y5HT3h.pine": {
+  "dst": "strategy_triple_ema_qqe_trend_following_strategy_tradedots_M4y5HT3h.py",
+  "sha256": "dda624bf68adfe81273fd8179c711fd3b777227e6610f9840bc5276b82f15e43",
+  "status": "ok",
+  "at": "2026-11-07T20:02:07+00:00"
+ },
+ "assets/strategy/bit-exact/triple_ema_rsi_atr_HERuuRt5.pine": {
+  "dst": "strategy_triple_ema_rsi_atr_HERuuRt5.py",
+  "sha256": "82b6cc341daadaba140a5e71c1c249606cdf620fdfc760e5b1ba52973354f1d6",
+  "status": "ok",
+  "at": "2026-11-07T20:02:08+00:00"
+ },
+ "assets/strategy/bit-exact/tripple_super_trend_ema_rsi_strategy_aCbQTE0W.pine": {
+  "dst": "strategy_tripple_super_trend_ema_rsi_strategy_aCbQTE0W.py",
+  "sha256": "648d9d8a6524dac6d5d1bfa3045f22fab21ab9a636e4fa76282efc0b2a6cdc02",
+  "status": "ok",
+  "at": "2026-11-07T20:02:10+00:00"
+ },
+ "assets/strategy/bit-exact/tristan_s_multi_indicator_reversal_strategy_1wc9v4rw.pine": {
+  "dst": "strategy_tristan_s_multi_indicator_reversal_strategy_1wc9v4rw.py",
+  "sha256": "0758d16df04c653ae2eec78b22c25431bafbc471d1c6b54df9bb4584fa88e893",
+  "status": "ok",
+  "at": "2026-11-07T20:02:11+00:00"
+ },
+ "assets/strategy/bit-exact/turtle_strategy_triple_ema_trend_with_adx_and_atr_vzXlqRCT.pine": {
+  "dst": "strategy_turtle_strategy_triple_ema_trend_with_adx_and_atr_vzXlqRCT.py",
+  "sha256": "3c9b86d53a8b8129a88959363791fcf38c29232001639f70e6233145542fc710",
+  "status": "ok",
+  "at": "2026-11-07T20:02:12+00:00"
+ },
+ "assets/strategy/bit-exact/turtle_system_cOv24513.pine": {
+  "dst": "strategy_turtle_system_cOv24513.py",
+  "sha256": "11c94fccd43eaf3c0b5c14d0affe481faef17b1082e8f9597118ddcd16c8a0ab",
+  "status": "ok",
+  "at": "2026-11-07T20:02:19+00:00"
+ },
+ "assets/strategy/bit-exact/turtle_trader_strategy_ZSJlXc15.pine": {
+  "dst": "strategy_turtle_trader_strategy_ZSJlXc15.py",
+  "sha256": "69a8669e2055ec8468d3e85ff15e8d058b6350ed1c2c8decc2c962ff4e243f2b",
+  "status": "ok",
+  "at": "2026-11-07T20:02:21+00:00"
+ },
+ "assets/strategy/bit-exact/turtle_trading_strategy_donchian_atr_gbxblhGl.pine": {
+  "dst": "strategy_turtle_trading_strategy_donchian_atr_gbxblhGl.py",
+  "sha256": "aa13c3f08c30bbac0f9504d54cfbb8e983bce607b978c0f3be2d2016cb6d005d",
+  "status": "ok",
+  "at": "2026-11-07T20:02:22+00:00"
+ },
+ "assets/strategy/bit-exact/turtle_trend_trading_system_racer8_6TnqZSoe.pine": {
+  "dst": "strategy_turtle_trend_trading_system_racer8_6TnqZSoe.py",
+  "sha256": "0aac4987435561b688115b42b414a74fe327e76a6fd5978b8951c8cb7555a9a5",
+  "status": "ok",
+  "at": "2026-11-07T20:02:23+00:00"
+ },
+ "assets/strategy/bit-exact/twin_optimized_trend_tracker_strategy_tott_eENf7NpJ.pine": {
+  "dst": "strategy_twin_optimized_trend_tracker_strategy_tott_eENf7NpJ.py",
+  "sha256": "4b3d2ce969bc629eb9e2f38c6225771843335db7ec9b9452e11011869c1de087",
+  "status": "ok",
+  "at": "2026-11-07T20:02:24+00:00"
+ },
+ "assets/strategy/bit-exact/twin_range_filter_algo_ZsiaNicR.pine": {
+  "dst": "strategy_twin_range_filter_algo_ZsiaNicR.py",
+  "sha256": "2ee95a6edeb6f11eb31e84d5eeca1b80b1b274bf2d883a9b27ec9216e35ec888",
+  "status": "ok",
+  "at": "2026-11-07T20:02:27+00:00"
+ },
+ "assets/strategy/bit-exact/two_bar_fib_retrace_strategy_futures_NP615SiK.pine": {
+  "dst": "strategy_two_bar_fib_retrace_strategy_futures_NP615SiK.py",
+  "sha256": "dee7fef9abc447f8a3963abafd690464a2c093a7fbaa744704ed3e14fd6b483a",
+  "status": "ok",
+  "at": "2026-11-07T20:02:30+00:00"
+ },
+ "assets/strategy/bit-exact/two_take_profit_strategy_OZnjwvZv.pine": {
+  "dst": "strategy_two_take_profit_strategy_OZnjwvZv.py",
+  "sha256": "e4e751d5489f110c0d1c3c15176191f31922bf49438d68cdfe54bc42a2a87dd0",
+  "status": "ok",
+  "at": "2026-11-07T20:02:31+00:00"
+ },
+ "assets/strategy/bit-exact/two_take_profits_and_two_stop_loss_tGTV8MkY.pine": {
+  "dst": "strategy_two_take_profits_and_two_stop_loss_tGTV8MkY.py",
+  "sha256": "bc537871458d061dc0a7a14136bac983d551ed48d7d66314eed9d44260f563ba",
+  "status": "ok",
+  "at": "2026-11-07T20:02:32+00:00"
+ },
+ "assets/strategy/bit-exact/uhl_ma_system_strategy_analysis_4S9Yz3DB.pine": {
+  "dst": "strategy_uhl_ma_system_strategy_analysis_4S9Yz3DB.py",
+  "sha256": "75acdc6123fb2577597800dc3cc88ecb97d42dade40af821c61c53da8f058ea2",
+  "status": "ok",
+  "at": "2026-11-07T20:02:33+00:00"
+ },
+ "assets/strategy/bit-exact/ultimate_prop_firm_artillery_PkUPYbw7.pine": {
+  "dst": "strategy_ultimate_prop_firm_artillery_PkUPYbw7.py",
+  "sha256": "da339b48aa6c0e86fc2ec12c7c7faa526ce9eceae9d064c214c32717fbd517c3",
+  "status": "ok",
+  "at": "2026-11-07T20:02:34+00:00"
+ },
+ "assets/strategy/bit-exact/universal_breakout_strategy_kedarc_quant_tSoUhlM9.pine": {
+  "dst": "strategy_universal_breakout_strategy_kedarc_quant_tSoUhlM9.py",
+  "sha256": "2cdb880fb9a60e6c669cf3283450f123093d4bbfd380dc40d22975ea8903c36a",
+  "status": "ok",
+  "at": "2026-11-07T20:02:35+00:00"
+ },
+ "assets/strategy/bit-exact/ut_bot_strategy_VKMgZdYr.pine": {
+  "dst": "strategy_ut_bot_strategy_VKMgZdYr.py",
+  "sha256": "8b7296b51e0802681cf3cb42ce3dcca5888456203b762e6fe5ad2fc10559809f",
+  "status": "ok",
+  "at": "2026-11-07T20:02:36+00:00"
+ },
+ "assets/strategy/bit-exact/ut_bot_strategy_with_backtesting_range_quantnomad_RHagaXIp.pine": {
+  "dst": "strategy_ut_bot_strategy_with_backtesting_range_quantnomad_RHagaXIp.py",
+  "sha256": "8f618e3ef90a325805382657bf08e927b6fadd59c6f78a9670151ae3d069f5e3",
+  "status": "ok",
+  "at": "2026-11-07T20:02:39+00:00"
+ },
+ "assets/strategy/bit-exact/ut_bot_v2_atr_trailing_stop_lDGmh7ou.pine": {
+  "dst": "strategy_ut_bot_v2_atr_trailing_stop_lDGmh7ou.py",
+  "sha256": "ebbf25ede8f1c16005d1ae9dbd28d4d0fd793979bdc91df11156f5f43113ec5d",
+  "status": "ok",
+  "at": "2026-11-07T20:02:39+00:00"
+ },
+ "assets/strategy/bit-exact/ut_bot_v5_2wkJx7Ix.pine": {
+  "dst": "strategy_ut_bot_v5_2wkJx7Ix.py",
+  "sha256": "a10e438a5ac30b31b27415de1296cd9e137608b09887b0370684de409f7388e0",
+  "status": "ok",
+  "at": "2026-11-07T20:02:41+00:00"
+ },
+ "assets/strategy/bit-exact/v2_0tristan_s_multi_indicator_reversal_strategy_MmfqVjSS.pine": {
+  "dst": "strategy_v2_0tristan_s_multi_indicator_reversal_strategy_MmfqVjSS.py",
+  "sha256": "10f0bf22531332c5cc4a66c83ce3257bf71746865242b51013a33c19f883a23d",
+  "status": "ok",
+  "at": "2026-11-07T20:02:41+00:00"
+ },
+ "assets/strategy/bit-exact/vcp_pivot_buy_ZjWK7n8O.pine": {
+  "dst": "strategy_vcp_pivot_buy_ZjWK7n8O.py",
+  "sha256": "10567cec888f4bce923004fc46166cf179fb789e47e1394142bfb97d6aed2504",
+  "status": "ok",
+  "at": "2026-11-07T20:02:43+00:00"
+ },
+ "assets/strategy/bit-exact/vegas_supertrend_enhanced_strategy_presenttrading_ec57c7xL.pine": {
+  "dst": "strategy_vegas_supertrend_enhanced_strategy_presenttrading_ec57c7xL.py",
+  "sha256": "af9415e1903e72eb0a025a8f20c5dd708eb304ff4e59f8705a1bcafa91474735",
+  "status": "ok",
+  "at": "2026-11-07T20:02:44+00:00"
+ },
+ "assets/strategy/bit-exact/vegas_tunnel_strategy_Grfdbh8A.pine": {
+  "dst": "strategy_vegas_tunnel_strategy_Grfdbh8A.py",
+  "sha256": "459e9224a330d8a23f724a1fe494ef13d4211efb91106e62fb053a2361198d9a",
+  "status": "ok",
+  "at": "2026-11-07T20:02:48+00:00"
+ },
+ "assets/strategy/bit-exact/volume_difference_delta_cycle_oscillator_SseQ02vi.pine": {
+  "dst": "strategy_volume_difference_delta_cycle_oscillator_SseQ02vi.py",
+  "sha256": "424257d0f8cc7eb5020d38f55ac66f37a4081f40570fd10ee480a23dc6db1278",
+  "status": "ok",
+  "at": "2026-11-07T20:02:49+00:00"
+ },
+ "assets/strategy/bit-exact/vovix_devma_sZ4986mM.pine": {
+  "dst": "strategy_vovix_devma_sZ4986mM.py",
+  "sha256": "c011b5cd906d4c8b4d3cae1aea227829b7d7ef55094f7ccce9ecdd38c24499e1",
+  "status": "ok",
+  "at": "2026-11-07T20:02:50+00:00"
+ },
+ "assets/strategy/bit-exact/vumanchu_cipher_b_divergences_strategy_T85iFvQj.pine": {
+  "dst": "strategy_vumanchu_cipher_b_divergences_strategy_T85iFvQj.py",
+  "sha256": "667c34a5e4412baa521862ecf2aad24914f9c04b8eefb2df5c603ed5c69712f7",
+  "status": "ok",
+  "at": "2026-11-07T20:03:13+00:00"
+ },
+ "assets/strategy/bit-exact/vwap_and_bb_strategy_eemani_oZYSB6Ui.pine": {
+  "dst": "strategy_vwap_and_bb_strategy_eemani_oZYSB6Ui.py",
+  "sha256": "faf82d3a22852a47aa0c30e404d8212af0efc933a0c72ed856f331980fcd4c49",
+  "status": "ok",
+  "at": "2026-11-07T20:03:16+00:00"
+ },
+ "assets/strategy/bit-exact/vwap_and_rsi_strategy_oDnkONvx.pine": {
+  "dst": "strategy_vwap_and_rsi_strategy_oDnkONvx.py",
+  "sha256": "3614a5f0056ca7b61fafddf474aff2a4bdf227d997b643470813968a2145380f",
+  "status": "ok",
+  "at": "2026-11-07T20:03:16+00:00"
+ },
+ "assets/strategy/bit-exact/vwap_breakout_strategy_emas_clean_cycle_tp_sl_plots_39HGmmqK.pine": {
+  "dst": "strategy_vwap_breakout_strategy_emas_clean_cycle_tp_sl_plots_39HGmmqK.py",
+  "sha256": "315e68049b64231afa645f2764d9de9618e8d3d521d2137d49ef6a8638dcaa34",
+  "status": "ok",
+  "at": "2026-11-07T20:03:17+00:00"
+ },
+ "assets/strategy/bit-exact/vwap_trendfollow_strategy_wbburgin_XoR8rQaW.pine": {
+  "dst": "strategy_vwap_trendfollow_strategy_wbburgin_XoR8rQaW.py",
+  "sha256": "e7a95e42ac5e3767b99b9fd047f5e85fbe025480b8b965f74a39b01b3ebf832b",
+  "status": "ok",
+  "at": "2026-11-07T20:03:19+00:00"
+ },
+ "assets/strategy/bit-exact/vwma_with_knn_machine_learning_mfi_adx_73oLZ8IM.pine": {
+  "dst": "strategy_vwma_with_knn_machine_learning_mfi_adx_73oLZ8IM.py",
+  "sha256": "135257f57b3668bc816ad63ffa4b8d0a139f4fda2e8ab2ebf7645f162bdfd125",
+  "status": "ok",
+  "at": "2026-11-07T20:03:20+00:00"
+ },
+ "assets/strategy/bit-exact/vxd_cloud_edition_OKKz3vDv.pine": {
+  "dst": "strategy_vxd_cloud_edition_OKKz3vDv.py",
+  "sha256": "3b4e1842138c7b29729233ba2f362e48e13b0cbeea16aa38b5391faaab92e2a4",
+  "status": "ok",
+  "at": "2026-11-07T20:03:23+00:00"
+ },
+ "assets/strategy/bit-exact/wombo_combo_ema_vwap_macd_bb_stc_2mVl2d9h.pine": {
+  "dst": "strategy_wombo_combo_ema_vwap_macd_bb_stc_2mVl2d9h.py",
+  "sha256": "72f55a675d2edaf40948505592801eaf1764250da1105c27cd5b18f583dd8b15",
+  "status": "ok",
+  "at": "2026-11-07T20:03:33+00:00"
+ },
+ "assets/strategy/bit-exact/wyckoff_range_strategy_vQSBf9rh.pine": {
+  "dst": "strategy_wyckoff_range_strategy_vQSBf9rh.py",
+  "sha256": "fa4ff5fd317ec0fe1e5402828d43b306f32712da685be293c1317c8343444f3b",
+  "status": "ok",
+  "at": "2026-11-07T20:03:33+00:00"
+ },
+ "assets/strategy/bit-exact/x48_strategy_ma_type_cross_tpsl_future_spot_v_2_DAD06s8m.pine": {
+  "dst": "strategy_x48_strategy_ma_type_cross_tpsl_future_spot_v_2_DAD06s8m.py",
+  "sha256": "33ce977d1dc70d3877509cbfff2600f49d59d831670c1dfa461b5d08907680cb",
+  "status": "ok",
+  "at": "2026-11-07T20:03:37+00:00"
+ },
+ "assets/strategy/bit-exact/xauusd_scalping_agresiv_5q4PsY3a.pine": {
+  "dst": "strategy_xauusd_scalping_agresiv_5q4PsY3a.py",
+  "sha256": "8d417cf67a307f88a3a96cc73106ac3940c089dd993af64ea125971b4715fc18",
+  "status": "ok",
+  "at": "2026-11-07T20:03:38+00:00"
+ },
+ "assets/strategy/bit-exact/y_profit_maximizer_strategy_with_exit_points_6ZFa2t7o.pine": {
+  "dst": "strategy_y_profit_maximizer_strategy_with_exit_points_6ZFa2t7o.py",
+  "sha256": "10e14bc0d95b1687b5600bdbeb7ce58c7d1a98e9df2dd7b95c98ece3b5aa1270",
+  "status": "ok",
+  "at": "2026-11-07T20:03:42+00:00"
+ },
+ "assets/strategy/bit-exact/yesterdays_high_breakout_trend_following_strategy_JoYgHVFj.pine": {
+  "dst": "strategy_yesterdays_high_breakout_trend_following_strategy_JoYgHVFj.py",
+  "sha256": "17a1e7a5294dc577a023a3e62ecc14e069a6e43a908111d400a41d55f1438d2e",
+  "status": "ok",
+  "at": "2026-11-07T20:03:43+00:00"
+ },
+ "assets/strategy/bit-exact/yinyang_rsi_volume_trend_strategy_cO34DTxx.pine": {
+  "dst": "strategy_yinyang_rsi_volume_trend_strategy_cO34DTxx.py",
+  "sha256": "a747b0cb48e0649116908d6bf86c40e2fe5df6b731d913d44222155b462b8b28",
+  "status": "ok",
+  "at": "2026-11-07T20:03:44+00:00"
+ },
+ "assets/strategy/bit-exact/zendog_v3_backtest_dca_bot_3commas_Ejzw96lp.pine": {
+  "dst": "strategy_zendog_v3_backtest_dca_bot_3commas_Ejzw96lp.py",
+  "sha256": "478f46edd6eda8a7891fcd50657e1abe1432342ca77ed6019f7b78ec7eb957ee",
+  "status": "ok",
+  "at": "2026-11-07T20:05:04+00:00"
+ },
+ "assets/strategy/bit-exact/zero_lag_ma_trend_following_7kbjZ4he.pine": {
+  "dst": "strategy_zero_lag_ma_trend_following_7kbjZ4he.py",
+  "sha256": "71fe22fc31b8840726f6a530f06dad98f37338a2d5bcf1ee9bc7fa38dd997467",
+  "status": "ok",
+  "at": "2026-11-07T20:05:05+00:00"
  },
  "assets/strategy/verified/3_signal_directional_trend_strategy_for_e_minis_pCxvfqFv.pine": {
   "dst": "strategy_3_signal_directional_trend_strategy_for_e_minis_pCxvfqFv.py",
