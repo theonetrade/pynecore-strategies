@@ -1,4 +1,340 @@
 {
+ "assets/strategy/bit-exact/20_200_sma_strategy_ZqnuKIAw.pine": {
+  "dst": "strategy_20_200_sma_strategy_ZqnuKIAw.py",
+  "sha256": "9a633815c70dee605a8968fbb928d0982ad01929b4e0d621b09adda6b4663930",
+  "status": "ok",
+  "at": "2026-11-07T17:07:42+00:00"
+ },
+ "assets/strategy/bit-exact/2mars_ma_bb_supertrend_Y68meyX1.pine": {
+  "dst": "strategy_2mars_ma_bb_supertrend_Y68meyX1.py",
+  "sha256": "5d8223f1e21f83d530239ac639662ef76f68ba7a63907d0a3c84401b076b5114",
+  "status": "ok",
+  "at": "2026-11-07T17:07:43+00:00"
+ },
+ "assets/strategy/bit-exact/2x_take_profit_move_stop_loss_to_entry_0Blrq2NA.pine": {
+  "dst": "strategy_2x_take_profit_move_stop_loss_to_entry_0Blrq2NA.py",
+  "sha256": "9cf7ee01aca1811d60ec5627b9ec11081ab69c7a51c94865d74a8f2ca88792a7",
+  "status": "ok",
+  "at": "2026-11-07T17:07:45+00:00"
+ },
+ "assets/strategy/bit-exact/3_candle_strike_stretegy_zqbs2shU.pine": {
+  "dst": "strategy_3_candle_strike_stretegy_zqbs2shU.py",
+  "sha256": "f06cb44b49c5b68071f855f6c3dfaf157fb9801f1ed1a1e49bb3e658c64ffec8",
+  "status": "ok",
+  "at": "2026-11-07T17:07:50+00:00"
+ },
+ "assets/strategy/bit-exact/3_ema_rsi_with_trail_stop_free990_low_tf_mgD7xBuw.pine": {
+  "dst": "strategy_3_ema_rsi_with_trail_stop_free990_low_tf_mgD7xBuw.py",
+  "sha256": "ba155c7fdfea83d49fa229784325f2e56bc97849dbce5145af1c3d4719acdcb8",
+  "status": "ok",
+  "at": "2026-11-07T17:07:54+00:00"
+ },
+ "assets/strategy/bit-exact/3_ema_stochastic_rsi_atr_IhxCXn6n.pine": {
+  "dst": "strategy_3_ema_stochastic_rsi_atr_IhxCXn6n.py",
+  "sha256": "88a32435b79cfcf25f9b98c7bb2bc4de7ec9f613ec214f2e41099f1006f28cab",
+  "status": "ok",
+  "at": "2026-11-07T17:07:55+00:00"
+ },
+ "assets/strategy/bit-exact/3commas_bot_MvlwAzSg.pine": {
+  "dst": "strategy_3commas_bot_MvlwAzSg.py",
+  "sha256": "07e2a14a43724bb3bae2df59a149360b1efc8c6b8c71a3c292e64b61fce76f1b",
+  "status": "ok",
+  "at": "2026-11-07T17:07:58+00:00"
+ },
+ "assets/strategy/bit-exact/3commas_bot_dca_backtester_signals_free_Txo3OEBa.pine": {
+  "dst": "strategy_3commas_bot_dca_backtester_signals_free_Txo3OEBa.py",
+  "sha256": "23f1e1cd8c47a3ace03a817291d1da0b8e226a0037dbe477b49a003142ad35b0",
+  "status": "ok",
+  "at": "2026-11-07T17:08:05+00:00"
+ },
+ "assets/strategy/bit-exact/3ls_3_line_strike_strategy_kintsugi_trading_fJEKAdgD.pine": {
+  "dst": "strategy_3ls_3_line_strike_strategy_kintsugi_trading_fJEKAdgD.py",
+  "sha256": "5ab0fba740188da11cc59f352f2fb5dc32355c7dee2c37c53c4b592fd81f700e",
+  "status": "ok",
+  "at": "2026-11-07T17:08:14+00:00"
+ },
+ "assets/strategy/bit-exact/3x_supertrend_strategy_mel0ntek_v1_FUnOi1Nx.pine": {
+  "dst": "strategy_3x_supertrend_strategy_mel0ntek_v1_FUnOi1Nx.py",
+  "sha256": "b4dfa2f8a0bc64872a248763c8a47e97a31df27e6ec5b4fb5e43b419fca37102",
+  "status": "ok",
+  "at": "2026-11-07T17:08:17+00:00"
+ },
+ "assets/strategy/bit-exact/5_ema_strategy_EaZHR7q6.pine": {
+  "dst": "strategy_5_ema_strategy_EaZHR7q6.py",
+  "sha256": "511721b52404c9cbcdceb91869f05e4b6aa4bcf2f81870f7759d0f2bb8552190",
+  "status": "ok",
+  "at": "2026-11-07T17:08:17+00:00"
+ },
+ "assets/strategy/bit-exact/5min_macd_scalp_by_joel_qN11DuKy.pine": {
+  "dst": "strategy_5min_macd_scalp_by_joel_qN11DuKy.py",
+  "sha256": "b27bbf6dc871e54050e0fe6e133876de6c6050f92465f499d20ad86eda2ee5b9",
+  "status": "ok",
+  "at": "2026-11-07T17:08:20+00:00"
+ },
+ "assets/strategy/bit-exact/72s_strat_backtesting_adaptive_hma_pt_1_FrjeeWdl.pine": {
+  "dst": "strategy_72s_strat_backtesting_adaptive_hma_pt_1_FrjeeWdl.py",
+  "sha256": "a2f4730c2972bec97a29254b851966888fce67096e5c55461276d8430331c638",
+  "status": "ok",
+  "at": "2026-11-07T17:08:24+00:00"
+ },
+ "assets/strategy/bit-exact/abcd_strategy_20aoz32a.pine": {
+  "dst": "strategy_abcd_strategy_20aoz32a.py",
+  "sha256": "16697ae7a58f49de4b262b9dcad23562f689baeafb7563466852895414d60690",
+  "status": "ok",
+  "at": "2026-11-07T17:08:25+00:00"
+ },
+ "assets/strategy/bit-exact/accurate_buy_sell_5_mins_tf_by_rr_jVZvCaUh.pine": {
+  "dst": "strategy_accurate_buy_sell_5_mins_tf_by_rr_jVZvCaUh.py",
+  "sha256": "a06dad6d1be40cee71253999dc39faa8a6d1802106e656f7262a95aa94e7f36c",
+  "status": "ok",
+  "at": "2026-11-07T17:08:48+00:00"
+ },
+ "assets/strategy/bit-exact/adaptive_fibonacci_pullback_system_fibonacciflux_bOcHnaiQ.pine": {
+  "dst": "strategy_adaptive_fibonacci_pullback_system_fibonacciflux_bOcHnaiQ.py",
+  "sha256": "9b4e00aa4ceb06fc364a9bcb11b6e46fdab8bcee2c68f91c45f2f098d613d855",
+  "status": "ok",
+  "at": "2026-11-07T17:08:49+00:00"
+ },
+ "assets/strategy/bit-exact/adaptive_trend_flow_strategy_with_filters_for_spx_CNJ1hXQw.pine": {
+  "dst": "strategy_adaptive_trend_flow_strategy_with_filters_for_spx_CNJ1hXQw.py",
+  "sha256": "ddad0597b6eb97e737bcabd85c9f3e3b4b0fdb69c4990d748c63dad25edf3786",
+  "status": "ok",
+  "at": "2026-11-07T17:08:50+00:00"
+ },
+ "assets/strategy/bit-exact/advanced_position_management_mr_rakun_IsMKlnoJ.pine": {
+  "dst": "strategy_advanced_position_management_mr_rakun_IsMKlnoJ.py",
+  "sha256": "00e3e03991ff36d676678f7114590a5edf622f8c67d1fd461732b9924549c639",
+  "status": "ok",
+  "at": "2026-11-07T17:08:52+00:00"
+ },
+ "assets/strategy/bit-exact/advanced_vwap_pullback_strategy_trend_template_qualifier_KafnxzJR.pine": {
+  "dst": "strategy_advanced_vwap_pullback_strategy_trend_template_qualifier_KafnxzJR.py",
+  "sha256": "a6a74035ddc784609fcc88186b5358c0a0e158b23206a3331d3b64312ce8042c",
+  "status": "ok",
+  "at": "2026-11-07T17:08:52+00:00"
+ },
+ "assets/strategy/bit-exact/adx_dmi_trend_strategy_4aQD9gqq.pine": {
+  "dst": "strategy_adx_dmi_trend_strategy_4aQD9gqq.py",
+  "sha256": "893aa42fcbfc6f7034a26572cb29a40475c45058f96a5cdf9ee3d2b5b479fb76",
+  "status": "ok",
+  "at": "2026-11-07T17:08:54+00:00"
+ },
+ "assets/strategy/bit-exact/ai_supertrend_strategy_presenttrading_eaTIyEty.pine": {
+  "dst": "strategy_ai_supertrend_strategy_presenttrading_eaTIyEty.py",
+  "sha256": "eef2e6e7e4caa9a8dd8b9434e66ad979bb0cba2330b81e7337f8069f2a3d696c",
+  "status": "ok",
+  "at": "2026-11-07T17:08:56+00:00"
+ },
+ "assets/strategy/bit-exact/ai_supertrend_x_pivot_percentile_strategy_presenttrading_eC3qAYNQ.pine": {
+  "dst": "strategy_ai_supertrend_x_pivot_percentile_strategy_presenttrading_eC3qAYNQ.py",
+  "sha256": "3fb6c720dd448404c2ffcf58cfee16ff61b2e1fee2d0a66d9748fc13f09481fd",
+  "status": "ok",
+  "at": "2026-11-07T17:09:06+00:00"
+ },
+ "assets/strategy/bit-exact/all_in_one_strategy_6vHRkdsf.pine": {
+  "dst": "strategy_all_in_one_strategy_6vHRkdsf.py",
+  "sha256": "cf8e99f98cb541cf0fed3795989d1895228abf73d5e5dfbeb04236371e41018c",
+  "status": "ok",
+  "at": "2026-11-07T17:09:09+00:00"
+ },
+ "assets/strategy/bit-exact/alphatrend_strategy_3wdQu7P3.pine": {
+  "dst": "strategy_alphatrend_strategy_3wdQu7P3.py",
+  "sha256": "c25c67455e4236ab96cec70fa1107482784bf89cfe1f1179aa0bbfe3557ad538",
+  "status": "ok",
+  "at": "2026-11-07T17:09:10+00:00"
+ },
+ "assets/strategy/bit-exact/alphatrend_strategy_uvkI3QJC.pine": {
+  "dst": "strategy_alphatrend_strategy_uvkI3QJC.py",
+  "sha256": "47c7df5c7de87dea763d8f9cbd26ecd9a1463af8740a6dcf8c7b8c92dc438a96",
+  "status": "ok",
+  "at": "2026-11-07T17:09:11+00:00"
+ },
+ "assets/strategy/bit-exact/amazing_scalper_for_majors_with_risk_management_xK5UA23y.pine": {
+  "dst": "strategy_amazing_scalper_for_majors_with_risk_management_xK5UA23y.py",
+  "sha256": "69900ea2ebbe656e5b95cbc2468900ee064c0667fe96a997885a369851d7984c",
+  "status": "ok",
+  "at": "2026-11-07T17:09:12+00:00"
+ },
+ "assets/strategy/bit-exact/atr_parabolic_sar_strategy_quantnomad_LKfHdoNv.pine": {
+  "dst": "strategy_atr_parabolic_sar_strategy_quantnomad_LKfHdoNv.py",
+  "sha256": "cdc11ca57c5d8fde71d9f4666d8272911159c76227fef1defadebd3353841323",
+  "status": "ok",
+  "at": "2026-11-07T17:09:14+00:00"
+ },
+ "assets/strategy/bit-exact/atr_trailing_stop_strategy_by_ceyhun_cj3MJWNz.pine": {
+  "dst": "strategy_atr_trailing_stop_strategy_by_ceyhun_cj3MJWNz.py",
+  "sha256": "f545b311b3b4564790c5124299b14d322739d83ea5cbc23a751755b9eff59e6e",
+  "status": "ok",
+  "at": "2026-11-07T17:09:16+00:00"
+ },
+ "assets/strategy/bit-exact/atr_trailing_stoploss_strategy_NsD6sRKu.pine": {
+  "dst": "strategy_atr_trailing_stoploss_strategy_NsD6sRKu.py",
+  "sha256": "bfd0feb634ad8269213673fc3397b44e75631426f6730f294e4fbb06f9fa2698",
+  "status": "ok",
+  "at": "2026-11-07T17:09:16+00:00"
+ },
+ "assets/strategy/bit-exact/atr_trend_strategy_with_moving_average_fixed_tp_sl_version_fM3YQz8i.pine": {
+  "dst": "strategy_atr_trend_strategy_with_moving_average_fixed_tp_sl_version_fM3YQz8i.py",
+  "sha256": "d95dc463d9e7844cbf58722a90740174af27ea37a1e9883fdf979864169012d8",
+  "status": "ok",
+  "at": "2026-11-07T17:09:17+00:00"
+ },
+ "assets/strategy/bit-exact/aurora_kama_kama_adaptive_trend_strategy_kbYTJ8V2.pine": {
+  "dst": "strategy_aurora_kama_kama_adaptive_trend_strategy_kbYTJ8V2.py",
+  "sha256": "d6851d2a83562b04a0cea52697a885faeb81491afab8cb928c28a95e556a4e11",
+  "status": "ok",
+  "at": "2026-11-07T17:09:19+00:00"
+ },
+ "assets/strategy/bit-exact/auto_fib_golden_pocket_band_strategy_with_buy_signals_zXerPHbi.pine": {
+  "dst": "strategy_auto_fib_golden_pocket_band_strategy_with_buy_signals_zXerPHbi.py",
+  "sha256": "c5fbef36b4c32a620d6d7b444b04104a9625c87cadc25428b5ebe3fb10c9eb6a",
+  "status": "ok",
+  "at": "2026-11-07T17:09:27+00:00"
+ },
+ "assets/strategy/bit-exact/auto_intelligence_selective_moving_average_ai_ma_FgwP9BhA.pine": {
+  "dst": "strategy_auto_intelligence_selective_moving_average_ai_ma_FgwP9BhA.py",
+  "sha256": "a7a17302372abe7676f0ea0f45e2320cc7dda966a388ff9d3f475ab8faf0808e",
+  "status": "ok",
+  "at": "2026-11-07T17:09:28+00:00"
+ },
+ "assets/strategy/bit-exact/automated_bitcoin_btc_investment_strategy_from_wunderbit_0mCr8Nfv.pine": {
+  "dst": "strategy_automated_bitcoin_btc_investment_strategy_from_wunderbit_0mCr8Nfv.py",
+  "sha256": "6a3d21fef99ca1c0ab8f1045b6267f8d51bddccc6c5850b1ecd2341c0e4ef7c7",
+  "status": "ok",
+  "at": "2026-11-07T17:09:29+00:00"
+ },
+ "assets/strategy/bit-exact/b_xtrender_backtest_edition_quanttherapy_uCWPAPT2.pine": {
+  "dst": "strategy_b_xtrender_backtest_edition_quanttherapy_uCWPAPT2.py",
+  "sha256": "a1ac37c83bbd24a4f2d6262285c46748a2cf81a4cb214210997fd16ebdde926c",
+  "status": "ok",
+  "at": "2026-11-07T17:09:32+00:00"
+ },
+ "assets/strategy/bit-exact/backtest_template_backtest_terminal_KQpraXem.pine": {
+  "dst": "strategy_backtest_template_backtest_terminal_KQpraXem.py",
+  "sha256": "4fe5b66e93bf89c7a3696872c41ac58ecd9611718c6dc81d935b4753b719c541",
+  "status": "ok",
+  "at": "2026-11-07T17:09:33+00:00"
+ },
+ "assets/strategy/bit-exact/backtest_traders_dynamic_index_indicator_alert_by_justunclel_rDZ0Id1U.pine": {
+  "dst": "strategy_backtest_traders_dynamic_index_indicator_alert_by_justunclel_rDZ0Id1U.py",
+  "sha256": "216adbe7cc6e5743bdc3b4fc19da3371de90818188420927ccdd4af5c50bf8a7",
+  "status": "ok",
+  "at": "2026-11-07T17:09:40+00:00"
+ },
+ "assets/strategy/bit-exact/backtesting_module_uLY2TQdm.pine": {
+  "dst": "strategy_backtesting_module_uLY2TQdm.py",
+  "sha256": "8994d4bd80122c5c13854f2560b57e0e998e449baf4b144865f9560d70dfadce",
+  "status": "ok",
+  "at": "2026-11-07T17:09:42+00:00"
+ },
+ "assets/strategy/bit-exact/backtesting_on_non_standard_charts_caution_pinecoders_faq_q9laJNG9.pine": {
+  "dst": "strategy_backtesting_on_non_standard_charts_caution_pinecoders_faq_q9laJNG9.py",
+  "sha256": "8b9def6e58ab2962720e8b656960458fae98d5af54d86c338bbac07f1bef4399",
+  "status": "ok",
+  "at": "2026-11-07T17:09:44+00:00"
+ },
+ "assets/strategy/bit-exact/band_zigzag_trendfollower_strategy_trendoscope_9FsHYtrq.pine": {
+  "dst": "strategy_band_zigzag_trendfollower_strategy_trendoscope_9FsHYtrq.py",
+  "sha256": "8bce54b74c23dae54217face22ec2017b6719e591f5581f8959b52943161cbe4",
+  "status": "ok",
+  "at": "2026-11-07T17:09:46+00:00"
+ },
+ "assets/strategy/bit-exact/bbtrend_w_supertrend_decision_strategy_presenttrading_7C1kIEOn.pine": {
+  "dst": "strategy_bbtrend_w_supertrend_decision_strategy_presenttrading_7C1kIEOn.py",
+  "sha256": "d9633aab5afcc2f7ad5d3dd4d5f69ccde1878a82df0b9ba75fd99b582f59171e",
+  "status": "ok",
+  "at": "2026-11-07T17:09:48+00:00"
+ },
+ "assets/strategy/bit-exact/best_supertrend_cci_strategy_YsWWsOGs.pine": {
+  "dst": "strategy_best_supertrend_cci_strategy_YsWWsOGs.py",
+  "sha256": "7a74438c0e519ba196e4f4b34363556214dacfb69dfa85b6c093ad5cfa7aa89b",
+  "status": "ok",
+  "at": "2026-11-07T17:09:50+00:00"
+ },
+ "assets/strategy/bit-exact/best_supertrend_strategy_6knHPR6c.pine": {
+  "dst": "strategy_best_supertrend_strategy_6knHPR6c.py",
+  "sha256": "3a4b92d3580aa710269668eb6dece01d0638bcb35bc476c355f1a35ff0e052cb",
+  "status": "ok",
+  "at": "2026-11-07T17:09:52+00:00"
+ },
+ "assets/strategy/bit-exact/best_trailing_take_profit_strategy_9YaLIh0i.pine": {
+  "dst": "strategy_best_trailing_take_profit_strategy_9YaLIh0i.py",
+  "sha256": "04f51829578de5be51a72af842f6cb09480f4a509931bdc1b3cc88be36d8cc91",
+  "status": "ok",
+  "at": "2026-11-07T17:09:53+00:00"
+ },
+ "assets/strategy/bit-exact/best_trend_direction_helper_strategy_edition_dzpmnane.pine": {
+  "dst": "strategy_best_trend_direction_helper_strategy_edition_dzpmnane.py",
+  "sha256": "c69d1a33727e23a0b923f2fa08d6cb94bb066861c810fe02a454c07da866df40",
+  "status": "ok",
+  "at": "2026-11-07T17:10:00+00:00"
+ },
+ "assets/strategy/bit-exact/bitcoin_scalping_strategy_sampled_with_pmarp_madrid_ma_ribbon_T4rBZCvC.pine": {
+  "dst": "strategy_bitcoin_scalping_strategy_sampled_with_pmarp_madrid_ma_ribbon_T4rBZCvC.py",
+  "sha256": "517a0b0e32adc3334c57781d4d482f7e33fb6e3dee82dcd76387b62e2b294204",
+  "status": "ok",
+  "at": "2026-11-07T17:10:07+00:00"
+ },
+ "assets/strategy/bit-exact/bitcoin_superflip_supertrend_ema_trend_following_strategy_NgSIfKQx.pine": {
+  "dst": "strategy_bitcoin_superflip_supertrend_ema_trend_following_strategy_NgSIfKQx.py",
+  "sha256": "7c0478531498b8d3c5f61b9a83842790d507b75e7a5c3fe68abd4151d697634b",
+  "status": "ok",
+  "at": "2026-11-07T17:10:08+00:00"
+ },
+ "assets/strategy/bit-exact/bollinger_band_breakout_UHsvM5JR.pine": {
+  "dst": "strategy_bollinger_band_breakout_UHsvM5JR.py",
+  "sha256": "75ca5f9924a18632f01f8f6134a163d7e098744297c9b0fe8fe51425253a5e6a",
+  "status": "ok",
+  "at": "2026-11-07T17:10:09+00:00"
+ },
+ "assets/strategy/bit-exact/bollinger_band_with_rsi_pKOaIHpb.pine": {
+  "dst": "strategy_bollinger_band_with_rsi_pKOaIHpb.py",
+  "sha256": "adac2277fea938d3c62148d65cfc734c664258703f7f5f1e001e923dc13f3aaa",
+  "status": "ok",
+  "at": "2026-11-07T17:10:10+00:00"
+ },
+ "assets/strategy/bit-exact/bollinger_bands_breakout_strategy_GKgxKjlC.pine": {
+  "dst": "strategy_bollinger_bands_breakout_strategy_GKgxKjlC.py",
+  "sha256": "6687126267e709d0881187cd93813c81667c4dfd2bd91000791f559465094642",
+  "status": "ok",
+  "at": "2026-11-07T17:10:11+00:00"
+ },
+ "assets/strategy/bit-exact/bollinger_bands_breakout_strategy_sTFw2fOj.pine": {
+  "dst": "strategy_bollinger_bands_breakout_strategy_sTFw2fOj.py",
+  "sha256": "25d43a9fce45b41f44d4a02d058868eb82cc86e97403e45c0c13ffe5f1f6045f",
+  "status": "ok",
+  "at": "2026-11-07T17:10:13+00:00"
+ },
+ "assets/strategy/bit-exact/bollinger_bands_ema_9_Ff0DNTh1.pine": {
+  "dst": "strategy_bollinger_bands_ema_9_Ff0DNTh1.py",
+  "sha256": "ee9bca82facb371982a9fc7b4d2b6222a2ddcff4c308234391e848067f5a3e27",
+  "status": "ok",
+  "at": "2026-11-07T17:10:15+00:00"
+ },
+ "assets/strategy/bit-exact/bollinger_bands_enhanced_strategy_V4B5nKIx.pine": {
+  "dst": "strategy_bollinger_bands_enhanced_strategy_V4B5nKIx.py",
+  "sha256": "3039a0075d251c3bc438a02d594675aa6104d57636bfa1fbc1c00fd120bb7978",
+  "status": "ok",
+  "at": "2026-11-07T17:10:16+00:00"
+ },
+ "assets/strategy/bit-exact/bollinger_bands_mean_reversion_using_rsi_krishna_peri_XRPeqEdA.pine": {
+  "dst": "strategy_bollinger_bands_mean_reversion_using_rsi_krishna_peri_XRPeqEdA.py",
+  "sha256": "ebd8429d17661f49e43f0091c1b2866e5bbd447c582ea80b243aee33fe4c4cb0",
+  "status": "ok",
+  "at": "2026-11-07T17:10:17+00:00"
+ },
+ "assets/strategy/bit-exact/bollinger_bands_strategy_with_rsi_and_macd_v1_0_CEzU8qc0.pine": {
+  "dst": "strategy_bollinger_bands_strategy_with_rsi_and_macd_v1_0_CEzU8qc0.py",
+  "sha256": "3352f577ff63153d19b0567e815d388e6dd3f46f1b4099a28282cf8412705c5b",
+  "status": "ok",
+  "at": "2026-11-07T17:10:19+00:00"
+ },
+ "assets/strategy/bit-exact/boom_hunter_hull_suite_volatility_oscillator_strategy_McuqT8px.pine": {
+  "dst": "strategy_boom_hunter_hull_suite_volatility_oscillator_strategy_McuqT8px.py",
+  "sha256": "6800df7ab947388e97c57b26ac008318489760f3e1e822a273a7a9534e21f00e",
+  "status": "ok",
+  "at": "2026-11-07T17:10:21+00:00"
+ },
  "assets/strategy/verified/3_signal_directional_trend_strategy_for_e_minis_pCxvfqFv.pine": {
   "dst": "strategy_3_signal_directional_trend_strategy_for_e_minis_pCxvfqFv.py",
   "sha256": "ddf024a019909ddb397f055460fe7081947d82490c3fabc3099635d36ab49924",
@@ -130,5 +466,263 @@
   "sha256": "7b99a2b56ed5d44f0f0ecaa159cb0963855becdf350cdc50e1fe08e43e412497",
   "status": "ok",
   "at": "2026-11-07T17:01:06+00:00"
+ },
+ "assets/strategy/verified/elder_ray_bull_power_tp_and_sl_Cv3YP9Tw.pine": {
+  "dst": "strategy_elder_ray_bull_power_tp_and_sl_Cv3YP9Tw.py",
+  "sha256": "d3d07b63745b6e28c87a45c9f359d11e7086240a5ce3a49cfde41bec7d0f51a8",
+  "status": "ok",
+  "at": "2026-11-07T17:05:19+00:00"
+ },
+ "assets/strategy/verified/elliott_wave_with_supertrend_exit_strategy_presenttrading_hlOgflm1.pine": {
+  "dst": "strategy_elliott_wave_with_supertrend_exit_strategy_presenttrading_hlOgflm1.py",
+  "sha256": "31d7954c12d8ab9dde87ef453fc8b08f10df4895977f4c3980abcb2dcf749a57",
+  "status": "ok",
+  "at": "2026-11-07T17:05:24+00:00"
+ },
+ "assets/strategy/verified/fibonacci_5_candles_retracement_EbAcK7HY.pine": {
+  "dst": "strategy_fibonacci_5_candles_retracement_EbAcK7HY.py",
+  "sha256": "5ac39d25466e5e9fbea7c8950c1318a79001c1742d5b1aa695fd0d85c89b5929",
+  "status": "ok",
+  "at": "2026-11-07T17:05:26+00:00"
+ },
+ "assets/strategy/verified/flawless_victory_strategy_15min_btc_machine_learning_strategy_i3Uc79fF.pine": {
+  "dst": "strategy_flawless_victory_strategy_15min_btc_machine_learning_strategy_i3Uc79fF.py",
+  "sha256": "8c793cc796450a60d4b4e223a15422109d036b7156279596ed00f23cb2d7d1a5",
+  "status": "ok",
+  "at": "2026-11-07T17:05:29+00:00"
+ },
+ "assets/strategy/verified/forex_fractal_ema_scalper_pgsJGhIg.pine": {
+  "dst": "strategy_forex_fractal_ema_scalper_pgsJGhIg.py",
+  "sha256": "575edc55bb149f1cf23ba2ba88ecadbf914908484d117a8a0a44b64bf6a67ae3",
+  "status": "ok",
+  "at": "2026-11-07T17:05:30+00:00"
+ },
+ "assets/strategy/verified/forex_scalping_1min_bollinger_bands_rsi_and_adx_trading_system_sR1hePBi.pine": {
+  "dst": "strategy_forex_scalping_1min_bollinger_bands_rsi_and_adx_trading_system_sR1hePBi.py",
+  "sha256": "18202be3a4f143c50a14bea227177091ea91f32c760e9f7374b99695237af755",
+  "status": "ok",
+  "at": "2026-11-07T17:05:31+00:00"
+ },
+ "assets/strategy/verified/freedx_grid_backtest_4J80gPhd.pine": {
+  "dst": "strategy_freedx_grid_backtest_4J80gPhd.py",
+  "sha256": "5520bc1154d4081c40e94c289e79573d470796d4f4fdbd2fdd29f3189aff98e8",
+  "status": "ok",
+  "at": "2026-11-07T17:05:35+00:00"
+ },
+ "assets/strategy/verified/full_strategy_allinone_with_risk_management_macd_rsi_psar_atr_ma_l7ELtgmb.pine": {
+  "dst": "strategy_full_strategy_allinone_with_risk_management_macd_rsi_psar_atr_ma_l7ELtgmb.py",
+  "sha256": "7d68b9e97323f1db0cc623e0c7cd435b920f025b5a53e3c821b6c7e35805a796",
+  "status": "ok",
+  "at": "2026-11-07T17:05:37+00:00"
+ },
+ "assets/strategy/verified/hash_ribbons_backtest_bitcoin_beats_yt_4d0HQmoy.pine": {
+  "dst": "strategy_hash_ribbons_backtest_bitcoin_beats_yt_4d0HQmoy.py",
+  "sha256": "3ad7680be1cfc4cb2a69f4d97162ebe520cbab99392505dd341d86f368304ac7",
+  "status": "ok",
+  "at": "2026-11-07T17:05:42+00:00"
+ },
+ "assets/strategy/verified/heikin_ashi_price_action_crypto_long_strategy_FEJvYRkw.pine": {
+  "dst": "strategy_heikin_ashi_price_action_crypto_long_strategy_FEJvYRkw.py",
+  "sha256": "dcd17c8d9d56256b9ae7da6ef98e94e52549be5d4fe20807353166c7fea26d5f",
+  "status": "ok",
+  "at": "2026-11-07T17:05:43+00:00"
+ },
+ "assets/strategy/verified/higher_high_lower_low_strategy_JWsBrWBu.pine": {
+  "dst": "strategy_higher_high_lower_low_strategy_JWsBrWBu.py",
+  "sha256": "9fa0107003a898306e3eb5fb5a16b4a73977009a4a8d5a3ad6743c93b0fa9c29",
+  "status": "ok",
+  "at": "2026-11-07T17:05:44+00:00"
+ },
+ "assets/strategy/verified/hulltsibot_gf21APTn.pine": {
+  "dst": "strategy_hulltsibot_gf21APTn.py",
+  "sha256": "d4314c6d8c4c582165ce97e18e434ee60f409058ee52b121a740b71a617d0de1",
+  "status": "ok",
+  "at": "2026-11-07T17:05:45+00:00"
+ },
+ "assets/strategy/verified/ichimoku_daily_candle_x_hull_ma_x_macd_RJBjyl2W.pine": {
+  "dst": "strategy_ichimoku_daily_candle_x_hull_ma_x_macd_RJBjyl2W.py",
+  "sha256": "8fd4820426193405dd9e961723e1db4b52b4004269e7c19031f32736bbbaf3da",
+  "status": "ok",
+  "at": "2026-11-07T17:05:46+00:00"
+ },
+ "assets/strategy/verified/ict_10am_first_fvg_daily_strategy_Za5HKgrL.pine": {
+  "dst": "strategy_ict_10am_first_fvg_daily_strategy_Za5HKgrL.py",
+  "sha256": "069e4c828ee82d6e5621abaec8336af4abab17bab195405797e57d07a2a497e1",
+  "status": "ok",
+  "at": "2026-11-07T17:05:47+00:00"
+ },
+ "assets/strategy/verified/ict_master_suite_trading_iq_ABYnIcdl.pine": {
+  "dst": "strategy_ict_master_suite_trading_iq_ABYnIcdl.py",
+  "sha256": "b169ab39b00609bfcadb74d00e5203f42a166ab07409520d34159bb45953df48",
+  "status": "ok",
+  "at": "2026-11-07T17:06:29+00:00"
+ },
+ "assets/strategy/verified/lanz_strategy_2_0_backtest_YFZE9yFC.pine": {
+  "dst": "strategy_lanz_strategy_2_0_backtest_YFZE9yFC.py",
+  "sha256": "8f2bd50a3b77469e515808936cc39748221aace997535ec49fdd1fdd8aa1b580",
+  "status": "ok",
+  "at": "2026-11-07T17:06:30+00:00"
+ },
+ "assets/strategy/verified/lanz_strategy_4_0_backtest_8Q2g9IW1.pine": {
+  "dst": "strategy_lanz_strategy_4_0_backtest_8Q2g9IW1.py",
+  "sha256": "e01204a8abaf20e44476308b52f9caed9db3509b25f85f9a065eb8264e0274e1",
+  "status": "ok",
+  "at": "2026-11-07T17:06:31+00:00"
+ },
+ "assets/strategy/verified/linear_regression_channel_breakout_strategy_7USLDe0j.pine": {
+  "dst": "strategy_linear_regression_channel_breakout_strategy_7USLDe0j.py",
+  "sha256": "f0841b341e4c94c5620410c90b6dde9ca087224a0066a9dd49adad63aaa2172c",
+  "status": "ok",
+  "at": "2026-11-07T17:06:34+00:00"
+ },
+ "assets/strategy/verified/liquidity_sweep_breakout_lsb_MN4tJCT5.pine": {
+  "dst": "strategy_liquidity_sweep_breakout_lsb_MN4tJCT5.py",
+  "sha256": "9b0a8952a6e9059c9dc454d9a6a32d2e5cc3b12cdb92c0e892a3559bff59801e",
+  "status": "ok",
+  "at": "2026-11-07T17:06:36+00:00"
+ },
+ "assets/strategy/verified/macd_bb_rsi_strategy_alorse_6xo9yMmT.pine": {
+  "dst": "strategy_macd_bb_rsi_strategy_alorse_6xo9yMmT.py",
+  "sha256": "7ac535459d50fe76dcfa11fe9e5636187c86161d5f2061aa72e338cbc852c24e",
+  "status": "ok",
+  "at": "2026-11-07T17:06:37+00:00"
+ },
+ "assets/strategy/verified/macd_reloaded_strategy_VO6DY8s1.pine": {
+  "dst": "strategy_macd_reloaded_strategy_VO6DY8s1.py",
+  "sha256": "4c081b87fa03278d47e113ed684070600042e1449f4da1ba13d63f18a2d1ed18",
+  "status": "ok",
+  "at": "2026-11-07T17:06:40+00:00"
+ },
+ "assets/strategy/verified/macd_rsi_rvol_strategy_7GmXKfig.pine": {
+  "dst": "strategy_macd_rsi_rvol_strategy_7GmXKfig.py",
+  "sha256": "50fcd0e65115b2c93d0e21ddf731b0ebebe646c55e3cd92e471470fcad910ecb",
+  "status": "ok",
+  "at": "2026-11-07T17:06:41+00:00"
+ },
+ "assets/strategy/verified/non_repainting_renko_emulation_strategy_pineindicators_cwGp0ul5.pine": {
+  "dst": "strategy_non_repainting_renko_emulation_strategy_pineindicators_cwGp0ul5.py",
+  "sha256": "182eea5c2ff150d4236c8d71578c9f473198c749984d2c29fb8e066873a35fce",
+  "status": "ok",
+  "at": "2026-11-07T17:06:42+00:00"
+ },
+ "assets/strategy/verified/obv_pyr_sAP5k4bs.pine": {
+  "dst": "strategy_obv_pyr_sAP5k4bs.py",
+  "sha256": "7a933600df7d5b2f78234ee5a7fa5b14fc54dccf6b1466b58132ee171800de12",
+  "status": "ok",
+  "at": "2026-11-07T17:06:43+00:00"
+ },
+ "assets/strategy/verified/pivot_point_reversal_rsi_strategy_3UcIwSrE.pine": {
+  "dst": "strategy_pivot_point_reversal_rsi_strategy_3UcIwSrE.py",
+  "sha256": "ca7d872fb509ea44f2416748b8e07cfafdb701a3c948be1b81aeb89b5a61cfef",
+  "status": "ok",
+  "at": "2026-11-07T17:06:44+00:00"
+ },
+ "assets/strategy/verified/pivot_reversal_strategy_alerts_via_tradingconnector_to_indices_PIWdkQtS.pine": {
+  "dst": "strategy_pivot_reversal_strategy_alerts_via_tradingconnector_to_indices_PIWdkQtS.py",
+  "sha256": "ab17ffebf742a71cc7040b20939c74d091520d837dd48c409b5e9d5721b9297a",
+  "status": "ok",
+  "at": "2026-11-07T17:06:45+00:00"
+ },
+ "assets/strategy/verified/precision_trading_strategy_golden_edge_SD5jYZuC.pine": {
+  "dst": "strategy_precision_trading_strategy_golden_edge_SD5jYZuC.py",
+  "sha256": "a5deb67f22a2ed615557c191532d787f39eeac9455a2e5f07bb1b8cac1f13ffa",
+  "status": "ok",
+  "at": "2026-11-07T17:06:46+00:00"
+ },
+ "assets/strategy/verified/price_action_bollinger_strategy_ExBZnqPc.pine": {
+  "dst": "strategy_price_action_bollinger_strategy_ExBZnqPc.py",
+  "sha256": "7047b02c5d0a90b4ddd2a7a3e342d4bceb97492d10f282aa879813f716ece896",
+  "status": "ok",
+  "at": "2026-11-07T17:06:48+00:00"
+ },
+ "assets/strategy/verified/quasimodo_pattern_strategy_back_test_tradingfinder_qm_trading_7WpyJVvp.pine": {
+  "dst": "strategy_quasimodo_pattern_strategy_back_test_tradingfinder_qm_trading_7WpyJVvp.py",
+  "sha256": "a638665321ff0932248bef5d0372fd704a31fa881ab4f17576b5622e93eeae7d",
+  "status": "ok",
+  "at": "2026-11-07T17:06:51+00:00"
+ },
+ "assets/strategy/verified/rally_base_drop_snd_pivots_strategy_luxalgo_x_pineindicators_dagKHrx4.pine": {
+  "dst": "strategy_rally_base_drop_snd_pivots_strategy_luxalgo_x_pineindicators_dagKHrx4.py",
+  "sha256": "2f08a831fcd8d3958567b53d145673d449bce8cfb3f062d7ee4f64d23a6f2eb7",
+  "status": "ok",
+  "at": "2026-11-07T17:06:52+00:00"
+ },
+ "assets/strategy/verified/range_strat_macd_rsi_XWgu79vU.pine": {
+  "dst": "strategy_range_strat_macd_rsi_XWgu79vU.py",
+  "sha256": "8d77719c42de0c6112c256bf10c7ec6fbaa9eed651710376dba95955118ccbbb",
+  "status": "ok",
+  "at": "2026-11-07T17:06:53+00:00"
+ },
+ "assets/strategy/verified/reversal_trading_bot_strategy_bullbyte_cXVnf1WH.pine": {
+  "dst": "strategy_reversal_trading_bot_strategy_bullbyte_cXVnf1WH.py",
+  "sha256": "2c78e6691b8ad753d5e28a399e70794ee7a0935cda47da1e27de37d10e7399b7",
+  "status": "ok",
+  "at": "2026-11-07T17:06:54+00:00"
+ },
+ "assets/strategy/verified/rsi_and_smoothed_rsi_bull_div_strategy_bigbitsio_NC603cui.pine": {
+  "dst": "strategy_rsi_and_smoothed_rsi_bull_div_strategy_bigbitsio_NC603cui.py",
+  "sha256": "bf72deeac5190609c9631ae7be7a9b6bf7580f2bdc64c419f01a781e5cfdc11f",
+  "status": "ok",
+  "at": "2026-11-07T17:06:56+00:00"
+ },
+ "assets/strategy/verified/rsi_strategy_with_alerts_via_tradingconnector_to_forex_kQY2gaLx.pine": {
+  "dst": "strategy_rsi_strategy_with_alerts_via_tradingconnector_to_forex_kQY2gaLx.py",
+  "sha256": "887b59d0f183e63b7fc3607fa5b97573d0e24156d6e82c223834ec5d4b050785",
+  "status": "ok",
+  "at": "2026-11-07T17:06:57+00:00"
+ },
+ "assets/strategy/verified/scalping_trading_system_bot_crypto_and_stocks_YotdMm0M.pine": {
+  "dst": "strategy_scalping_trading_system_bot_crypto_and_stocks_YotdMm0M.py",
+  "sha256": "9e6bb85b4b88fa298b47dfff3dc611c4292bba29adb392f44c9568a25afb90fe",
+  "status": "ok",
+  "at": "2026-11-07T17:06:58+00:00"
+ },
+ "assets/strategy/verified/smart_money_pivot_strategy_jason_kasei_IMTwV7U8.pine": {
+  "dst": "strategy_smart_money_pivot_strategy_jason_kasei_IMTwV7U8.py",
+  "sha256": "2e3d7cc04e9f3ed7dd11b3e457ffa234be8046a4f9a6622f80b244d94ca65a96",
+  "status": "ok",
+  "at": "2026-11-07T17:06:59+00:00"
+ },
+ "assets/strategy/verified/strategy_template_ImCFrBhi.pine": {
+  "dst": "strategy_strategy_template_ImCFrBhi.py",
+  "sha256": "9650c204509d9c1fd78ab3fd3b03385da51de3e6b04d360a52c4bd628e9a5e57",
+  "status": "ok",
+  "at": "2026-11-07T17:07:00+00:00"
+ },
+ "assets/strategy/verified/sweep_reverse_liquidity_sweep_reversal_strategy_GoeqO1ev.pine": {
+  "dst": "strategy_sweep_reverse_liquidity_sweep_reversal_strategy_GoeqO1ev.py",
+  "sha256": "5fcc034a6a50c7a885faafcb06cd48d1dbc926a9e74c7dd6a225ffebae603aa5",
+  "status": "ok",
+  "at": "2026-11-07T17:07:30+00:00"
+ },
+ "assets/strategy/verified/technicals_rating_strategy_v420_preK60Qg.pine": {
+  "dst": "strategy_technicals_rating_strategy_v420_preK60Qg.py",
+  "sha256": "2f745cbc8fd393b38c3a8fe1d8ebf97ebd4c01349c85759a7e65a840ef1ebbfc",
+  "status": "ok",
+  "at": "2026-11-07T17:07:32+00:00"
+ },
+ "assets/strategy/verified/trading_report_generator_from_csv_OTfw8b2a.pine": {
+  "dst": "strategy_trading_report_generator_from_csv_OTfw8b2a.py",
+  "sha256": "f81d2582d6c758927aeb4a6dacfe590ac42d49ebe40cbe7cd74bb8608ff231bb",
+  "status": "ok",
+  "at": "2026-11-07T17:07:32+00:00"
+ },
+ "assets/strategy/verified/tsi_cci_hull_MuAKk43D.pine": {
+  "dst": "strategy_tsi_cci_hull_MuAKk43D.py",
+  "sha256": "d425f401b88b42090c9b0e20ba18beea0e28cd1db87f234075b4bfdfd06f44f4",
+  "status": "ok",
+  "at": "2026-11-07T17:07:34+00:00"
+ },
+ "assets/strategy/verified/tsi_cci_hull_with_profit_qwN8CGrU.pine": {
+  "dst": "strategy_tsi_cci_hull_with_profit_qwN8CGrU.py",
+  "sha256": "ff8b6d31ebc67ef0b5aff8dcb82a14e2da305886bcb447e23755cc4ab71bc856",
+  "status": "ok",
+  "at": "2026-11-07T17:07:38+00:00"
+ },
+ "assets/strategy/verified/wolfe_strategy_trendoscope_EGvQ2nLb.pine": {
+  "dst": "strategy_wolfe_strategy_trendoscope_EGvQ2nLb.py",
+  "sha256": "34743519b430b1dae9824165dc964628e21c290f1b0013056192f4d7680d429f",
+  "status": "ok",
+  "at": "2026-11-07T17:07:41+00:00"
  }
 }
