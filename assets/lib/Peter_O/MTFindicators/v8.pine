@@ -1,0 +1,114 @@
+//@version=5
+library(title='MTFindicators', overlay=false)
+
+export adx_mtf(int _mtf, simple int _lenadx, simple int _lensig) =>
+    up_mtf = ta.highest(high, _mtf) - ta.highest(high, _mtf)[_mtf]
+    down_mtf = -(ta.lowest(low, _mtf) - ta.lowest(low, _mtf)[_mtf])
+    plusDM_mtf = na(up_mtf) ? na : up_mtf > down_mtf and up_mtf > 0 ? up_mtf : 0
+    minusDM_mtf = na(down_mtf) ? na : down_mtf > up_mtf and down_mtf > 0 ? down_mtf : 0
+    tr_mtf = math.max(math.max(high - low, math.abs(high - nz(close[_mtf]))), math.abs(low - nz(close[_mtf])))
+    trur_mtf = ta.rma(tr_mtf, _lenadx * _mtf)
+    plus_mtf = fixnan(100 * ta.rma(plusDM_mtf, _lenadx * _mtf) / trur_mtf)
+    minus_mtf = fixnan(100 * ta.rma(minusDM_mtf, _lenadx * _mtf) / trur_mtf)
+    sum_mtf = plus_mtf + minus_mtf
+    adx_mtf = 100 * ta.rma(math.abs(plus_mtf - minus_mtf) / (sum_mtf == 0 ? 1 : sum_mtf), _lensig * _mtf)
+    [adx_mtf, plus_mtf, minus_mtf]
+
+export rsi_mtf(simple int _mtf, float _source, simple int _len) =>
+    change_mtf = _source - _source[_mtf]
+    up_mtf = ta.rma(math.max(change_mtf, 0), _len * _mtf)
+    down_mtf = ta.rma(-math.min(change_mtf, 0), _len * _mtf)
+    rsi_mtf = down_mtf == 0 ? 100 : up_mtf == 0 ? 0 : 100 - 100 / (1 + up_mtf / down_mtf)
+    rsi_mtf
+
+export stoch_mtf(simple int _mtf, simple int _periodK, simple int _smoothK, simple int _periodD)=>
+    stoch_k_mtf=ta.sma(100*(close-ta.lowest(low,_periodK*_mtf))/(ta.highest(high,_periodK*_mtf)-ta.lowest(low,_periodK*_mtf)),_smoothK*_mtf)
+    stoch_d_mtf=ta.sma(stoch_k_mtf, _periodD*_mtf)
+    [stoch_k_mtf,stoch_d_mtf]
+
+export moving_average_mtf(simple int _mtf, string _smoothing, float _series, simple int _length) =>
+    _smoothing=="EMA" ? ta.ema(_series,_length*_mtf) :
+     _smoothing=="SMA" ? ta.sma(_series,_length*_mtf) :
+     _smoothing=="WMA" ? ta.wma(_series,_length*_mtf) :
+     _smoothing=="VWMA" ? ta.vwma(_series,_length*_mtf) :
+     _smoothing=="HMA" ? ta.hma(_series,_length*_mtf) :
+     _smoothing=="RMA" ? ta.rma(_series,_length*_mtf) :
+     _smoothing=="DEMA" ? 2 * ta.ema(_series, _length*_mtf) - ta.ema(ta.ema(_series, _length*_mtf), _length*_mtf) : 
+     ta.ema(_series,_length*_mtf)
+
+export bollingerbands_mtf(simple int _mtf, simple int _length, float _src, float _mult)=>
+    basis = ta.sma(_src, _length*_mtf)
+    dev = _mult * ta.stdev(_src, _length*_mtf)
+    upper = basis + dev
+    lower = basis - dev
+    [basis,upper,lower]
+
+export keltnerchannels_mtf(simple int _mtf, float _source, simple int _keltnerlength, simple int _atr4keltnerlength, float _keltnermult)=>
+    ma = ta.ema(_source, _keltnerlength*_mtf)
+    range_ = ta.tr
+    rangema = ta.ema(range_, _atr4keltnerlength*_mtf)
+    upper = ma + rangema * _keltnermult
+    lower = ma - rangema * _keltnermult
+    [upper,lower]
+    
+export macd_mtf(simple int _mtf, float _source, simple int _fast_length, simple int _slow_length, simple int _signal_length)=>
+    fast_ma = ta.ema(_source, _fast_length*_mtf)
+    slow_ma = ta.ema(_source, _slow_length*_mtf)
+    macd = fast_ma - slow_ma
+    signal = ta.ema(macd, _signal_length*_mtf)
+    hist = macd - signal
+    [macd,signal,hist]
+
+
+mtf4adx = input(15, title='MTF x', inline="adx", group="ADX MTF")
+lenadx = input.int(14, minval=1, title='DI Length', inline="adx", group="ADX MTF")
+lensig = input.int(14, title='Smoothing', minval=1, maxval=50, inline="adx", group="ADX MTF")
+
+mtf4rsi = input(15, title='MTF x', inline="rsi", group="RSI MTF")
+sourcersi = input.source(close, title='Source', inline="rsi", group="RSI MTF")
+lenrsi = input(14, title='lookback', inline="rsi", group="RSI MTF")
+
+mtf4stoch = input(15, title='MTF x', inline="stoch", group="Stochastic MTF")
+periodK = input.int(14, title="%K Length", minval=1, inline="stoch", group="Stochastic MTF")
+smoothK = input.int(3, title="%K Smoothing", minval=1, inline="stoch", group="Stochastic MTF")
+periodD = input.int(3, title="%D Smoothing", minval=1, inline="stoch", group="Stochastic MTF")
+
+mtf4ma = input(15, title='MTF x', inline="ma", group="Moving Average")
+ma_type = input.string(title="Type", defval="EMA", options=["EMA", "SMA", "WMA", "VWMA", "HMA", "RMA", "DEMA"], inline="ma", group="Moving Average")
+ma_series = input.source(close, title="Source", inline="ma", group="Moving Average")
+ma_length = input.int(9, title="Length", inline="ma", group="Moving Average")
+
+mtf4bb=input.int(5, title='MTF x', inline="bbands", group="Bollinger Bands MTF")
+bblength = input.int(20, minval=1, inline="bbands", group="Bollinger Bands MTF")
+bbsrc = input(close, title="Source", inline="bbands", group="Bollinger Bands MTF")
+bbmult = input.float(2.0, minval=0.001, maxval=50, title="StdDev", inline="bbands", group="Bollinger Bands MTF")
+
+mtf4keltner=input.int(5, title='MTF x', inline="keltner", group="Keltner Channel MTF")
+keltnersource = input.source(close, title = "Source", inline="keltner", group="Keltner Channel MTF")
+keltnerlength = input.int(13, minval=1, title = "EMA Length", inline="keltner", group="Keltner Channel MTF")
+keltneratrlength = input.int(13, minval=1, title = "ATR Length", inline="keltner", group="Keltner Channel MTF")
+keltnermult = input.float(1.5, minval=0.01, maxval=50, title="Keltner Multiplier", inline="keltner", group="Keltner Channel MTF")
+
+mtf4macd=input.int(5, title='MTF x', inline="macd", group="MACD MTF")
+macd_source = input.source(close, title="Source", inline="macd", group="MACD MTF")
+macd_fast_length = input.int(12, title="Fast Length", inline="macd", group="MACD MTF")
+macd_slow_length = input.int(26, title="Slow Length", inline="macd", group="MACD MTF")
+macd_signal_length = input.int(9,title="Signal Smoothing",  minval = 1, maxval = 50, inline="macd", group="MACD MTF")
+
+
+[adxmtf, plusmtf, minusmtf] = adx_mtf(mtf4adx, lenadx, lensig)
+rsimtf = rsi_mtf(mtf4rsi, sourcersi, lenrsi)
+[stochmtf_k,stochmtf_d] = stoch_mtf(mtf4stoch,periodK,smoothK,periodD)
+mamtf = moving_average_mtf(mtf4ma,ma_type,ma_series,ma_length)
+[bbbasismtf,bbuppermtf,bblowermtf] = bollingerbands_mtf(mtf4bb,bblength,bbsrc,bbmult)
+[upper,lower]=keltnerchannels_mtf(mtf4keltner,keltnersource,keltnerlength,keltneratrlength,keltnermult)
+[macd,signal,hist]=macd_mtf(mtf4macd,macd_source,macd_fast_length,macd_slow_length,macd_signal_length)
+
+plot(rsimtf, color=color.new(color.orange, 0), title='RSI MTF', linewidth=2)
+
+plot(adxmtf, color=color.new(color.black, 0), title='ADX MTF', linewidth=2)
+plot(plusmtf, color=color.new(color.lime, 0), title='DI Plus MTF')
+plot(minusmtf, color=color.new(color.red, 0), title='DI Minus MTF')
+
+plot(stochmtf_k, color=#2962FF, title='Stochastic %K MTF')
+plot(stochmtf_d, color=#FF6D00, title='Stochastic %D MTF')

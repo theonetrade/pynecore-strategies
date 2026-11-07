@@ -1,0 +1,952 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © jordanfray
+//@version=5
+
+// @description A collection of functions used for trade automation
+library("threengine_global_automation_library")
+
+
+// @function Gets the base currency for the chart's ticker. Supported trade pairs are USD, USDT, USDC, BTC, and PERP.
+// @returns Base currency as a string
+export getBaseCurrency() =>
+    var ticker = syminfo.ticker
+    var string base_currency = na
+
+    if str.endswith(ticker, "USDT")
+        base_currency := "USDT"
+    else
+        if str.endswith(ticker, "USDT.P")
+            base_currency := "USDT"
+        else
+            if str.endswith(ticker, "USDC")
+                base_currency := "USDC"
+            else
+                if str.endswith(ticker, "BUSD")
+                    base_currency := "BUSD"
+                else 
+                    if str.endswith(ticker, "BTC")
+                        base_currency := "BTC"
+                    else
+                        if str.endswith(ticker, "PERP")
+                            base_currency := "PERP"
+                        else
+                            if str.endswith(ticker, "USD")
+                                base_currency := "USD"
+                            else
+                                if str.endswith(ticker, "USD.P")
+                                    base_currency := "USD"
+                                else
+                                    base_currency := "USD"
+
+    base_currency
+
+// @function Get the current chart's symbol without the base currency appended to it. Supported trade paris are USD, USDT, USDC, BTC, and PERP.
+// @returns Ssymbol and base currency
+export getChartSymbol() =>
+    var ticker = syminfo.ticker
+    trade_pair_parts = array.new_string()
+    var string trade_pair = na
+
+    if str.endswith(ticker, "USDT")
+        trade_pair_parts := str.split(ticker, "USDT")
+        trade_pair := array.get(trade_pair_parts,0)
+    else
+        if str.endswith(ticker, "USDT.P")
+            trade_pair_parts := str.split(ticker, "USDT.P")
+            trade_pair := array.get(trade_pair_parts,0)
+        else
+            if str.endswith(ticker, "USDC")
+                trade_pair_parts := str.split(ticker, "USDC")
+                trade_pair := array.get(trade_pair_parts,0)
+            else
+                if str.endswith(ticker, "BUSD")
+                    trade_pair_parts := str.split(ticker, "BUSD")
+                    trade_pair := array.get(trade_pair_parts,0)
+                else 
+                    if str.endswith(ticker, "BTC")
+                        trade_pair_parts := str.split(ticker, "BTC")
+                        trade_pair := array.get(trade_pair_parts,0)
+                    else
+                        if str.endswith(ticker, "PERP")
+                            trade_pair_parts := str.split(ticker, "PERP")
+                            trade_pair := array.get(trade_pair_parts,0)
+                        else
+                            if str.endswith(ticker, "USD")
+                                trade_pair_parts := str.split(ticker, "USD")
+                                trade_pair := array.get(trade_pair_parts,0)
+                            else
+                                if str.endswith(ticker, "USD.P")
+                                    trade_pair_parts := str.split(ticker, "USD.P")
+                                    trade_pair := array.get(trade_pair_parts,0)
+                                else
+                                    trade_pair := ticker
+    
+    trade_pair
+
+// @function Calculates how many decimals are on the quote price of the current market
+// @returns The current deimal places on the market quote price
+export getDecimals() => math.abs(math.log(syminfo.mintick)/ math.log(10))
+
+// @function Plot a string as a label on the chart to test variable value. Use str.tostring() for any variable that isn't a string.
+// @returns Label with stringified variable
+export checkVar(int y_offset, string variable) =>
+    var label lb = na
+    label.delete(lb)
+    lb := label.new(
+      x=time + 20000000,
+      xloc=xloc.bar_time,
+      y=hl2 + y_offset, 
+      style=label.style_none, 
+      size=size.normal, 
+      textcolor=color.new(color.blue, 0), 
+      textalign = text.align_left,
+      text=str.tostring(variable))
+      
+
+// @function Gets you the right divider needed between the symbol and base currency depending on the exhange you want to use. Supports "FTX.us" and "Bybit" currently
+// @returns string containing the divider needed between the symbol and base currency
+export getPairDividerForExchange(string exchangeName) =>
+    pairDivider = switch exchangeName
+        "FTX.us"    => "/"
+        "ByBit"     => ""
+        => na
+
+    pairDivider
+
+
+// @function Generates stringified JSON for a limit order that can be passed to the strategy alert_message for a long entry.
+// @returns Stringifed JSON for a long entry
+export getStrategyAlertMessage(string secret, string symbol, string base_currency, string side, float orderTriggerPrice, float orderLimitPrice, string orderSize, float profitTriggerPrice, float profitLimitPrice, float stopLossTriggerPrice, float stopLossLimitPrice, bool cancelExistingUnfilledOrders) =>
+    
+    close_side = if side == "buy"
+        "sell"
+    else
+        "buy"
+    
+    '{' +
+      '"secret" : "' + str.tostring(secret) + '", ' +
+      '"symbol" : "' + str.tostring(symbol) + '", ' +
+      '"baseCurrency" : "' + str.tostring(base_currency) + '", ' +
+      '"cancelExistingUnfilledOrders" : ' + str.tostring(cancelExistingUnfilledOrders) + ', ' +
+      '"order" : {' +
+      '"side" : "' + str.tostring(side) + '", ' +
+      '"triggerPrice" : ' + str.tostring(orderTriggerPrice) + ', ' +
+      '"limitPrice" : ' + str.tostring(orderLimitPrice) + ', ' +
+      '"size" : "' + str.tostring(orderSize) + '"' +
+      '}, "takeProfit" : {' + 
+      '"side" : "' + str.tostring(close_side) + '", ' +
+      '"triggerPrice" : ' + str.tostring(profitTriggerPrice) + ', ' +
+      '"limitPrice" : ' + str.tostring(profitLimitPrice) + ', ' +
+      '"size" : "100%p"' +
+      '}, "stopLoss" : {' + 
+      '"side" : "' + str.tostring(close_side) + '", ' +
+      '"triggerPrice" : ' + str.tostring(stopLossTriggerPrice) + ', ' +
+      '"limitPrice" : ' + str.tostring(stopLossLimitPrice) + ', ' +
+      '"size" : "100%p"' +
+      '},"chartInfo" : {' + 
+      '"barIndex" : "' + str.tostring(bar_index + 1) + '", ' +
+      '"time" : "' + str.tostring(time) + '", ' +
+      '"decimals" : "' + str.tostring(getDecimals()) + '"' +
+      '}' + 
+      '}'
+
+
+// @function Generates stringified JSON for a limit order that can be passed to the strategy alert_message for an entry.
+// @returns Stringifed JSON for an entry
+export getAlertatronEntryMessage(string strategyName, string secret, int leverage, string leverageType, string symbol, string baseCurrency, string pairDivider, string side, float orderPrice, string orderSize, float stopLossPrice, bool cancelExistingUnfilledOrders) =>
+    closeSide = side == "buy" ? "sell" : "buy"
+    
+    string initializeOrder  = str.tostring(secret) + "(" + str.tostring(symbol) + pairDivider + str.tostring(baseCurrency) + ") { "
+    string exchangeSettings = "exchangeSettings(leverage=" + str.tostring(leverage) + "); " + "exchangeSettings(leverage=" + str.lower(leverageType) + "); "
+    string cancelOrders     = cancelExistingUnfilledOrders ? "cancel(which=all); " : ""
+    string limit            = "limit(side=" + str.tostring(side) + ", amount=" + str.tostring(orderSize) + ", offset=@" + str.tostring(orderPrice) + "); "
+    string stopLoss         = "stopOrder(side=" + str.tostring(closeSide) + ", amount=" + str.tostring(orderSize) + ", offset=@" + str.tostring(stopLossPrice) + ", trigger=last, reduceOnly=true); "
+    string messageEnd       = "} #bot "
+    string comment          = "// Alert Source: " + str.tostring(strategyName)
+    
+    webhookEntryMessage     = initializeOrder + exchangeSettings + cancelOrders + limit + stopLoss + messageEnd + comment
+
+
+
+// @function Generates stringified JSON for a limit Exit that can be passed to the strategy alert_message for a long entry.
+// @returns Stringifed JSON for a exit entry
+export getAlertatronExitMessage(string strategyName, string secret, string symbol, string baseCurrency, string pairDivider, string side, float orderPrice, string orderSize, bool cancelExistingUnfilledOrders) =>
+
+    string initializeOrder  = str.tostring(secret) + "(" + str.tostring(symbol) + pairDivider + str.tostring(baseCurrency) + ") { "
+    string cancelOrders     = cancelExistingUnfilledOrders ? "cancel(which=all); " : ""
+    string limit            = "limit(side=" + str.tostring(side) + ", amount=" + str.tostring(orderSize) + ", offset=@" + str.tostring(orderPrice) + ", reduceOnly=true); "
+    string messageEnd       =  "} #bot "
+    string comment          = "// Alert Source: " + str.tostring(strategyName)
+    
+    webhookExitMessage      = initializeOrder + cancelOrders + limit + messageEnd + comment
+
+
+// @function Generates a string for a limit order that can be passed to the strategy alert_message for an entry.
+// @returns string that represents a block of entries for alertatron
+export getAlertatronEntryMessageV2(string tag, string secret, int leverage, string leverageType, string symbol, string baseCurrency, string pairDivider, string side, string entryPrices, string entrySizes, string profitTargetPrices, string profitTargetSizes, float stopLossPrice, bool cancelExistingUnfilledOrders) =>
+    string closeSide            = side == "buy" ? "sell" : "buy"
+    entryPricesArray            = str.split(entryPrices,",")
+    entrySizessArray            = str.split(entrySizes,",")
+    profitTargetPricesArray     = str.split(profitTargetPrices,",")
+    profitTargetSizesArray      = str.split(profitTargetSizes,",")
+    string webhookEntryMessages = ""
+    
+    for i = 0 to array.size(entryPricesArray) - 1 by 1
+        string initializeOrder  = str.tostring(secret) + "(" + str.tostring(symbol) + pairDivider + str.tostring(baseCurrency) + ") { "
+        string exchangeSettings = "exchangeSettings(leverage=" + str.tostring(leverage) + "); " + "exchangeSettings(leverage=" + str.lower(leverageType) + "); "
+        string cancelOrders     = cancelExistingUnfilledOrders ? "cancel(which=tagged, tag=" + tag + "); " : ""
+        string waitingLimit     = "waitingLimit(side=" + str.tostring(side) + ", amount=" + str.tostring(array.get(entrySizessArray,i)) + ", offset=@" + str.tostring(array.get(entryPricesArray,i)) + ", tag='" + tag + "'); "
+        
+        string profitTargets    = ""
+        for x = 0 to array.size(profitTargetPricesArray) - 1 by 1
+            profitTarget        = "limit(side=" + closeSide + ", amount=" + str.tostring(array.get(profitTargetSizesArray,x)) + ", offset=@" + str.tostring(array.get(profitTargetPricesArray,x)) + ", reduceOnly=true, tag='" + tag + "'); "
+            profitTargets       := profitTargets + profitTarget
+        
+        string stopLoss         = "stopOrder(side=" + str.tostring(closeSide) + ", amount=" + str.tostring(array.get(profitTargetSizesArray,i)) + ", offset=@" + str.tostring(stopLossPrice) + ", trigger=last, reduceOnly=true, tag='" + tag + "'); "
+        string messageEnd       = "} #bot "
+    
+        webhookEntryMessage     = initializeOrder + exchangeSettings + cancelOrders + waitingLimit + profitTargets + stopLoss + messageEnd
+        webhookEntryMessages    := webhookEntryMessages + webhookEntryMessage
+
+
+// @function Calculates the Average Directional Index
+// @returns The value of ADX as a float
+export taGetAdx(int diLength, int smoothing) =>
+    up = ta.change(high)
+    down = -ta.change(low)
+    
+    plusDm = na(up) ? na : (up > down and up > 0 ? up : 0)
+    minusDm = na(down) ? na : (down > up and down > 0 ? down : 0)
+    trueRange = ta.rma(ta.tr, diLength)
+    plus = fixnan(100 * ta.rma(plusDm, diLength) / trueRange)
+    minus = fixnan(100 * ta.rma(minusDm, diLength) / trueRange)
+    
+    sum = plus + minus
+    adx = 100 * ta.rma(math.abs(plus - minus) / (sum == 0 ? 1 : sum), smoothing)
+    
+    adx
+
+// @function Calculates the Plust and Minus Directional Index and the distance betwen the two
+// @returns The value of DI Plus, DI Minus, & Distance between them
+export taGetDirectionalIndex(int length) =>
+    TrueRange                           = math.max(math.max(high-low, math.abs(high-nz(close[1]))), math.abs(low-nz(close[1])))
+    DirectionalMovementPlus             = high-nz(high[1]) > nz(low[1])-low ? math.max(high-nz(high[1]), 0): 0
+    DirectionalMovementMinus            = nz(low[1])-low > high-nz(high[1]) ? math.max(nz(low[1])-low, 0): 0
+    SmoothedTrueRange                   = 0.0
+    SmoothedTrueRange                   := nz(SmoothedTrueRange[1]) - (nz(SmoothedTrueRange[1])/length) + TrueRange
+    SmoothedDirectionalMovementPlus     = 0.0
+    SmoothedDirectionalMovementPlus     := nz(SmoothedDirectionalMovementPlus[1]) - (nz(SmoothedDirectionalMovementPlus[1])/length) + DirectionalMovementPlus
+    SmoothedDirectionalMovementMinus    = 0.0
+    SmoothedDirectionalMovementMinus    := nz(SmoothedDirectionalMovementMinus[1]) - (nz(SmoothedDirectionalMovementMinus[1])/length) + DirectionalMovementMinus
+    DIPlus                              = SmoothedDirectionalMovementPlus / SmoothedTrueRange * 100
+    DIMinus                             = SmoothedDirectionalMovementMinus / SmoothedTrueRange * 100
+    distanceBetweenDi                   = (DIPlus - DIMinus) < 0 ? (DIPlus - DIMinus)*-1 : (DIPlus - DIMinus)
+    
+    [DIPlus, DIMinus, distanceBetweenDi]
+    
+// @function Calculates the Directional Index based on a DI Length
+// @returns directional index (float)
+export taGetDirectionalIndex(float diLength) =>
+    TrueRange 						= math.max(math.max(high-low, math.abs(high-nz(close[1]))), math.abs(low-nz(close[1])))
+    DirectionalMovementPlus 		= high-nz(high[1]) > nz(low[1])-low ? math.max(high-nz(high[1]), 0): 0
+    DirectionalMovementMinus 		= nz(low[1])-low > high-nz(high[1]) ? math.max(nz(low[1])-low, 0): 0
+    SmoothedTrueRange 				= 0.0
+    SmoothedTrueRange 				:= nz(SmoothedTrueRange[1]) - (nz(SmoothedTrueRange[1])/diLength) + TrueRange
+    SmoothedDiMovementPlus 			= 0.0
+    SmoothedDiMovementPlus 			:= nz(SmoothedDiMovementPlus[1]) - (nz(SmoothedDiMovementPlus[1])/diLength) + DirectionalMovementPlus
+    SmoothedDiMovementMinus 		= 0.0
+    SmoothedDiMovementMinus 		:= nz(SmoothedDiMovementMinus[1]) - (nz(SmoothedDiMovementMinus[1])/diLength) + DirectionalMovementMinus
+    DiPlus 							= SmoothedDiMovementPlus / SmoothedTrueRange * 100
+    DiMinus 						= SmoothedDiMovementMinus / SmoothedTrueRange * 100
+    DX 								= math.abs(DiPlus-DiMinus) / (DiPlus+DiMinus)*100
+    
+    [DiPlus, DiMinus]
+
+// @function Calculates the EMA based on a type, source, and length. Supported types are EMA, SMA, RMA, and WMA.
+// @returns The value of the selected EMA
+export taGetEma(simple string type, series float source, simple int length) =>
+    ema = switch type
+        "EMA" => ta.ema(source, length)
+        "SMA" => ta.sma(source, length)
+        "RMA" => ta.rma(source, length)
+        "WMA" => ta.wma(source, length)
+        => na
+
+    ema
+
+// @function Calculates VWAP based on provided src, anchor, and multiplier
+// @returns VWAP, lower band, and upper band
+export taGetVwap(float src, string anchor, float multiplier) =>
+	isNewPeriod = switch anchor
+	    "Session" => ta.change(time("D"))
+	    "Week" => ta.change(time("W"))
+	    "Month" => ta.change(time("M"))
+	    "Quarter" => ta.change(time("3M"))
+	    "Year" => ta.change(time("12M"))
+	    => false
+
+    var float sumSrcVol = na
+    var float sumVol = na
+    var float sumSrcSrcVol = na
+    sumSrcVol := isNewPeriod ? src * volume : src * volume + sumSrcVol[1]
+    sumVol := isNewPeriod ? volume : volume + sumVol[1]
+    sumSrcSrcVol := isNewPeriod ? volume * math.pow(src, 2) : volume * math.pow(src, 2) + sumSrcSrcVol[1]
+    vwap = sumSrcVol / sumVol
+    variance = sumSrcSrcVol / sumVol - math.pow(vwap, 2)
+    variance := variance < 0 ? 0 : variance
+    standardDeviation = math.sqrt(variance)
+    lowerBandValue = vwap - standardDeviation * multiplier
+    upperBandValue = vwap + standardDeviation * multiplier
+
+    [vwap, lowerBandValue, upperBandValue]
+
+
+// @function Calculates and average, min, and max for provided series using a lookback period and sample size
+// @returns Min, Max, and Average values
+export taGetExtremes(float value, string direction, int lookbackPeriod, int sampleSize) =>
+    extremes = array.new_float()
+    
+    for i=0 to lookbackPeriod - 1 by 1
+        array.push(extremes, value[i])
+    
+    topExtremes = array.new_float()
+    for i=0 to sampleSize - 1 by 1
+        float etremeAtN	        = na
+        if direction == "high"
+        	etremeAtN           := array.get(extremes, array.indexof(extremes, array.max(extremes,i)))
+        else
+        	if direction == "low"
+        		etremeAtN       := array.get(extremes, array.indexof(extremes, array.min(extremes,i)))
+        	else
+        		runtime.error("You must slect either 'high' or 'low' for the 'direction' when using taGetExtremes.")
+
+        array.push(topExtremes, etremeAtN)
+        
+    minExtreme = array.min(topExtremes)
+    avgExtreme = array.avg(topExtremes)
+    maxExtreme = array.max(topExtremes)
+    
+    [minExtreme, avgExtreme, maxExtreme]
+
+
+// @function Calculate the pivot low (support) using a look back/ahead window
+// @retunrs float value of the pivot low
+export taGetSupport(int lookback, int lookahead) =>
+    support = fixnan(ta.pivotlow(lookback, lookahead)[1])
+
+    support
+
+
+// @function Calculate the pivot high (support) using a look back/ahead window
+// @retunrs float value of the pivot high
+export taGetResistance(int lookback, int lookahead) =>
+    resistance = fixnan(ta.pivothigh(lookback, lookahead)[1])
+
+    resistance
+    
+// @function Calculate the percent difference between two numbers
+// @retunrs the percentage difference between the two numbers
+export taGetPercentDif(float number1, float number2) =>
+    difRaw = number1 - number2
+    dif = difRaw < 0 ? difRaw * -1 : difRaw
+    avg = (number1 + number2) / 2
+    
+    percentDif = (dif / avg) * 100
+
+
+// @function Checks to see if within a rage based on two times
+// @retunrs true/false boolean
+export isBetweenTwoTimes(simple string session, simple string timezone) => 
+    na(time(timeframe.period, session, timezone)) == false
+
+
+// @function This gets all closed trades and open trades
+// @retunrs an array of all open and closed trade ID's
+export getAllTradeIDs() =>
+    closed_orders = array.new_string()
+    open_orders = array.new_string()
+    all_orders = array.new_string()
+    currentlyInAPosition = strategy.position_size != 0
+    open_order_count = strategy.opentrades - 1
+    
+    for i = 0 to strategy.closedtrades by 1
+        id = strategy.closedtrades.entry_id(i)
+        array.push(closed_orders, id)
+    
+    if currentlyInAPosition
+        for i = 0 to open_order_count by 1
+            id = strategy.opentrades.entry_id(i)
+            array.push(open_orders, id)
+    
+    array.concat(all_orders, closed_orders)
+    array.concat(all_orders, open_orders)
+    
+    all_orders
+
+// @function This gets all closed trades since a provided bar number
+// @retunrs two arrays: closing bar index, and closing price
+export getClosedTradeSince(int barNumberToCompare) =>
+    closedOrderBarNumbers = array.new_int()
+    closedOrderPrices = array.new_int()
+
+    for i = 0 to strategy.closedtrades - 1 by 1
+        bar = strategy.closedtrades.exit_bar_index(i)
+        price = strategy.closedtrades.exit_price(i)
+        
+        if bar > barNumberToCompare
+            array.push(closedOrderBarNumbers, bar)
+            array.push(closedOrderPrices, bar)
+            
+    [closedOrderBarNumbers, closedOrderPrices]
+
+// @function This gets the count of closed trades since a provided bar index
+// @retunrs integer of number of closed trades since provided bar index
+export getCountOfClosedTradeSince(int barNumberToCompare) =>
+    int count = 0
+    if strategy.position_size != 0
+        for i = 0 to strategy.closedtrades - 1 by 1
+            bar = strategy.closedtrades.exit_bar_index(i)
+            if bar > barNumberToCompare
+                count += 1
+        count
+    else
+        count += 0
+    
+    count
+
+// @function Checks to see if a trade has already closed since a past bar number
+// @retunrs boolean of whether provided trade id has already closed since provided bar number
+export orderAlreadyClosedSince(string exitId, int barNumberToCompare) =>
+    closedOrderIds = array.new_string()
+    currentlyInAPosition = strategy.position_size != 0
+    
+    if currentlyInAPosition
+        for i = 0 to strategy.closedtrades - 1 by 1
+            bar = strategy.closedtrades.exit_bar_index(i)
+            price = strategy.closedtrades.exit_price(i)
+            id = strategy.closedtrades.exit_id(i)
+            
+            if bar > barNumberToCompare
+                array.push(closedOrderIds, id)
+        
+        alreadyClosed = array.includes(closedOrderIds, exitId)
+
+
+// @function This gets all open trades
+// @retunrs an array of all open trade ID's
+export getOpenTradeIDs() =>
+    open_orders = array.new_string()
+    
+    open_order_count = strategy.opentrades
+    
+    if open_order_count > 0
+        for i = 0 to open_order_count - 1 by 1
+            id = strategy.opentrades.entry_id(i)
+            array.push(open_orders, id)
+    
+    open_orders
+
+
+// @function This checks to see if a provided order id uses the getAllTradeIDs() function to check
+// @retunrs an array of all open and closed trade ID's
+export orderAlreadyExists(string order_id) =>
+    array.includes(getAllTradeIDs(), order_id) ? true : false
+
+
+// @function This checks to see if a provided order id uses the getAllTradeIDs() function to check
+// @returns an array of all open and closed trade ID's
+export orderCurrentlyExists(string order_id) =>
+    array.includes(getOpenTradeIDs(), order_id) ? true : false
+
+
+// @function Detect when the ladder has started to fill so that the ladder start can be locked to the initial strategy entry price. After trades close, reset it back to zero.
+// @returns Locked ladder start price and the bar number that the first ladder was filled on
+export getLockedLadderStart(float startingLadderPrice) =>
+    var float ladderInStart = startingLadderPrice
+    var bool ladderInActive = false
+    var int firstLadderOpenedOnBar = 0
+    bool currentlyInAPosition = strategy.position_size != 0
+    
+    if currentlyInAPosition and not ladderInActive
+        ladderInStart := strategy.opentrades.entry_price(0)
+        firstLadderOpenedOnBar := strategy.opentrades.entry_bar_index(0)
+        ladderInActive := true
+    else
+        if not currentlyInAPosition
+            ladderInStart := startingLadderPrice
+            firstLadderOpenedOnBar := 0
+            ladderInActive := false
+    
+    [ladderInStart, firstLadderOpenedOnBar]
+
+
+// @function Keeps count of the number of ladder orders that have been filled for an strategy entry
+// @returns maximum number of ladder orders filled
+export getAveragePriceOfFilledLadders() =>
+    var float avgPrice = na
+    var int mostOpenTradesSinceFirstLadderFilled = 0
+    bool currentlyInAPosition = strategy.position_size != 0
+    
+    if currentlyInAPosition and strategy.opentrades > mostOpenTradesSinceFirstLadderFilled
+        mostOpenTradesSinceFirstLadderFilled := strategy.opentrades
+        avgPrice := strategy.position_avg_price
+    else
+        if not currentlyInAPosition
+            mostOpenTradesSinceFirstLadderFilled := 0
+            avgPrice := na
+    avgPrice
+
+
+// @function calulates the number of contracts you can buy with a set amount of capital and a limit price
+// @returns number of contracts you can buy based on amount of capital you want to use and a price
+export getContractCount(string amount, float price) =>
+    float contractCount = 0.00
+    accountBalance = strategy.equity
+    
+    if str.contains(amount,"%a") and accountBalance > 0
+        percentAmount = str.split(amount,"%")
+        contractCount := (str.tonumber(array.get(percentAmount,0))/100 * accountBalance) /price
+    else
+        contractCount := str.tonumber(amount)/price
+    
+    contractCount
+
+
+// @function Constructs arrays used for creating strategy entry orders via a for loop
+// @returns array of ladder entry prices and amounts based on total amount you want to invest across all ladder rungs and either a range between ladderStart and LadderStop based on specificed number of ladderRungs OR ladderStart, ladderRungs, and LadderSpacingPercent
+export getLadderInSteps(string side, float amount, string amountType, int ladderRungs, float ladderStart, float ladderStop, float stepSpacingPercent, int roundTo) =>
+    entryPrices     = array.new_float()     // For Alertatron and TradingView
+    contractCounts  = array.new_float()     // For TradingView
+    entryAmounts    = array.new_float()    // For Alertatron
+    orderNames      = array.new_string()    // For TradingView
+    
+    float   ladderSpacing   = na
+    float   contractCount   = na
+    float   entryAmount     = na
+    
+    if ladderStart and ladderStop and not stepSpacingPercent
+        ladderSpacing := (ladderStart - ladderStop) / ladderRungs // float returns the dollar amount between each rung of the ladder
+    else
+        ladderSpacing := ladderStart * (stepSpacingPercent/100)
+        
+    if ladderStart and ladderSpacing
+        for i = 0 to ladderRungs - 1 by 1
+            price = side == "buy" ? ladderStart - (ladderSpacing * i) : ladderStart + (ladderSpacing * i)
+            orderName = side =="buy" ? "Long - " + str.tostring(i+1) : "Short - " + str.tostring(i+1)
+            
+            if amountType == "Percent Of Account"
+                contractCount       := math.round(((amount/100) * strategy.equity)/price, roundTo)  // For TradingView
+                entryAmount         := math.round(amount, roundTo)                                  // For Alertatron
+            if amountType == "Dollars"
+                contractCount       := math.round(amount/price, roundTo)                            // For TradingView
+                entryAmount         := math.round(amount, roundTo)                                  // For Alertatron
+            if amountType == "Contracts"
+                contractCount       := math.round(amount, roundTo)                                  // For TradingView
+                entryAmount         := math.round(amount, roundTo)                                  // For Alertatron
+        
+            array.push(entryPrices, price)
+            array.push(contractCounts, contractCount)
+            array.push(entryAmounts, entryAmount)
+            array.push(orderNames, orderName)
+
+    [entryPrices, contractCounts, entryAmounts, orderNames]
+
+
+// @function Constructs arrays used for creating strategy exit orders via a for loop
+// @returns array of ladder entry prices and amounts based on total amount you want to invest across all ladder rungs and either a range between ladderStart and LadderStop based on specificed number of ladderRungs OR ladderStart, ladderRungs, and LadderSpacingPercent
+export getLadderOutSteps(string side, float ladderStart, int ladderRungs, float stepSpacingPercent, int roundTo) =>
+    prices                  = array.new_float()
+    quantityPercents        = array.new_float()
+    orderNames              = array.new_string()
+    
+    float ladderSpacing     = ladderStart * (stepSpacingPercent/100)
+    int quantityPercent     = math.floor(100/ladderRungs)
+    int remainingPercent    = 100
+    int percentToClose      = na
+    
+    for i = 0 to ladderRungs - 1 by 1
+        price = math.round(side == "sell" ? ladderStart + (ladderSpacing * i) : ladderStart - (ladderSpacing * i), roundTo)
+        orderName = "Ladder Out - " + str.tostring(i+1)
+        
+        if i == ladderRungs -1 
+            percentToClose := remainingPercent
+        else
+            percentToClose := quantityPercent
+            remainingPercent -= percentToClose
+            
+        array.push(prices, price)
+        array.push(quantityPercents, percentToClose)
+        array.push(orderNames, orderName)
+
+    [prices, quantityPercents, orderNames]
+
+
+// @function Calulates the rate of change of a series based on a look back length
+// @returns the rate of change as a float
+export getRateOfChange(float source, int length) =>
+    float rateOfChange = 100 * (source - source[length])/source[length]
+    
+    rateOfChange
+
+
+// @function Constructs arrays used for creating strategy exit orders via a for loop
+// @returns array of ladder entry prices and amounts based on total amount you want to invest across all ladder rungs and either a range between ladderStart and LadderStop based on specificed number of ladderRungs OR ladderStart, ladderRungs, and LadderSpacingPercent
+export closeUnfilledEntriesAfter(int cancelUnfilledOrdersAfter, string cancelUnfilledOrdersType, int startingBar) =>
+    int chartTimeframeMinutes   = timeframe.in_seconds(timeframe.period) / 60
+    bool currentlyInAPosition   = strategy.position_size != 0
+    bool cancelUnfilledEntries  = false
+    int numberOfClosedTrades    = getCountOfClosedTradeSince(startingBar)
+    int cancelOnBar = na
+    
+    if currentlyInAPosition
+        cancelUnfilledEntries := switch cancelUnfilledOrdersType
+            "exits"     =>  numberOfClosedTrades >= cancelUnfilledOrdersAfter
+            "bars"      =>  bar_index >= (startingBar + cancelUnfilledOrdersAfter)
+            "days"      =>  bar_index >= (startingBar + ((cancelUnfilledOrdersAfter * 1440)/chartTimeframeMinutes))
+            "hours"     =>  bar_index >= (startingBar + ((cancelUnfilledOrdersAfter * 60)/chartTimeframeMinutes))
+            "minutes"   =>  bar_index >= (startingBar + (cancelUnfilledOrdersAfter/chartTimeframeMinutes))
+
+        cancelOnBar := switch cancelUnfilledOrdersType
+            "exits"     =>  numberOfClosedTrades >= cancelUnfilledOrdersAfter ? strategy.closedtrades.exit_bar_index(0) : na
+            "bars"      =>  startingBar + cancelUnfilledOrdersAfter
+            "days"      =>  startingBar + ((cancelUnfilledOrdersAfter * 1440)/chartTimeframeMinutes)
+            "hours"     =>  startingBar + ((cancelUnfilledOrdersAfter * 60)/chartTimeframeMinutes)
+            "minutes"   =>  startingBar + (cancelUnfilledOrdersAfter/chartTimeframeMinutes)
+    else
+        cancelUnfilledEntries := false
+        cancelOnBar := na
+    
+    [cancelUnfilledEntries, cancelOnBar]
+
+
+// @function Gets an array of entry names for number of desired entries
+// @returns array of entry name strings
+export getEntryNames(int numberOfEntries, string side) =>
+    entryNamesArray = array.new_string(numberOfEntries)
+    
+    for i = 0 to numberOfEntries - 1 by 1
+        entryName = side == "buy" ? "Long - " + str.tostring(i + 1) : "Short - " + str.tostring(i + 1)
+        array.insert(entryNamesArray, i, entryName)
+        array.from(side == "buy" ? "Long"  + " - 1" : "Short" + " - 1", side == "buy" ? "Long"  + " - 2" : "Short" + " - 2", side == "buy" ? "Long"  + " - 3" : "Short" + " - 3", side == "buy" ? "Long"  + " - 4" : "Short" + " - 4", side == "buy" ? "Long"  + " - 5" : "Short" + " - 5", side == "buy" ? "Long"  + " - 6" : "Short" + " - 6")
+    
+    entryNamesArray
+    
+    
+// @function Formats array of entry prices to supported format
+// @returns CSV string of properly formated entry prices
+export formatEntryPrices(string entryPrices) =>
+    entryPricesArray            = str.split(entryPrices, ",")
+    string entryPricesString    = na
+    
+    for i = 0 to array.size(entryPricesArray) - 1 by 1
+        entryPricesString += str.format("{0,number,currency}", array.get(entryPricesArray,i))
+        if i != array.size(entryPricesArray) - 1
+            entryPricesString += ","
+    
+    entryPricesString
+    
+    
+//  This next section includes all of the functions needed for Alertatron webhook messages. Not all functions are exported. Some are just helper functions to make the bottom exported function cleaner. 
+getProfitTargetAmount(string amount) =>
+    string profitTargetAmount = na
+    
+    if str.contains(amount,"%")
+        profitTargetAmount := amount + "p"
+    else
+        runtime.error("The profit target amount must be represented as a % of the position. Update 'profitTargetAmounts' to be a CSV string of percentages like '3%, 4%, 5%'")
+    
+    profitTargetAmount
+    
+    
+getProfitTarget(string target, int symbolMaxDecimals) =>
+    string profitTarget = na
+    
+    if str.contains(target,"$")
+        targetSplit = str.split(target,"$")
+        roundedPrice = math.round(str.tonumber(array.get(targetSplit,1)),symbolMaxDecimals)
+        profitTarget := "@" + str.tostring(roundedPrice)
+    else
+        if str.contains(target,"%")
+            profitTarget := target + "p"
+        else
+            runtime.error("The profit target must be represented as a % or price. Update 'profitTargets' to be a CSV string of percentages like '3%, 4%, 5%' or prices like '$20000.00, 21000.00, 22000.00'")
+    
+    profitTarget
+    
+//  Converts incoming entry amounts into % of account or contracts
+getEntryPrices(float[] array, int roundTo) =>
+    roundedArray = array.new_string(0)
+    
+    for i = 0 to array.size(array) - 1 by 1
+        roundedVal = math.round(array.get(array,i),roundTo)
+        array.push(roundedArray, str.tostring(roundedVal))
+        
+    roundedArray
+
+// @function Calulates the contract count and entry amount for strategy entries and for alertatron alert messages
+// @returns Tupple including the contract count (to be used in TV) and entry amount (to be used in alert messages)
+export getLotSize(string type, float amount, float leverage, int roundTo) =>
+    float contractCount                 = na
+    float entryAmount                   = na
+
+    if type == "Percent Of Account"
+        contractCount                   := math.round(((amount/100) * strategy.equity)/close, roundTo) * leverage
+        entryAmount                     := math.round(amount, roundTo)
+    if type == "Dollars"
+        contractCount                   := math.round(amount/close, roundTo) * leverage
+        entryAmount                     := math.round(amount, roundTo)
+    if type == "Contracts"
+        contractCount                   := math.round(amount, roundTo) * leverage
+        entryAmount                     := math.round(amount, roundTo)
+    
+    [contractCount,entryAmount]
+
+// @function Sets the alertatron symbol and base currency based on provided overrides in strategy settings
+// @returns Tupple including the symbol and base currency
+export getPairOverrides(string symbolOverride, string currencyOverride) =>
+    string baseCurrency = na
+    string symbol = na
+
+    if currencyOverride != ""
+        baseCurrency := currencyOverride
+    else
+        baseCurrency := getBaseCurrency()
+        
+    if symbolOverride != ""
+        symbol := symbolOverride
+    else
+        symbol := getChartSymbol()
+    
+    [symbol,baseCurrency]
+
+getEntryQuantity(float entryAmount, string type, float price, int roundTo, float leverage) =>
+    string entryQuantity = na
+    float leveragedPercentAmount = na
+    
+    if type == "Contracts"
+        entryQuantity :=str.tostring(math.round(entryAmount, roundTo))
+    else
+        if type == "Percent Of Account"
+            if leverage > 1
+                leveragedPercentAmount := (entryAmount * leverage)
+            else
+                leveragedPercentAmount := (entryAmount * leverage)
+            entryQuantity :=str.tostring(math.round(leveragedPercentAmount, roundTo)) + "%a"
+        else
+            if type == "Dollars"
+                entryQuantity :=str.tostring(math.round(entryAmount/price, roundTo))
+    
+    entryQuantity
+
+// Converts incoming profit target amounts into % of position or contracts
+getProfitTargets(float[] array, string type, int roundTo) =>
+    
+    int inputSize = array.size(array) - 1
+    output = array.new_string(0) // Create empty array of sting type
+    string target = na
+    float remainingPercentage = 100.00
+    
+    for i = 0 to inputSize by 1
+        float percent = 0.00
+        bool lastTarget = i == inputSize
+        
+        if type == "percent"
+            if lastTarget
+                percent := remainingPercentage
+            else
+                percent := math.round(array.get(array,i), roundTo)
+                remainingPercentage -= percent
+                
+            target := "e" + str.tostring(percent) + "%"
+        else
+            if type == "price"
+                target := "@" + str.tostring(math.round(array.get(array,i), roundTo))
+            else
+                runtime.error('The "profitTargetType must be "percent" or "price".')
+        
+        array.push(output, target)
+        
+    output
+    
+getProfitTargetAmounts(float[] array, int roundTo) =>
+    output = array.new_string(0) // Create empty array of sting type
+    float remainingPercentage = 100.00
+    float targetPercentage = 0.00
+    
+    for i = 0 to array.size(array) - 1 by 1
+        if i == array.size(array) - 1
+            targetPercentage := remainingPercentage
+        else
+            targetPercentage := math.round(array.get(array,i),roundTo)
+            remainingPercentage -= targetPercentage
+            
+        array.push(output, str.tostring(targetPercentage) + "%p")
+    
+    output
+
+getStop(string side, string stopTriggerType, float stopTrigger, float stopLimitOffset, int roundTo) =>
+    string stopTriggerVal      = na
+    string stopLimitOffsetVal  = na
+    
+    if stopTriggerType == "percent"
+        stopTriggerVal := "e" + str.tostring(math.round(stopTrigger,roundTo)) + "%"
+        stopLimitOffsetVal := "e" + str.tostring(math.round(side == "buy" ? (stopTrigger - (stopTrigger * (stopLimitOffset/100))) : (stopTrigger + (stopTrigger * (stopLimitOffset/100))),roundTo)) + "%"
+        
+    if stopTriggerType == "price"
+        stopTriggerVal := "@" + str.tostring(math.round(stopTrigger,roundTo))    
+        stopLimitOffsetVal := "@" + str.tostring(math.round(side == "buy" ? (stopTrigger - (stopTrigger * (stopLimitOffset/100))) : (stopTrigger + (stopTrigger * (stopLimitOffset/100))),roundTo))
+    
+    [stopTriggerVal, stopLimitOffsetVal]
+
+getProfit(string side, string profitTriggerType, float profitTrigger, float profitLimitOffset, int roundTo) =>
+    string profitTriggerVal      = na
+    string profitLimitOffsetVal  = na
+    
+    if profitTriggerType == "percent"
+        profitTriggerVal := "e" + str.tostring(math.round(profitTrigger,roundTo)) + "%"
+        profitLimitOffsetVal := "e" + str.tostring(math.round(side == "buy" ? (profitTrigger - (profitTrigger * (profitLimitOffset/100))) : (profitTrigger + (profitTrigger * (profitLimitOffset/100))),roundTo)) + "%"
+        
+    if profitTriggerType == "price"
+        profitTriggerVal := "@" + str.tostring(math.round(profitTrigger,roundTo))    
+        profitLimitOffsetVal := "@" + str.tostring(math.round(side == "buy" ? (profitTrigger - (profitTrigger * (profitLimitOffset/100))) : (profitTrigger + (profitTrigger * (profitLimitOffset/100))),roundTo))
+    
+    [profitTriggerVal, profitLimitOffsetVal]
+
+
+// @function Generates Alertatron Order Management strings for 1) Entry, Take Profit, and Stop Loss, 2) Cancel Unfilled Entries, and 3) Trailing Stop
+// @returns 1) array of order messages, 2) string for Canceling Unfilled Entries, and 3) string for Intiating the Trailing Stop
+export getAlertatrongAlertMessages(string tag, string secret, string symbol, string baseCurrency, string pairDivider, string side, int symbolMaxDecimals, int leverage, string leverageType, float[] entryPrices, float[] entryAmounts, string entryAmountType, float[] profitTargets, string profitTargetType, float[] profitTargetAmounts, float stopTrigger, string stopTriggerType, float stopLimitOffset, float trailingStopTrigger, string trailingStopTriggerType, float trailingStopLimitOffset) =>
+	//	Global Variables
+	closeSide        = side == "buy" ? "sell" : "buy"
+	initializeOrder  = secret + "(" + symbol + pairDivider + baseCurrency + ") {" + "\n"
+	messageEnd       = "} #bot"
+
+	//	Entry, Take Profit, and Stop Loss
+	entryPricesFormatted = getEntryPrices(array=entryPrices, roundTo=symbolMaxDecimals)
+    profitTargetsFormatted = getProfitTargets(array=profitTargets, type=profitTargetType, roundTo=symbolMaxDecimals)
+    profitTargetAmountsFormatted = getProfitTargetAmounts(array=profitTargetAmounts, roundTo=symbolMaxDecimals)
+    [stopTriggerFormatted, stopTriggerOffestFormatted] = getStop(closeSide, stopTriggerType, stopTrigger, stopLimitOffset, roundTo=symbolMaxDecimals)
+
+	settingsLeverageType = "exchangeSettings(leverage=" + str.lower(leverageType) + ");" + "\n"
+	settingsLeverageAmount = "exchangeSettings(leverage=" + str.tostring(leverage) + "); " + "\n"
+
+	entryOrders = array.new_string(0)
+    
+	for i = 0 to array.size(entryPricesFormatted) - 1 by 1
+        waitingLimit = "waitingLimit(side=" + side + ", amount=" + getEntryQuantity(entryAmount=array.get(entryAmounts,i), type=entryAmountType, price=array.get(entryPrices,i), leverage=leverage, roundTo=symbolMaxDecimals) + ", offset=@" + array.get(entryPricesFormatted,i) + ", tag=" + tag + "-entry);" + "\n"
+        
+        profitTargets = ""
+        for x = 0 to array.size(profitTargetsFormatted) - 1 by 1
+            profitTarget = "limit(side=" + closeSide + ", amount=" + array.get(profitTargetAmountsFormatted,x) + ", offset=" + array.get(profitTargetsFormatted,x) + ", reduceOnly=true, tag=" + tag + ");" + "\n"
+            profitTargets += profitTarget
+        
+        stopOrder = "stopOrder(side=" + closeSide + ", amount=100%p, offset=" + stopTriggerFormatted + ", limitOffset=" + stopTriggerOffestFormatted + ", trigger=last, reduceOnly=true, tag=" + tag + ");" + "\n"
+
+		entryOrder = initializeOrder + settingsLeverageType + settingsLeverageAmount + waitingLimit + profitTargets + stopOrder + messageEnd
+    	array.push(entryOrders, entryOrder)
+
+	//	Cancel Unfilled Entries	
+    cancelUnfilledEntries = "cancel(which=tagged, tag=" + tag + "-entry);" + "\n"
+    cancelEverythingElse = "cancel(which=tagged, tag=" + tag + ");" + "\n"
+    cancelEntriesMessage = initializeOrder + cancelUnfilledEntries + messageEnd
+
+	//	Trailing Stop
+    [trailingStopTriggerFormatted, trailingStopTriggerOffestFormatted] = getStop(side=closeSide, stopTriggerType=trailingStopTriggerType, stopTrigger=trailingStopTrigger, stopLimitOffset=trailingStopLimitOffset, roundTo=symbolMaxDecimals)
+    trailingStop     = "trailingStop(side=" + closeSide + ", amount=100%p, offset=" + trailingStopTriggerFormatted + ", limitOffset=" + trailingStopTriggerOffestFormatted + ", trigger=last, trailingMethod=continuous, reduceOnly=true, tag=" + tag + ");" + "\n"
+    trailingStopMessage     = initializeOrder + cancelUnfilledEntries + cancelEverythingElse + trailingStop + messageEnd
+    
+	[entryOrders, cancelEntriesMessage, trailingStopMessage]
+
+
+// @function Generates Alertatron alert message for a market entry
+// @returns string of instructions for Alertatron to market enter
+export getAlertatronMarketEntryMessage(string secret, string symbol, string baseCurrency, string pairDivider, string side, int symbolMaxDecimals, int leverage, string leverageType, float entryPrice, float amount, string amountType, float stopTrigger, string stopTriggerType, float stopLimitOffset) =>
+    closeSide               = side == "buy" ? "sell" : "buy"
+    qty                     = getEntryQuantity(entryAmount=amount, type=amountType, leverage=leverage, price=entryPrice, roundTo=symbolMaxDecimals)
+	[stopTriggerFormatted, stopTriggerOffestFormatted] = getStop(closeSide, stopTriggerType, stopTrigger, stopLimitOffset, roundTo=symbolMaxDecimals)
+	tradePair               = symbol + pairDivider + baseCurrency
+	
+	initializeOrder         = secret + "(" + tradePair + ") {" + "\n"
+    settingsLeverageType    = "exchangeSettings(leverage=" + str.lower(leverageType) + ");" + "\n"
+	settingsLeverageAmount  = "exchangeSettings(leverage=" + str.tostring(leverage) + "); " + "\n"
+    cancelExistingOrders    = "cancel(which=tagged, tag=" + tradePair + ");" + "\n"
+    market                  = "market(side=" + side + ", amount=" + qty + ", tag=" + tradePair + ");" + "\n"
+    stopOrder               = "stopOrder(side=" + closeSide + ", amount=100%p, offset=" + stopTriggerFormatted + ", limitOffset=" + stopTriggerOffestFormatted + ", trigger=last, reduceOnly=true);" + "\n"
+    messageEnd              = "} #bot"
+    
+    marketEntryMessage      = initializeOrder + settingsLeverageType + settingsLeverageAmount + cancelExistingOrders + market + stopOrder + messageEnd
+
+// @function Generates Alertatron alert message for a market entry with a stop loss and profit target
+// @returns string of instructions for Alertatron to create an OCO order
+export getAlertatronOcoMessage(string secret, string symbol, string baseCurrency, string pairDivider, string side, int symbolMaxDecimals, int leverage, string leverageType, float entryPrice, float amount, string amountType, float stopTrigger, string stopTriggerType, float stopLimitOffset, float profitTrigger, string profitTriggerType, float profitLimitOffset) =>
+    closeSide               = side == "buy" ? "sell" : "buy"
+    qty                     = getEntryQuantity(entryAmount=amount, type=amountType, leverage=leverage, price=entryPrice, roundTo=symbolMaxDecimals)
+	[stopTriggerFormatted, stopTriggerOffestFormatted] = getStop(closeSide, stopTriggerType, stopTrigger, stopLimitOffset, roundTo=symbolMaxDecimals)
+	[profitTargetFormatted, profitTriggerOffsetFormatted] = getProfit(closeSide, profitTriggerType, profitTrigger, profitLimitOffset, roundTo=symbolMaxDecimals)
+    tradePair               = symbol + pairDivider + baseCurrency
+	
+	initializeOrder         = secret + "(" + tradePair + ") {" + "\n"
+    settingsLeverageType    = "exchangeSettings(leverage=" + str.lower(leverageType) + ");" + "\n"
+	settingsLeverageAmount  = "exchangeSettings(leverage=" + str.tostring(leverage) + "); " + "\n"
+    cancelExistingOrders    = "cancel(which=tagged, tag=" + tradePair + ");" + "\n"
+    market                  = "market(side=" + side + ", amount=" + qty + ", tag=" + tradePair + ");" + "\n"
+    stopOrder               = "stopOrder(side=" + closeSide + ", amount=100%p, offset=" + stopTriggerFormatted + ", limitOffset=" + stopTriggerOffestFormatted + ", trigger=last, reduceOnly=true);" + "\n"
+    profitOrder             = "stopOrder(side=" + closeSide + ", amount=100%p, offset=" + profitTargetFormatted + ", limitOffset=" + profitTriggerOffsetFormatted + ", trigger=last, reduceOnly=true);" + "\n"
+    messageEnd              = "} #bot"
+    
+    marketEntryMessage      = initializeOrder + settingsLeverageType + settingsLeverageAmount + cancelExistingOrders + market + stopOrder + profitOrder + messageEnd
+
+
+// @function Generates Alertatron alert message for a market exit
+// @returns string of instructions for Alertatron to market close a position
+export getAlertatronMarketExitMessage(string secret, string symbol, string baseCurrency, string pairDivider, string side) =>
+	initializeOrder         = secret + "(" + symbol + pairDivider + baseCurrency + ") {" + "\n"
+    cancelExistingOrders    = "cancel(which=all);" + "\n"
+    market                  = "market(side=" + side + ", amount=100%p, reduceOnly=true);" + "\n"
+    messageEnd              = "} #bot"
+    
+    marketExitMessage       = initializeOrder + cancelExistingOrders + market + messageEnd
+
+
+// @function Generates Alertatron alert message for to market exit a percentage of an open position
+// @returns string of instructions for Alertatron to market close a a percentage of an open position
+export getAlertatronAlertMessageMarketClosePercentOfPosition(string secret, string symbol, string baseCurrency, string pairDivider, int percent, string side) =>
+	initializeOrder         = secret + "(" + symbol + pairDivider + baseCurrency + ") {" + "\n"
+    cancelExistingOrders    = "cancel(which=all);" + "\n"
+    market                  = "market(side=" + side + ", amount=" + str.tostring(percent) + "%p, reduceOnly=true);" + "\n"
+    messageEnd              = "} #bot"
+    
+    marketExitMessage       = initializeOrder + cancelExistingOrders + market + messageEnd
+
+
+// @function Converts a timeframe into a pretty string
+// @returns string representation of timeframe
+export convertTimeframeToString(string timeframe) =>
+    string timeToConvert = na
+    
+    if timeframe == timeframe.period
+        timeToConvert := timeframe.period
+    else
+        timeToConvert := timeframe
+    printTime = switch timeToConvert
+        "1"     => "1m"
+        "3"     => "3m"
+        "5"     => "5m"
+        "15"    =>  "15m"
+        "30"    =>  "30m"
+        "45"    =>  "45m"
+        "60"    =>  "1h"
+        "120"   =>  "2h"
+        "180"   =>  "3h"
+        "240"   =>  "4h"
+        "720"   =>  "12h"
+        "1D"    =>  "1D"
+        "3D"    =>  "3D"
+        "1W"    =>  "1W"
+        "1M"    =>  "1M"
+        "6M"    =>  "6M"
+    
+    printTime
+    
+   
+   

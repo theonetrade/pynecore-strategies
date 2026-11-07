@@ -1,0 +1,86 @@
+import	file	published_by	pine_id	version_created	copyright	scripts_using	libraries_using	match
+aybarsm/tac/21	aybarsm/tac/v21.pine	aybarsm	PUB;43ee5f59d3364ea78a72f030e42825a4	2025-03-05	aybarsm	1	-	same author
+aybarsm/ToolsFluent/6	aybarsm/ToolsFluent/v6.pine	aybarsm	PUB;45e4a788a4764135bc9b44a886c8164e	2025-03-04	aybarsm	1	aybarsm/ToolsPos/10,aybarsm/tac/21	same author
+aybarsm/ToolsPos/10	aybarsm/ToolsPos/v10.pine	aybarsm	PUB;70a14e4f76c04063a24c9a2caa2bfcf9	2025-03-05	aybarsm	1	-	same author
+boitoki/AwesomeColor/9	boitoki/AwesomeColor/v9.pine	boitoki	PUB;63202329a04c4056a171b456d7b77065	2023-03-25	boitoki	1	-	same author
+boitoki/Heikinashi/6	boitoki/Heikinashi/v6.pine	boitoki	PUB;1c0c9d7ecb8a4675b9bc0c967acb99e6	2023-01-26	boitoki	0	boitoki/Utilities/11	same author
+boitoki/Utilities/11	boitoki/Utilities/v11.pine	boitoki	PUB;40add3df60ef4c9ea1e15c4cde58d95b	2025-04-21	boitoki	1	-	same author
+facejungle/utils/17	facejungle/utils/v17.pine	facejungle	PUB;2ff4f799679940de8dd1ee282eda55c8	2023-10-22	facejungle	1	-	same author
+HeWhoMustNotBeNamed/_matrix/5	HeWhoMustNotBeNamed/_matrix/v5.pine	Trendoscope	PUB;d77a6b84e9c549e78112b0be71f3a80e	2022-06-13	HeWhoMustNotBeNamed	2	HeWhoMustNotBeNamed/mZigzag/12,HeWhoMustNotBeNamed/rzigzag/10	moved to Trendoscope; exports checked
+HeWhoMustNotBeNamed/arrays/1	HeWhoMustNotBeNamed/arrays/v1.pine	Trendoscope	PUB;43b60080ad71440cb2d0afc75038ed7e	2022-06-12	HeWhoMustNotBeNamed	4	HeWhoMustNotBeNamed/_matrix/5,HeWhoMustNotBeNamed/mZigzag/12,HeWhoMustNotBeNamed/rzigzag/10,HeWhoMustNotBeNamed/ta/1	moved to Trendoscope; exports checked; 4 candidates, others rejected
+HeWhoMustNotBeNamed/arrayutils/10	HeWhoMustNotBeNamed/arrayutils/v10.pine	Trendoscope	PUB;9525ebaabadb4a1b8abcac0cdd9b73f3	2022-01-02	HeWhoMustNotBeNamed	1	-	moved to Trendoscope; exports checked
+HeWhoMustNotBeNamed/arrayutils/17	HeWhoMustNotBeNamed/arrayutils/v17.pine	Trendoscope	PUB;9525ebaabadb4a1b8abcac0cdd9b73f3	2022-02-08	HeWhoMustNotBeNamed	0	HeWhoMustNotBeNamed/enhanced_ta/14	moved to Trendoscope; exports checked
+HeWhoMustNotBeNamed/arrayutils/21	HeWhoMustNotBeNamed/arrayutils/v21.pine	Trendoscope	PUB;9525ebaabadb4a1b8abcac0cdd9b73f3	2022-06-24	HeWhoMustNotBeNamed	1	-	moved to Trendoscope; exports checked
+HeWhoMustNotBeNamed/arrayutils/22	HeWhoMustNotBeNamed/arrayutils/v22.pine	Trendoscope	PUB;9525ebaabadb4a1b8abcac0cdd9b73f3	2023-05-18	Trendoscope	1	-	moved to Trendoscope; exports checked
+HeWhoMustNotBeNamed/drawingutils/8	HeWhoMustNotBeNamed/drawingutils/v8.pine	Trendoscope	PUB;c271df900443441497c4165eb447fbb6	2022-10-15	HeWhoMustNotBeNamed	1	-	moved to Trendoscope; exports checked
+HeWhoMustNotBeNamed/eHarmonicpatternsExtended/6	HeWhoMustNotBeNamed/eHarmonicpatternsExtended/v6.pine	Trendoscope	PUB;6eebbd57e8bc499e9b29794aa5746a1f	2022-10-16	HeWhoMustNotBeNamed	1	-	moved to Trendoscope; exports checked
+HeWhoMustNotBeNamed/enhanced_ta/10	HeWhoMustNotBeNamed/enhanced_ta/v10.pine	Trendoscope	PUB;0e6b524f9192460c81190cbc8791338f	2021-10-30	HeWhoMustNotBeNamed	0	HeWhoMustNotBeNamed/supertrend/6	moved to Trendoscope; exports checked
+HeWhoMustNotBeNamed/enhanced_ta/14	HeWhoMustNotBeNamed/enhanced_ta/v14.pine	Trendoscope	PUB;0e6b524f9192460c81190cbc8791338f	2022-03-12	HeWhoMustNotBeNamed	2	HeWhoMustNotBeNamed/mZigzag/12	moved to Trendoscope; exports checked
+HeWhoMustNotBeNamed/mZigzag/12	HeWhoMustNotBeNamed/mZigzag/v12.pine	Trendoscope	PUB;6b6faaa56c344e83a211c1592210b672	2022-11-04	HeWhoMustNotBeNamed	1	-	moved to Trendoscope; exports checked
+HeWhoMustNotBeNamed/rzigzag/10	HeWhoMustNotBeNamed/rzigzag/v10.pine	Trendoscope	PUB;2d8608f41b49482280d78470b371edde	2022-12-04	HeWhoMustNotBeNamed	1	-	moved to Trendoscope; exports checked
+HeWhoMustNotBeNamed/strategy/3	HeWhoMustNotBeNamed/strategy/v3.pine	Trendoscope	PUB;b69e71ab06674e30adafff13313fe10e	2022-12-27	HeWhoMustNotBeNamed	1	-	moved to Trendoscope; exports checked; 2 candidates, others rejected
+HeWhoMustNotBeNamed/strategy/5	HeWhoMustNotBeNamed/strategy/v5.pine	Trendoscope	PUB;b69e71ab06674e30adafff13313fe10e	2023-02-14	HeWhoMustNotBeNamed	1	-	moved to Trendoscope; exports checked; 2 candidates, others rejected
+HeWhoMustNotBeNamed/supertrend/6	HeWhoMustNotBeNamed/supertrend/v6.pine	Trendoscope	PUB;4ff00138a18b4a419b4321c4278d3092	2022-01-24	HeWhoMustNotBeNamed	0	HeWhoMustNotBeNamed/mZigzag/12	moved to Trendoscope; exports checked
+HeWhoMustNotBeNamed/ta/1	HeWhoMustNotBeNamed/ta/v1.pine	Trendoscope	PUB;04c83807ed2c44c693f9bfcf385cee6e	2022-11-16	HeWhoMustNotBeNamed	4	-	moved to Trendoscope; exports checked; 8 candidates, others rejected
+HeWhoMustNotBeNamed/utils/1	HeWhoMustNotBeNamed/utils/v1.pine	Trendoscope	PUB;fae6254d97c746d5ba7192fa87cdcb2a	2022-06-23	HeWhoMustNotBeNamed	0	HeWhoMustNotBeNamed/drawingutils/8	moved to Trendoscope; exports checked; 9 candidates, others rejected
+HeWhoMustNotBeNamed/zigzag/5	HeWhoMustNotBeNamed/zigzag/v5.pine	Trendoscope	PUB;831bb58581e64ea49b6b953de848ad4b	2021-10-30	HeWhoMustNotBeNamed	0	HeWhoMustNotBeNamed/supertrend/6	moved to Trendoscope; exports checked; 4 candidates, others rejected
+HoanGhetti/SimpleTrendlines/3	HoanGhetti/SimpleTrendlines/v3.pine	HoanGhetti	PUB;efe2d5bcfec34de3a6bc888e255b937d	2023-03-22	HoanGhetti	1	-	same author
+jason5480/analytics_tables/3	jason5480/analytics_tables/v3.pine	jason5480	PUB;19ad5cc0515d4e878b36224601d66a2d	2025-09-15	jason5480	1	-	same author
+jason5480/biased_price_target/9	jason5480/biased_price_target/v9.pine	jason5480	PUB;f4746420260842a5a9ae1dc4ab7d31dd	2025-09-15	jason5480	1	-	same author
+jason5480/chrono_utils/7	jason5480/chrono_utils/v7.pine	jason5480	PUB;bc8fee79a8024ebda00abae68de9c9cc	2025-01-03	jason5480	2	-	same author
+jason5480/chrono_utils/8	jason5480/chrono_utils/v8.pine	jason5480	PUB;bc8fee79a8024ebda00abae68de9c9cc	2025-07-06	jason5480	1	-	same author
+jason5480/distance_ratio/16	jason5480/distance_ratio/v16.pine	jason5480	PUB;7c0aa2c63fae4d219e08cbd63a264cff	2025-09-15	jason5480	1	jason5480/biased_price_target/9	same author
+jason5480/math_utils/11	jason5480/math_utils/v11.pine	jason5480	PUB;0dc67a5bad854ca99be7ebc4c46e82df	2025-01-03	jason5480	1	-	same author
+jason5480/series_collection/4	jason5480/series_collection/v4.pine	jason5480	PUB;71302c3fcfa74f6da036f661916b6948	2025-01-03	jason5480	1	jason5480/two_ma_logic/11	same author
+jason5480/signal_datagram/5	jason5480/signal_datagram/v5.pine	jason5480	PUB;5f34e572820d42daa8bc5549ab1827c4	2025-01-03	jason5480	0	jason5480/tts_convention/7	same author
+jason5480/string_utils/6	jason5480/string_utils/v6.pine	jason5480	PUB;ad0050c34d0846b6b214f1337336df89	2025-01-03	jason5480	1	-	same author
+jason5480/tts_convention/7	jason5480/tts_convention/v7.pine	jason5480	PUB;3b8a7bc3c8104a9eaa3381e023603980	2025-01-03	jason5480	2	jason5480/two_ma_logic/11	same author
+jason5480/two_ma_logic/11	jason5480/two_ma_logic/v11.pine	jason5480	PUB;9d7ab8725fae44059ea497091537b779	2025-01-03	jason5480	1	-	same author
+jordanfray/obvFilter/2	jordanfray/obvFilter/v2.pine	jordanfray	PUB;c10599ab66e840e88af32445e288e418	2022-09-22	jordanfray	1	-	same author
+jordanfray/threengine_global_automation_library/89	jordanfray/threengine_global_automation_library/v89.pine	jordanfray	PUB;8c612c16c9984adba4cb5cdba57b8c3a	2022-10-31	jordanfray	1	-	same author
+loxx/loxxexpandedsourcetypes/4	loxx/loxxexpandedsourcetypes/v4.pine	loxx	PUB;6288454aa78f44c0877d68e16de10498	2022-07-25	loxx	2	-	same author
+LucF/ta/3	LucF/ta/v3.pine	LucF	PUB;3638b4907779496c890fa63f2fb6919d	2023-04-07	LucF	1	-	same author
+MightyZinger/Chikou/3	MightyZinger/Chikou/v3.pine	MightyZinger	PUB;3f467605eb8042958f9f7346e1f3cd78	2022-02-14	MightyZinger	1	-	same author
+Naruephat/Cayoshi_Library/1	Naruephat/Cayoshi_Library/v1.pine	Naruephat	PUB;c5eb4350290b4b2abdf6229b6465d129	2022-03-06	Naruephat	1	-	same author
+Peter_O/MTFindicators/8	Peter_O/MTFindicators/v8.pine	Peter_O	PUB;09be5eab24324b2fa4b59c61b098293e	2021-12-08		1	-	same author
+PineCoders/ConditionalAverages/2	PineCoders/ConditionalAverages/v2.pine	PineCoders	PUB;5e512dd2455a4831a311881d02c43df7	2025-03-26	PineCoders	1	-	same author
+PineCoders/lower_tf/4	PineCoders/lower_tf/v4.pine	PineCoders	PUB;2e88acea9e824f16b0d1c76a40ada99b	2023-03-25	PineCoders	1	-	same author
+PineCoders/lower_tf/5	PineCoders/lower_tf/v5.pine	PineCoders	PUB;2e88acea9e824f16b0d1c76a40ada99b	2025-03-27	PineCoders	2	-	same author
+PineCoders/Time/2	PineCoders/Time/v2.pine	PineCoders	PUB;8d1a7398dfe74e90b61565306a76cb60	2022-06-01	PineCoders	1	-	same author
+PineCoders/Time/4	PineCoders/Time/v4.pine	PineCoders	PUB;8d1a7398dfe74e90b61565306a76cb60	2023-03-11	PineCoders	0	PineCoders/lower_tf/4,PineCoders/lower_tf/5,Trading-IQ/ICTlibrary/1	same author
+PineCoders/Time/5	PineCoders/Time/v5.pine	PineCoders	PUB;8d1a7398dfe74e90b61565306a76cb60	2025-03-26	PineCoders	2	-	same author
+PineCoders/VisibleChart/4	PineCoders/VisibleChart/v4.pine	PineCoders	PUB;34a6449880c84004b8d0026d2369b6e0	2022-08-18	PineCoders	1	-	same author
+PineCoders/VisibleChart/5	PineCoders/VisibleChart/v5.pine	PineCoders	PUB;34a6449880c84004b8d0026d2369b6e0	2025-03-26	PineCoders	1	-	same author
+RicardoSantos/ColorExtension/4	RicardoSantos/ColorExtension/v4.pine	RicardoSantos	PUB;458a93a2341b48e88e99d842f07415cc	2021-10-09	RicardoSantos	1	-	same author
+RicardoSantos/FunctionZigZagMultipleMethods/1	RicardoSantos/FunctionZigZagMultipleMethods/v1.pine	RicardoSantos	PUB;2be68253d6844f1a88501396e29c8c68	2021-11-23	RicardoSantos	1	-	same author
+RicardoSantos/HarmonicPattern/3	RicardoSantos/HarmonicPattern/v3.pine	RicardoSantos	PUB;2ac1f2c6fe894d779cbefc672f3834e9	2021-11-17	RicardoSantos	1	-	same author
+TFlab/AlertSenderLibrary_TradingFinder/1	TFlab/AlertSenderLibrary_TradingFinder/v1.pine	TradingFinder	PUB;b081810c39bc4bde82a2d658197591a7	2024-04-08	TFlab	2	-	moved to TradingFinder; exports checked
+TFlab/FVGDetectorLibrary/1	TFlab/FVGDetectorLibrary/v1.pine	TradingFinder	PUB;6b48cc3ea8a04fb481758d5055ec8021	2024-02-18	TFlab	1	-	moved to TradingFinder; exports checked
+TFlab/LiquidityFinderLibrary/1	TFlab/LiquidityFinderLibrary/v1.pine	TradingFinder	PUB;d83efd344ba0463d89e8900b93ce6c89	2024-03-04	TFlab	1	-	moved to TradingFinder; exports checked
+TFlab/OrderBlockRefiner_TradingFinder/2	TFlab/OrderBlockRefiner_TradingFinder/v2.pine	TradingFinder	PUB;8e278ce8020c4e8ea73c8dba0957b477	2024-05-02	TFlab	1	-	moved to TradingFinder; exports checked
+toodegrees/forex_factory_decoding/46	toodegrees/forex_factory_decoding/v46.pine	toodegrees	PUB;71e13c90b0a848279873466084d42ae9	2026-08-24	toodegrees	1	-	same author
+toodegrees/forex_factory_events_id_A/12	toodegrees/forex_factory_events_id_A/v12.pine	toodegrees	PUB;de37bc45df5341d88b4188c38123183b	2026-07-13	toodegrees	0	toodegrees/forex_factory_decoding/46	same author
+toodegrees/forex_factory_events_id_B/36	toodegrees/forex_factory_events_id_B/v36.pine	toodegrees	PUB;4d91db285bb148ffb6bb03911c96dc30	2026-08-24	toodegrees	0	toodegrees/forex_factory_decoding/46	same author
+toodegrees/forex_factory_utility/17	toodegrees/forex_factory_utility/v17.pine	toodegrees	PUB;898061615cfc48eb9651d395d2dd8f55	2026-07-13	toodegrees	1	toodegrees/forex_factory_decoding/46	same author
+TradersReality/Traders_Reality_Lib/2	TradersReality/Traders_Reality_Lib/v2.pine	TradersReality	PUB;5750fa33755748f289c419cacf29a08c	2022-11-08		1	-	same author
+Trading-IQ/ICTlibrary/1	Trading-IQ/ICTlibrary/v1.pine	Trading-IQ	PUB;7bf5de5df579429897d1480e7ee99a2a	2024-10-22	TradingIQ	1	-	same author
+TradingView/LibraryCOT/3	TradingView/LibraryCOT/v3.pine	TradingView	PUB;a4e34cf7e17d45beb9019b578af8b515	2024-09-16	TradingView	1	-	same author
+TradingView/RelativeValue/2	TradingView/RelativeValue/v2.pine	TradingView	PUB;6833441ada4d4ec3b4d4d90904e5e21a	2023-09-20	TradingView	0	TradingView/ta/7,TradingView/ta/8	same author
+TradingView/RelativeValue/3	TradingView/RelativeValue/v3.pine	TradingView	PUB;6833441ada4d4ec3b4d4d90904e5e21a	2024-11-26	TradingView	0	TradingView/ta/10,TradingView/ta/12,TradingView/ta/14,TradingView/ta/9	same author
+TradingView/ta/10	TradingView/ta/v10.pine	TradingView	PUB;77c0f0012daa4ff09d68b6f3bed95a7f	2025-04-24	TradingView	1	-	same author
+TradingView/ta/12	TradingView/ta/v12.pine	TradingView	PUB;77c0f0012daa4ff09d68b6f3bed95a7f	2025-12-06	TradingView	5	-	same author
+TradingView/ta/14	TradingView/ta/v14.pine	TradingView	PUB;77c0f0012daa4ff09d68b6f3bed95a7f	2026-08-04	TradingView	1	-	same author
+TradingView/ta/5	TradingView/ta/v5.pine	TradingView	PUB;77c0f0012daa4ff09d68b6f3bed95a7f	2022-12-29	TradingView	1	-	same author
+TradingView/ta/7	TradingView/ta/v7.pine	TradingView	PUB;77c0f0012daa4ff09d68b6f3bed95a7f	2023-11-02	TradingView	5	-	same author
+TradingView/ta/8	TradingView/ta/v8.pine	TradingView	PUB;77c0f0012daa4ff09d68b6f3bed95a7f	2024-09-16	TradingView	1	-	same author
+TradingView/ta/9	TradingView/ta/v9.pine	TradingView	PUB;77c0f0012daa4ff09d68b6f3bed95a7f	2024-11-26	TradingView	1	TradingView/TechnicalRating/3	same author
+TradingView/TechnicalRating/3	TradingView/TechnicalRating/v3.pine	TradingView	PUB;a76380106c7f4d519db87128797c3a1c	2024-11-29	TradingView	1	-	same author
+Trendoscope/arrays/2	Trendoscope/arrays/v2.pine	Trendoscope	PUB;8d9b343887b44b359ca8972dad35e203	2024-11-23	HeWhoMustNotBeNamed	0	Trendoscope/Zigzag/11	same author
+Trendoscope/Drawing/3	Trendoscope/Drawing/v3.pine	Trendoscope	PUB;21a4005c14294d7cb49110e4b9d58eaf	2025-06-22	Trendoscope	1	-	same author
+Trendoscope/Drawing/4	Trendoscope/Drawing/v4.pine	Trendoscope	PUB;21a4005c14294d7cb49110e4b9d58eaf	2025-07-12	Trendoscope	1	-	same author
+Trendoscope/oota/1	Trendoscope/oota/v1.pine	Trendoscope	PUB;7cdf30585f69464abfba505997df8c50	2025-03-18	Trendoscope	2	-	same author
+Trendoscope/Zigzag/11	Trendoscope/Zigzag/v11.pine	Trendoscope	PUB;070e1be7fb7a4272b6dbb357501f5219	2024-12-16	Trendoscope	2	-	same author; 2 candidates, others rejected
+wbburgin/wbburgin_utils/2	wbburgin/wbburgin_utils/v2.pine	wbburgin	PUB;ce1c6737e54f46049ecd2ae27a474c31	2023-05-18	wbburgin	2	-	same author
+X4815162342/X48_LibaryStrategyStatus/2	X4815162342/X48_LibaryStrategyStatus/v2.pine	X4815162342	PUB;48f9e22008c2488982995115811385e8	2022-08-06	X4815162342	1	-	same author
+ZenAndTheArtOfTrading/ZenLibrary/2	ZenAndTheArtOfTrading/ZenLibrary/v2.pine	ZenAndTheArtOfTrading	PUB;0beb08a7ac434f999f7a173e6d80e862	2021-10-26	ZenAndTheArtOfTrading	1	-	same author
+ZoomerXeus/AutoFiboRetrace/2	ZoomerXeus/AutoFiboRetrace/v2.pine	NGQ-NeutralGravityQuant	PUB;a21882ff4b3c44e896cd507d459d20ab	2022-05-09	ZoomerXeus	1	-	moved to NGQ-NeutralGravityQuant; exports checked

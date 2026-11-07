@@ -1,0 +1,138 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © TFlab
+//@version=5
+// @description TODO: add library description here
+library("AlertSenderLibrary_TradingFinder" , overlay = true)
+
+
+export AlertSender (bool Condition, string Alert, string AlertName, string AlertType, string DetectionType , string SetupData , string Frequncy, string UTC ,string MoreInfo, string Message ,
+     float o, float h, float l, float c , float Entry , float TP, float SL ,float Distal, float Proximal ) =>
+    bool condition       = Condition
+    string alert         = Alert
+    string alertname     = AlertName
+    string message       = Message
+    string alerttype     = AlertType
+    string frequncy      = Frequncy 
+    string detectiontype = DetectionType
+    string moreinfo      = MoreInfo
+    float O = o
+    float H = h
+    float L = l
+    float C = c    
+    float entry = Entry
+    float tp = TP
+    float sl = SL
+    Time = str.format_time(time, "    yy-MM-dd \n    HH:mm:ss", UTC) 
+
+
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    string Type = if detectiontype == 'Signal' or detectiontype == 'Order Block Signal' or  detectiontype == 'Setup'                           //
+        if alerttype == 'Bullish'                                                                                                              // 
+            'Long ' + detectiontype                                                                                                            //
+        else if alerttype == 'Bearish'                                                                                                         //
+            'Short ' + detectiontype                                                                                                           //
+    else                                                                                                                                       //
+        alerttype+ ' ' +detectiontype                                                                                                          //
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////// 
+
+
+    /////////////////////////////////////////////////////////////
+    tf = timeframe.period                                      //
+    tfcalculator =if str.contains(tf, 'S')                     //
+        if  tf == 'S'                                          //
+            ' 1 Second'                                        //
+        else                                                   //
+            str.substring(tf, 0,str.length(tf)-1) + ' Seconds' //
+    else if str.contains(tf, 'D')                              //
+        if tf == 'D'                                           //
+            ' Daily'                                           //
+        else                                                   //  
+            str.substring(tf, 0,str.length(tf)-1) + ' Days'    //
+    else if str.contains(tf, 'W')                              //
+        if tf == 'W'                                           //
+            ' Weakly'                                          //
+        else                                                   //
+            str.substring(tf, 0,str.length(tf)-1) + ' Weaks'   //
+    else if str.contains(tf, 'M')                              //
+        if tf == 'M'                                           //
+            ' Monthly'                                         //
+        else                                                   //
+            str.substring(tf, 0,str.length(tf)-1) + ' Months'  //
+    else if str.contains(tf, '')                               //
+        if str.tonumber(tf) < 60                               //
+            if tf == '1'                                       //
+                '1 Minute'                                     //
+            else                                               //
+                tf + ' Minutes'                                //
+        else if str.tonumber(tf) >= 60                         //
+            if  tf == '60'                                     //
+                ' 1 Hour'                                      //
+            else                                               //
+                str.tostring(str.tonumber(tf) / 60) + ' Hours' //
+    /////////////////////////////////////////////////////////////
+
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    messagetext   = if MoreInfo == 'Off'                                                                                                             
+        '⏰Alert Name: ' + alertname + '\n‼️Alert Type: ' + Type  + '\n🔠Symbol: ' + syminfo.ticker + '\n📈Time Frame: ' + tfcalculator                
+         +  '\n📩Message: ' + message                                                                                                                 
+    else if MoreInfo == 'On'                                                                                                                          
+        if DetectionType == 'Order Block Signal'                                                                                                      
+            '⏰Alert Name: ' + alertname + '\n‼️Alert Type: ' + Type  + '\n🔠Symbol: ' + syminfo.ticker + '\n📈Time Frame: ' + tfcalculator +          
+             '\n🕘Time:' + '\n' + Time +                                                                                                               
+             '\n🧮Zone Price =>' + '\n     Distal:' + str.tostring(Distal) + '\n     Proximal:' + str.tostring(Proximal)  + '\n📩Message: ' + message  
+        else if DetectionType == 'Signal'                                                                                                               
+            '⏰Alert Name: ' + alertname + '\n‼️Alert Type: ' + Type  + '\n🔠Symbol: ' + syminfo.ticker + '\n📈Time Frame: ' + tfcalculator +          
+             '\n🕘Time:' + '\n' + Time +                                                                                                              
+             '\n🧮market price =>' + '\n     Open:' + str.tostring(O) + '\n     High:' + str.tostring(H)  + 
+             '\n     Low:' + str.tostring(L) + '\n     Close:' + str.tostring(C)  +'\n📩Message: ' + message 
+        else if DetectionType == 'Setup'
+            if SetupData == 'Full'     
+                '⏰Alert Name: ' + alertname + '\n‼️Alert Type: ' + Type  + '\n🔠Symbol: ' + syminfo.ticker + '\n📈Time Frame: ' + tfcalculator +          
+                 '\n🕘Time:' + '\n' + Time +                                                                                                              
+                 '\n🧮Setup Price Data =>' + '\n     Entry:' + str.tostring(entry) + '\n     Stop Loss:' + str.tostring(sl)  + 
+                 '\n     Take Profit:' + str.tostring(tp)  +'\n📩Message: ' + message 
+            else if SetupData == 'Basic'
+                '⏰Alert Name: ' + alertname + '\n‼️Alert Type: ' + Type  + '\n🔠Symbol: ' + syminfo.ticker + '\n📈Time Frame: ' + tfcalculator +          
+                 '\n🕘Time:' + '\n' + Time +                                                                                                              
+                 '\n🧮Setup Price Data =>' + '\n     Entry:' + str.tostring(O) +'\n📩Message: ' +  message 
+        else if DetectionType == 'Analysis'                                                                                                             
+            '⏰Alert Name: ' + alertname + '\n‼️Alert Type: ' + Type  + '\n🔠Symbol: ' + syminfo.ticker + '\n📈Time Frame: ' + tfcalculator                
+             +  '\n📩Message: ' + message 
+        else                                                                                                                                          
+            '⏰Alert Name: ' + alertname + '\n‼️Alert Type: ' + Type  + '\n🔠Symbol: ' + syminfo.ticker + '\n📈Time Frame: ' + tfcalculator +         
+             '\n🕘Time:' + '\n' + Time +  '\n📩Message: ' + message                                                                                   
+    
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    
+
+    if alert == 'On'
+        if condition
+            if frequncy == 'All'
+                alert(messagetext,  alert.freq_all )
+            if frequncy == 'Once Per Bar'
+                alert(messagetext,  alert.freq_once_per_bar )     
+            if frequncy == 'Once Per Bar Close'
+                alert(messagetext,  alert.freq_once_per_bar_close )    
+                      
+
+
+
+
+ 
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+		

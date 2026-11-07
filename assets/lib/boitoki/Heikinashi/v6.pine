@@ -1,0 +1,153 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © boitoki
+
+//@version=5
+
+// @description This library calculates "Heikinashi".
+library("Heikinashi", overlay=true)
+
+close_calc (_type, _o, _h, _l, _c) =>
+    switch _type
+        'ohlc4' => math.avg(_o, _h, _l, _c)
+        'ohlc4-s2' => math.avg(_o, ta.sma(_h, 2), ta.sma(_l, 2), _c)
+        'ohlc4-s3' => math.avg(_o, ta.sma(_h, 3), ta.sma(_l, 3), _c)
+        'ohlc4-s4' => math.avg(_o, ta.sma(_h, 4), ta.sma(_l, 4), _c)
+        'ohlc4-s5' => math.avg(_o, ta.sma(_h, 5), ta.sma(_l, 5), _c)
+        'hlc3' => math.avg(_h, _l, _c)
+        'oc2' => math.avg(_o, _c)
+        'hl2' => math.avg(_l, _l)
+        'close' => _c
+        => math.avg(_o, _h, _l, _c)
+
+heikinashi (float _o, float _h, float _l, float _c, string _close_type = 'ohlc4') =>
+    _hclose = close_calc(_close_type, _o, _h, _l, _c)
+
+    // Day1
+    _hopen = math.avg(_o[1], _h[1], _l[1], _c[1])
+
+    // Day2
+    if (not na(_hopen[1]))
+        _hopen := math.avg(nz(_hopen[1]), nz(_hclose[1]))
+    
+    [_hopen, _h, _l, _hclose]
+
+heikinashi_2_times (float _o, float _h, float _l, float _c, string _close_type = 'ohlc4') =>
+    [_open, _, _, _close] = heikinashi(_o, _h, _l, _c, _close_type)
+    heikinashi(_open, _h, _l, _close, _close_type)
+
+heikinashi_3_times (float _o, float _h, float _l, float _c, string _close_type = 'ohlc4') =>
+    [_open, _, _, _close] = heikinashi_2_times(_o, _h, _l, _c, _close_type)
+    heikinashi(_open, _h, _l, _close, _close_type)
+
+heikinashi_4_times (float _o, float _h, float _l, float _c, string _close_type = 'ohlc4') =>
+    [_open, _, _, _close] = heikinashi_3_times(_o, _h, _l, _c, _close_type)
+    heikinashi(_open, _h, _l, _close, _close_type)
+
+heikinashi_5_times (float _o, float _h, float _l, float _c, string _close_type = 'ohlc4') =>
+    [_open, _, _, _close] = heikinashi_4_times(_o, _h, _l, _c, _close_type)
+    heikinashi(_open, _h, _l, _close, _close_type)
+
+heikinashi_6_times (float _o, float _h, float _l, float _c, string _close_type = 'ohlc4') =>
+    [_open, _, _, _close] = heikinashi_5_times(_o, _h, _l, _c, _close_type)
+    heikinashi(_open, _h, _l, _close, _close_type)
+
+heikinashi_7_times (float _o, float _h, float _l, float _c, string _close_type = 'ohlc4') =>
+    [_open, _, _, _close] = heikinashi_6_times(_o, _h, _l, _c, _close_type)
+    heikinashi(_open, _h, _l, _close, _close_type)
+
+heikinashi_8_times (float _o, float _h, float _l, float _c, string _close_type = 'ohlc4') =>
+    [_open, _, _, _close] = heikinashi_7_times(_o, _h, _l, _c, _close_type)
+    heikinashi(_open, _h, _l, _close, _close_type)
+
+heikinashi_9_times (float _o, float _h, float _l, float _c, string _close_type = 'ohlc4') =>
+    [_open, _, _, _close] = heikinashi_8_times(_o, _h, _l, _c, _close_type)
+    heikinashi(_open, _h, _l, _close, _close_type)
+
+heikinashi_10_times (float _o, float _h, float _l, float _c, string _close_type = 'ohlc4') =>
+    [_open, _, _, _close] = heikinashi_9_times(_o, _h, _l, _c, _close_type)
+    heikinashi(_open, _h, _l, _close, _close_type)
+
+heikinashi_for (float _o, float _h, float _l, float _c, string _close_type = 'ohlc4', int _times = 2) =>
+    times = math.min(math.max(_times, 1), 10)
+
+    switch times
+        2  => heikinashi_2_times(_o, _h, _l, _c, _close_type)
+        3  => heikinashi_3_times(_o, _h, _l, _c, _close_type)
+        4  => heikinashi_4_times(_o, _h, _l, _c, _close_type)
+        5  => heikinashi_5_times(_o, _h, _l, _c, _close_type)
+        6  => heikinashi_6_times(_o, _h, _l, _c, _close_type)
+        7  => heikinashi_7_times(_o, _h, _l, _c, _close_type)
+        8  => heikinashi_8_times(_o, _h, _l, _c, _close_type)
+        9  => heikinashi_9_times(_o, _h, _l, _c, _close_type)
+        10 => heikinashi_10_times(_o, _h, _l, _c, _close_type)
+        => heikinashi(_o, _h, _l, _c, _close_type)
+
+heikinashi_for_v1 (float _o, float _h, float _l, float _c, string _close_type = 'ohlc4', int _times = 2) =>
+    times = math.min(math.max(_times, 1), 10)
+
+    [_open1, _, _, _close1] = heikinashi(_o, _h, _l, _c, _close_type)
+    [_open2, _, _, _close2] = heikinashi(_open1, _h, _l, _close1, _close_type)
+    [_open3, _, _, _close3] = heikinashi(_open2, _h, _l, _close2, _close_type)
+    [_open4, _, _, _close4] = heikinashi(_open3, _h, _l, _close3, _close_type)
+    [_open5, _, _, _close5] = heikinashi(_open4, _h, _l, _close4, _close_type)
+    [_open6, _, _, _close6] = heikinashi(_open5, _h, _l, _close5, _close_type)
+    [_open7, _, _, _close7] = heikinashi(_open6, _h, _l, _close6, _close_type)
+    [_open8, _, _, _close8] = heikinashi(_open7, _h, _l, _close7, _close_type)
+    [_open9, _, _, _close9] = heikinashi(_open8, _h, _l, _close8, _close_type)
+    [_open10, _, _, _close10] = heikinashi(_open9, _h, _l, _close9, _close_type)
+
+    switch times
+        1 => [_open1, high, low, _close1]
+        2 => [_open2, high, low, _close2]
+        3 => [_open3, high, low, _close3]
+        4 => [_open4, high, low, _close4]
+        5 => [_open5, high, low, _close5]
+        6 => [_open6, high, low, _close6]
+        7 => [_open7, high, low, _close7]
+        8 => [_open8, high, low, _close8]
+        9 => [_open9, high, low, _close9]
+        10 => [_open10, high, low, _close10]
+
+// @function This function calculates "Heikinashi".
+// @param _o open
+// @param _h high
+// @param _l low
+// @param _c close
+// @param _close_type ['ohlc4', 'hlc3', 'oc2', 'hl2', 'close'] Sets the calculation method to be used for the closing price.
+// @returns TODO: add what function returns
+export calc (float _o, float _h, float _l, float _c, string _close_type = 'ohlc4') =>
+	heikinashi(_o, _h, _l, _c, _close_type)
+
+// @function This function calculates "Heikinashi".
+// @param _o open
+// @param _h high
+// @param _l low
+// @param _c close
+// @param _close_type ['ohlc4', 'hlc3', 'oc2', 'hl2', 'close'] Sets the calculation method to be used for the closing price.
+// @param _times Sets how many times to average.(min:1, max:10)
+// @returns TODO: add what function returns
+export calcFor (float _o, float _h, float _l, float _c, string _close_type = 'ohlc4', int _times = 1) =>
+    heikinashi_for(_o, _h, _l, _c, _close_type, _times)
+
+// @function This function calculates "Heikinashi".
+// @param _o open
+// @param _h high
+// @param _l low
+// @param _c close
+// @param _close_type ['ohlc4', 'hlc3', 'oc2', 'hl2', 'close'] Sets the calculation method to be used for the closing price.
+// @param _times Sets how many times to average.(min:1, max:10)
+// @returns TODO: add what function returns
+export calcFor_v1 (float _o, float _h, float _l, float _c, string _close_type = 'ohlc4', int _times = 1) =>
+    heikinashi_for_v1(_o, _h, _l, _c, _close_type, _times)
+
+
+///////////////
+// Test suit //
+length = input.int(2, minval=1, maxval=10)
+close_type = input.string('ohlc4', options=['ohlc4', 'ohlc4-s2', 'ohlc4-s3', 'ohlc4-s4', 'ohlc4-s5', 'hlc3', 'oc2', 'hl2', 'close'])
+
+[plot_open, _, _, plot_close] = heikinashi_for(open, high, low, close, close_type, length)
+c = plot_open > plot_close ? color.red : color.green
+
+plotcandle(plot_open, high, low, plot_close, 'Heikinashi 2', color=c, wickcolor=c, bordercolor=c)
+plot(ta.ema(math.avg(plot_open, plot_close), 50))

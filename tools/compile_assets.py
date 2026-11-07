@@ -6,7 +6,11 @@
     .venv/bin/python tools/compile_assets.py --retry-failed
 
 Sources : assets/<kind>/<category>/<name>.pine   kind = strategy | indicator, category = verified | bit-exact
+          assets/lib/<Publisher>/<Name>/v<N>.pine   Pine libraries imported as <Publisher>/<Name>/<N>
 Targets : scripts/<kind>_<name>.py
+          scripts/lib/<Publisher>/<Name>/v<N>.py    where the compiled `import lib.<Publisher>.<Name>.v<N>`
+                                                    looks for it; "-" in a publisher becomes "_"
+Order   : strategies, then libraries, then indicators
 Key     : config/api.toml ([api] api_key), as for `pyne compile`
 State   : assets/compile_state.json, tracked in git
 
@@ -42,7 +46,7 @@ from pynecore.pynesys.api import APIError, AuthError, CompilationError, RateLimi
 from pynecore.pynesys.compiler import PyneComp
 
 ROOT = Path(__file__).resolve().parent.parent
-ORDER = [("strategy", "verified"), ("strategy", "bit-exact"), ("indicator", "verified"), ("indicator", "bit-exact")]
+ORDER = [("strategy", "verified"), ("strategy", "bit-exact"), ("lib", ""), ("indicator", "verified"), ("indicator", "bit-exact")]
 STATE = ROOT / "assets" / "compile_state.json"
 TMP = ROOT / "cache" / "compile_tmp"
 RESUME = ".venv/bin/python tools/compile_assets.py"
@@ -72,14 +76,24 @@ def save_state(state: dict) -> None:
     os.replace(tmp, STATE)
 
 
+def lib_target(src: Path) -> Path:
+    """assets/lib/Trading-IQ/ICTlibrary/v1.pine -> scripts/lib/Trading_IQ/ICTlibrary/v1.py"""
+    publisher, name = src.parent.parent.name, src.parent.name
+    return ROOT / "scripts" / "lib" / publisher.replace("-", "_") / name / f"{src.stem}.py"
+
+
 def jobs() -> list[tuple[Path, Path, str]]:
     out, seen = [], {}
     for kind, cat in ORDER:
-        for src in sorted((ROOT / "assets" / kind / cat).glob("*.pine")):
-            dst = ROOT / "scripts" / f"{kind}_{src.stem}.py"
+        if kind == "lib":
+            pairs = [(src, lib_target(src), "lib") for src in sorted((ROOT / "assets" / "lib").glob("*/*/v*.pine"))]
+        else:
+            pairs = [(src, ROOT / "scripts" / f"{kind}_{src.stem}.py", f"{kind}/{cat}")
+                     for src in sorted((ROOT / "assets" / kind / cat).glob("*.pine"))]
+        for src, dst, grp in pairs:
             assert dst not in seen, f"name collision: {src} and {seen[dst]}"
             seen[dst] = src
-            out.append((src, dst, f"{kind}/{cat}"))
+            out.append((src, dst, grp))
     return out
 
 
@@ -194,7 +208,7 @@ def main(argv: list[str] | None = None, comp: PyneComp | None = None) -> int:
             budget = calls + min(usage.hourly.remaining, usage.daily.remaining)
 
         rel, digest = str(src.relative_to(ROOT)), sha256(src)
-        tmp = TMP / dst.name
+        tmp = TMP / str(dst.relative_to(ROOT / "scripts")).replace(os.sep, "__")  # library files are all named v<N>.py
         tag = f"[{n}/{len(todo)}]"
         calls += 1
         try:
@@ -226,11 +240,12 @@ def main(argv: list[str] | None = None, comp: PyneComp | None = None) -> int:
             stats["error"] += 1
             say(f"{tag} ERROR  {grp} {src.name}: {e} (will be retried on the next run)")
             continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
         os.replace(tmp, dst)
         state[rel] = {"dst": dst.name, "sha256": digest, "status": "ok", "at": now().isoformat(timespec="seconds")}
         save_state(state)
         stats["ok"] += 1
-        say(f"{tag} ok     {grp} {dst.name}")
+        say(f"{tag} ok     {grp} {dst.relative_to(ROOT / 'scripts')}")
 
     save_state(state)
     left = sum(classify(state, s, d) == "todo" for s, d, _ in all_jobs)

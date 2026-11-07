@@ -31,6 +31,9 @@ assets/
   indicator/                  scripts with Type IND (plots only, verified bar by bar)
     bit-exact/
     verified/
+  lib/                        Pine libraries the scripts above import (see "Libraries")
+    index.tsv
+    <Publisher>/<Name>/v<N>.pine
 
 each <type>/<category>/ holds:
   links.txt                   TradingView URLs, one per line, in corpus order (most liked first)
@@ -262,11 +265,89 @@ to date:
 6. Run the checks in step 4, then update the folder's row in the Status table with the counts
    and the date.
 
+## Libraries
+
+55 of the scripts (26 strategies, 29 indicators) import Pine libraries with
+`import <Publisher>/<Name>/<N> [as alias]`. `lib/` holds the exact version each import names,
+plus the libraries those libraries import in turn: 85 files, 72 imported by the scripts directly
+and 13 only by other libraries (state of 2026-11-07). Every import of every script and library
+resolves to a file here.
+
+`lib/<Publisher>/<Name>/v<N>.pine` mirrors the import path as written in Pine, so
+`import Trading-IQ/ICTlibrary/1 as IQ` is `lib/Trading-IQ/ICTlibrary/v1.pine`. Different versions
+of one library are separate files (`TradingView/ta` is needed in seven versions).
+
+`lib/index.tsv`, one row per file:
+
+| Column | Content |
+|---|---|
+| `import` | the import path as scripts write it |
+| `file` | path under `lib/` |
+| `published_by` | the account that publishes the library on TradingView today |
+| `pine_id` | TradingView's publication id (`PUB;…`) |
+| `version_created` | when that version was published |
+| `copyright` | the `// © …` author in the source |
+| `scripts_using` | how many corpus scripts import it directly |
+| `libraries_using` | which libraries import it |
+| `match` | how the publication was identified (see below) |
+
+### How they were collected
+
+The import path has no publication id, so a library is found by name and then verified.
+
+1. `https://www.tradingview.com/pubscripts-suggest-json/?search=<Name>&type=3` lists libraries
+   (`type=3`; without it the results mix in indicators and strategies) with their author,
+   `title` (the name used in imports), `scriptIdPart` (`PUB;…`) and latest `version`. Keep the
+   results whose `title` equals `<Name>`.
+2. `https://pine-facade.tradingview.com/pine-facade/get/<PUB;…>/<N>?no_4xx=true` returns version
+   `<N>` exactly (the JSON `version` field reads `N.0`), not the latest. Reject a candidate whose
+   latest version is below `<N>` or whose source has no `library(`.
+3. Parse the library's own `import` lines and repeat for each new one.
+4. Prefer a candidate published by `<Publisher>`. Several publishers moved their libraries to
+   another account, and the import path still uses the old name. Those were matched only when
+   the candidate exports every name the importing scripts call through the alias, and ties were
+   broken by the `// ©` line and the version date:
+
+   | Import path publisher | Published today by | Libraries |
+   |---|---|---|
+   | `HeWhoMustNotBeNamed` | `Trendoscope` | 18 |
+   | `TFlab` | `TradingFinder` | 4 |
+   | `ZoomerXeus` | `NGQ-NeutralGravityQuant` | 1 |
+
+   Names called through an alias that shadows a built-in namespace (`import TradingView/ta/7 as
+   ta`, then `ta.crossover(...)`) do not have to be exported: TradingView and PyneCore fall back
+   to the built-in function for them.
+5. Generic names collide. `HeWhoMustNotBeNamed/ta/1` had eight candidates; three exported the
+   needed functions, and the one kept is the 2022 original with `// © HeWhoMustNotBeNamed`,
+   while the others are a 2024 Trendoscope republication with different contents and a 2026
+   copy by another account. `HeWhoMustNotBeNamed/utils/1` was resolved the same way.
+
+Files are stored like the scripts: the API `source` with LF line endings, nothing added.
+
+### Compiling libraries
+
+`tools/compile_assets.py` compiles them together with the scripts (see the next section). A
+compiled library must sit exactly where the compiled import points:
+`scripts/lib/<Publisher>/<Name>/v<N>.py`, with `-` in the publisher replaced by `_`, because the
+compiled script says `import lib.Trading_IQ.ICTlibrary.v1 as IQ`. The `strategy_` / `indicator_`
+naming does not apply, and no `__init__.py` files are needed: `pyne run` puts `scripts/` on the
+import path and `lib/<Publisher>/<Name>/` resolve as namespace packages (checked on
+2026-11-07 with a hand-written library). Until a script's libraries are compiled it stops with
+`ModuleNotFoundError: No module named 'lib.…'`.
+
 ## Compiling to scripts/
 
 `tools/compile_assets.py` compiles every `.pine` file here through the PyneSys API (`pyne
-compile`, key in `config/api.toml`) into `scripts/strategy_<name>.py` or
-`scripts/indicator_<name>.py`, where `<name>` is the `.pine` file name without the extension.
+compile`, key in `config/api.toml`):
+
+| Source | Target |
+|---|---|
+| `strategy/<category>/<name>.pine` | `scripts/strategy_<name>.py` |
+| `indicator/<category>/<name>.pine` | `scripts/indicator_<name>.py` |
+| `lib/<Publisher>/<Name>/v<N>.pine` | `scripts/lib/<Publisher, - as _>/<Name>/v<N>.py` |
+
+The order is strategies, then libraries, then indicators, so the strategies that import
+libraries become runnable before the indicators are started.
 
 ```bash
 .venv/bin/python tools/compile_assets.py --status      # progress per folder and API quota; uses no quota

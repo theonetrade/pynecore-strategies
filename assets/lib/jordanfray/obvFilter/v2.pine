@@ -1,0 +1,53 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © jordanfray
+
+//@version=5
+
+// @description TODO: Everything you need to add an OBV filter to a trading strategy
+
+
+//  ADD THIS TO THE INDICATOR ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ ▾ 
+
+// import jordanfray/obvFilter/2 as obv
+
+// obvSource               = input.source(defval=close, title="OBV Source", group="On Balance Volume Filter")
+// obvMaType               = input.string(defval="EMA", title="OBV Smoothing Type", options = ["EMA", "SMA", "RMA", "WMA"], group="On Balance Volume Filter")
+// fastMaLength            = input.int(title = "Fast OBV MA Length", defval = 9, minval = 2, maxval = 200, group="On Balance Volume Filter")
+// slowMaLength            = input.int(title = "Slow OBV MA Length", defval = 21, minval = 1, maxval = 200, group="On Balance Volume Filter")
+
+// [obv, fastObvMa, slowObvMa]  = obv.getOnBalanceVolumeFilter(obvSource, obvMaType, fastMaLength, slowMaLength)
+
+//  ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ ▴ 
+
+library("obvFilter")
+
+getMovingAverage(simple string type, series float source, simple int length) =>
+    ma = switch type
+        "EMA" => ta.ema(source, length)
+        "SMA" => ta.sma(source, length)
+        "RMA" => ta.rma(source, length)
+        "WMA" => ta.wma(source, length)
+        => na
+    ma
+
+
+// @function Get the fast and slow moving average for on balance volume
+// @param source hook this up to an 'input.source' input
+// @param maType Choose from EMA, SMA, RMA, or WMA
+// @param fastMaLength int smoothing length for fast moving average
+// @param // @param fastMaLength int smoothing length for fast moving average int smoothing length for slow moving average
+// @returns Tupple with fast obv moving average and slow obv moving average
+export getOnBalanceVolumeFilter(series float source, simple string maType, simple int fastMaLength, simple int slowMaLength) =>
+    var cumVol = 0.0
+    cumVol += nz(volume)
+    
+    if barstate.islast and cumVol == 0
+        runtime.error("No volume is provided by the data vendor.")
+    
+    obv                 = ta.cum(math.sign(ta.change(source)) * volume)
+    fastObvMa           = getMovingAverage(maType, obv, fastMaLength)
+    slowObvMa           = getMovingAverage(maType, obv, slowMaLength)
+    	
+    [obv, fastObvMa, slowObvMa]
+    
+    

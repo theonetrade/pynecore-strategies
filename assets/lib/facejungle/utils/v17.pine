@@ -1,0 +1,185 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © facejungle
+
+//@version=5
+
+// @description TODO: add library description here
+library("utils", true)
+
+pine_ema(src, length) =>
+    alpha = 2 / (length + 1)
+    sum   = 0.0
+    sum  := na(sum[1]) ? src : alpha * src + (1 - alpha) * nz(sum[1])
+
+pine_sma(x, y) =>
+    sum      = 0.0
+    for i    = 0 to y - 1
+        sum := sum + x[i] / y
+    sum
+
+pine_rma(src, length) =>
+    alpha = 1/length
+    sum   = 0.0
+	sma   = pine_sma(src, length)
+    sum  := na(sum[1]) ? sma : alpha * src + (1 - alpha) * nz(sum[1])
+
+pine_wma(x, y) =>
+    norm  = 0.0
+    sum   = 0.0
+    for i = 0 to y - 1
+        weight = (y - i) * y
+        norm  := norm + weight
+        sum   := sum + x[i] * weight
+    sum / norm
+
+pine_hma(src, length) => 
+    pine_wma(2 * pine_wma(src, length / 2) - pine_wma(src, length), math.round(math.sqrt(length)))
+
+pine_vwma(x, y) =>
+    pine_sma(x * volume, y) / pine_sma(volume, y)
+
+pine_swma(x) =>
+    x[3] * 1 / 6 + x[2] * 2 / 6 + x[1] * 2 / 6 + x[0] * 1 / 6
+
+pine_alma(series, windowsize, offset, sigma) =>
+    m    = math.floor(offset * (windowsize - 1))
+    s    = windowsize / sigma
+    norm = 0.0
+    sum  = 0.0
+    for i = 0 to windowsize - 1
+        weight = math.exp(-1 * math.pow(i - m, 2) / (2 * math.pow(s, 2)))
+        norm   := norm + weight
+        sum    := sum + series[windowsize - i - 1] * weight
+    sum / norm
+
+pine_dema(src, length) =>
+    ema = pine_ema(src, length)
+    2 * ema - pine_ema(ema, length)
+
+pine_tema(src, length) =>
+    ema = pine_ema(src, length)
+    3 * (ema - pine_ema(ema, length)) + pine_ema(pine_ema(ema, length), length)
+
+pine_smma(src, length) =>
+    sum = 0.0
+	sma = pine_sma(src, length)
+    na(sum[1]) ? sma : (sum[1] * (length - 1) + src) / length
+
+pine_ssma(src, length) =>
+    a1   = math.exp(-1.414*3.14159 / length)
+    b1   = 2*a1*math.cos(1.414*3.14159 / length)
+    c2   = b1
+    c3   = (-a1)*a1
+    c1   = 1 - c2 - c3
+    sum  = 0.0
+    sum := c1*(src + nz(src[1])) / 2 + c2*nz(sum[1]) + c3*nz(sum[2])
+
+export maCustomseries(float source=close, simple string typeMa="sma", series int length, simple float offset=0.85, simple int sigma=6) =>
+    switch typeMa
+		"alma"        => pine_alma(source, length, offset, sigma)
+    	"ema"         => pine_ema(source, length)
+		"tema"        => pine_dema(source, length)
+		"dema"        => pine_tema(source, length)
+    	"sma"         => pine_sma(source, length)
+		"smma"        => pine_smma(source, length)
+		"ssma"        => pine_ssma(source, length)
+    	"rma"         => pine_rma(source, length)
+    	"hma"         => pine_hma(source, length)
+    	"wma"         => pine_wma(source, length)
+    	"vwma"        => pine_vwma(source, length)
+    	"swma"        => pine_swma(source)
+    	"linreg"      => ta.linreg(source, length, sigma)
+    	"median"      => ta.median(source, length)
+    	"mom"         => ta.mom(source, length)
+    	"high"        => ta.highest(source, length)
+    	"low"         => ta.lowest(source, length)
+    	"medianHigh"  => ta.median(ta.highest(source, length), length)
+    	"medianLow"   => ta.median(ta.lowest(source, length), length)
+    	"percentrank" => ta.percentrank(source, length)
+    	=> (ta.highest(length) + ta.lowest(length))/2
+
+export fj_stdev(float src, int length, float mult, string middleType) =>
+    float basis = maCustomseries(src, middleType, length)
+    float dev   = mult * ta.stdev(src, length)
+    float dev2  = (mult * ta.stdev(src, length)) * 0.618
+    float dev3  = (mult * ta.stdev(src, length)) * 1.618
+    float dev4  = (mult * ta.stdev(src, length)) * 2.618
+    [basis, basis + dev2, basis + dev, basis + dev3, basis + dev4, basis - dev2, basis - dev, basis - dev3, basis - dev4]
+
+// COUNTERS
+export counterEvent(bool enent, bool enent2) =>
+	int scount = 0
+	scount := enent and enent2 ? nz(scount[1]) + 1 : 0
+export barCrossoverCounter(float signalPrice, float basePrice) =>
+	bool bcond = signalPrice > basePrice
+	int bcount = 0
+	bcount := bcond ? nz(bcount[1]) + 1 : 0
+export barCrossunderCounter(float signalPrice, float basePrice) =>
+	bool scond = signalPrice < basePrice
+	int scount = 0
+	scount := scond ? nz(scount[1]) + 1 : 0
+export avgOpenPositionPrice() =>
+    sumOpenPositionPrice = 0.0
+    for tradeNo = 0 to strategy.opentrades - 1
+        sumOpenPositionPrice += strategy.opentrades.entry_price(tradeNo) * strategy.opentrades.size(tradeNo) / strategy.position_size
+    result = nz(sumOpenPositionPrice / strategy.opentrades)
+
+// Messages
+export okxAlertMsg(string action, string signalToken, string orderType, string orderPriceOffset, string investmentType, string amount) =>
+    str = '{'
+    str := str + '"action": "' + action + '", '
+    str := str + '"instrument": "' + syminfo.ticker + '", '
+    str := str + '"signalToken": "' + signalToken + '", '
+    // str := str + '"timestamp": "' + str.format_time(time_close, "yyyy-MM-dd'T'HH:mm:ssZ", "UTC+0") + '", '
+    str := str + '"timestamp": "{{timenow}}", '
+	str := str + '"maxLag": "180", '
+    str := str + '"orderType": "' + orderType + '", '
+    str := str + '"orderPriceOffset": "' + str.tostring(orderPriceOffset) + '", '
+    str := str + '"investmentType": "' + investmentType + '", '
+    str := str + '"amount": "' + str.tostring(amount) + '"'
+    str := str + '}'
+    str
+
+export commentTriggerCustomseries(string trigger) =>
+	switch trigger
+		'supertrend' => 'SuperTrend change direction'
+		'bbUpper'   => 'price crossing BB upper'
+		'bbUpper2'  => 'price crossing BB upper 2'
+		'bbUpper3'  => 'price crossing BB upper 3'
+		'bbLower'   => 'price crossing BB lower'
+		'bbLower2'  => 'price crossing BB lower 2'
+		'bbLower3'  => 'price crossing BB lower 3'
+		'maBasis'   => 'price crossing MA basis'
+		'maSignal'  => 'price crossing MA signal'
+		'maCross'   => 'MA signal crossing MA basis'
+		'stop'      => 'price crossing stop line'
+		=> ''
+
+export commentOrderCustomseries(string reason, string trigger=na, int tradeNo=na, float qty=na) =>
+	msg = ''
+	// market entry
+	if reason == 'enter_long'
+		msg += '↗️[Entry] Long'
+		msg += na(tradeNo) == false ? ' #' + str.tostring(tradeNo) : na
+		msg += na(trigger) == false ? ', ' + commentTriggerCustomseries(trigger) : na
+	if reason == 'enter_short'
+		msg += '↘️[Entry] Short'
+		msg += na(tradeNo) == false ? ' #' + str.tostring(tradeNo) : na
+		msg += na(trigger) == false ? ', ' + commentTriggerCustomseries(trigger) : na
+	// take profit
+	if reason == 'take_long'
+		msg += '💲[TP] Long'
+		msg += na(qty) == false ? ' ' + str.tostring(qty, '#.###') + '%': na
+		msg += na(trigger) == false ? ', ' + commentTriggerCustomseries(trigger) : na
+	if reason == 'take_short'
+		msg += '💲[TP] Short'
+		msg += na(qty) == false ? ' ' + str.tostring(qty, '#.###') + '%': na
+		msg += na(trigger) == false ? ', ' + commentTriggerCustomseries(trigger) : na
+	// stop loss
+	if reason == 'stop_long'
+		msg += '✖️[SL] Long'
+		msg += na(trigger) == false ? ', ' + commentTriggerCustomseries(trigger) : na
+	if reason == 'stop_short'
+		msg += '✖️[SL] Short'
+		msg += na(trigger) == false ? ', ' + commentTriggerCustomseries(trigger) : na
+	result = msg

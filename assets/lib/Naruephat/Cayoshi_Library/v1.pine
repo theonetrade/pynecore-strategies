@@ -1,0 +1,144 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Naruephat
+
+//@version=5
+
+// @description TODO: add library description here
+library("Cayoshi_Library")
+
+
+//เรียกใช้  library
+//import Naruephat/Cayoshi_Library/1 as fuLi 
+
+//Copy ส่วนล่างไปใช้
+// แสดงหน้ายิ้ม แพ้ ชนะ
+// ==========================================================================================================================================================================================================================================================
+//Win_Loss_Showa = input.bool(true , 'show Win loss')   
+//[win,loss,equal] = fuLi.Win_Loss_Show()
+//plotchar(  Win_Loss_Showa ? win : na ,location  = location.abovebar ,color = color.new(color.green, 0), char='☺'  , size  = size.normal)             //==
+//plotchar(  Win_Loss_Showa ? loss : na ,location  = location.belowbar ,  color = color.new(color.red, 0), char='☹'  , size  = size.small)             //==
+//plotchar(  Win_Loss_Showa ? equal : na ,location  = location.belowbar ,  color = color.new(color.orange, 0), char='☹'  , size  = size.small)         //==
+
+
+//แสดงผล Backtest
+// ==========================================================================================================================================================================================================================================================
+//show_Net = input.bool(true,'Show Net', inline = 'Lnet')
+//position_ = input.string('top_right','Position', options = ['top_right','middle_right','bottom_right','top_center','middle_center','bottom_center','middle_left','bottom_left'] , inline = 'Lnet')
+//size_i = input.string('auto','size', options = ['auto','tiny','small','normal'] , inline = 'Lnet') 
+//color_Net = input.color(color.blue,"" , inline = 'Lnet')
+//fuLi.NetProfit_Show(show_Net , position_ , size_i,  color_Net )
+
+
+
+//กำหนดระยะเวลา หรือ แท่งบาร์ในการ Backtest
+//---------------------------------------------------------------------------------------------------------------
+//Back_Test = input.bool(false , '═════ Bar Back Test ═════')
+//Back_Test_bar_start = input.int(0, 'count back bar start',inline = 'btes' , minval = 0)
+//Back_Test_step_start =  input.int(100 , 'count step start'  ,inline = 'btes' , minval = 0)
+//Back_Test_bar_end = input.int(0 , 'count back bar end',inline = 'bte' , minval = 0)
+//Back_Test_step_end =  input.int(100 , 'count step end'  ,inline = 'bte' , minval = 0)
+//G0 = 'Set Test Date'                                                                                                                    
+//i_dateFilter    = input.bool(false,  "═════ Date Range Filtering ═════" ,group = G0)                                                    
+//i_fromYear      = input.int(2021,   "From Year",    minval = 1900 ,inline = 'd1',group = G0)                                           
+//i_fromMonth     = input.int(5,      "From Month",   minval = 1, maxval = 12,inline = 'd2',group = G0)                                   
+//i_fromDay       = input.int(10,      "From Day",     minval = 1, maxval = 31,inline = 'd3',group = G0)                                 
+//i_toYear        = input.int(2023,   "To Year",      minval = 1900,inline = 'd1',group = G0)                                            
+//i_toMonth       = input.int(12,      "To Month",     minval = 1, maxval = 12,inline = 'd2',group = G0)                                  
+//i_toDay         = input.int(31,      "To Day",       minval = 1, maxval = 31,inline = 'd3',group = G0)                                 
+//
+//Back_test = fuLi.Count_Bar_Back_Test( Back_Test , Back_Test_bar_start, Back_Test_step_start, Back_Test_bar_end,  Back_Test_step_end , i_dateFilter, i_fromYear, i_fromMonth, i_fromDay, i_toYear, i_toMonth, i_toDay )        
+//---------------------------------------------------------------------------------------------------------------
+
+
+
+
+export Win_Loss_Show() =>
+                                                                                                                                                                                                   //==
+	var entryP = 0.                                                                                                                                                                                                                                           //==
+    var exitP  = 0.																																																													  //==
+                                                                                                                                                                                                                                           //==
+    if(ta.change(strategy.position_size) and  strategy.position_size == 0)                                                                                                                                                                                    //==
+    																																																														  //==
+        entryP := nz(strategy.closedtrades.entry_price(strategy.closedtrades-1))                                                                                                                                                                              //==
+        exitP  := nz(strategy.closedtrades.exit_price(strategy.closedtrades-1))                                                                                                                                                                               //==
+    buy_entryP = entryP                                                                                                                                                                                                                                              //==
+    sell_exitP = exitP                                                                                                                                                                                                                                              //==
+    var buy_SELL = 2                                                                                                                                                                                                                                          //==
+    buy_SELL := strategy.position_size > 0 ? 0 : strategy.position_size < 0 ? 1 : 2
+    win = nz(buy_SELL[1]) ==0 and ta.change(strategy.position_size) and  strategy.position_size == 0 and buy_entryP < sell_exitP 
+    loss = nz(buy_SELL[1]) ==0 and ta.change(strategy.position_size) and  strategy.position_size == 0 and buy_entryP > sell_exitP
+    equal = nz(buy_SELL[1]) ==0 and ta.change(strategy.position_size) and  strategy.position_size == 0 and buy_entryP == sell_exitP
+    [win,loss,equal]
+            
+
+
+export NetProfit_Show(bool show_Net ,string position_ ,string size_i,color color_Net ) =>
+    //show_Net = true 
+    //position_ = input.string('top_right','Position', options = ['top_right','middle_right','bottom_right','top_center','middle_center','bottom_center','middle_left','bottom_left'] , inline = 'Lnet')
+    //size_i = input.string('auto','size', options = ['auto','tiny','small','normal'] , inline = 'Lnet') 
+    //color_Net = input.color(color.blue,"" , inline = 'Lnet')
+    percenProfit = (strategy.netprofit / strategy.initial_capital ) *100
+    colprofit = percenProfit < 0 ?  color.red : color.white
+    profitFac = strategy.grossprofit / strategy.grossloss
+    percenwin = (strategy.wintrades / strategy.closedtrades) * 100 
+    Netprofit =  str.tostring(strategy.netprofit,'#,###.##') +'\n'+str.tostring(percenProfit,'#,###.##')+' % '
+    win = str.tostring(percenwin,'#.##')+' % '
+    profitFactor = str.tostring(profitFac,'#.###')
+    close_Trad = str.tostring(strategy.closedtrades,'#,###') + '\n' + 'W: '+str.tostring(strategy.wintrades)+' |L: '+ str.tostring(strategy.losstrades)
+    max_drawdown =str.tostring( strategy.max_drawdown,'#,###.##')
+    tra = 80
+    
+    position_CH = position_ == 'bottom_right' ? position.bottom_right : 
+                     position_ == 'bottom_left' ? position.bottom_left : 
+                         position_ == 'bottom_center' ? position.bottom_center :
+                             position_ == 'middle_right' ? position.middle_right :
+                                 position_ == 'middle_left' ? position.middle_left :
+                                     position_ == 'middle_center' ? position.middle_center :
+                                         position_ == 'top_right' ? position.top_right :
+                                             position_ == 'top_center' ? position.top_center : position.bottom_right
+    size_ = size_i == 'auto' ? size.auto :
+             size_i == 'tiny' ?  size.tiny :    
+               size_i == 'small' ? size.small : 
+                 size_i == 'small' ? size.normal :  size.auto
+    if show_Net               
+        table table_Net = table.new(position_CH , 5,50 ,border_color = color.black, border_width = 1 )
+        table.cell(table_Net, 0,1, 'Netprofit',text_size = size_ , bgcolor = color.new(color_Net,tra),text_color =color.new(color.white,0)  ) 
+        table.cell(table_Net, 1,1, 'CloseTrad',text_size = size_ , bgcolor = color.new(color_Net,tra),text_color =color.new(color.white,0)  ) 
+        table.cell(table_Net, 2,1, 'Win',text_size = size_  , bgcolor = color.new(color_Net,tra),text_color =color.new(color.white,0)  ) 
+        table.cell(table_Net, 3,1, 'Factor',text_size =size_  , bgcolor = color.new(color_Net,tra),text_color =color.new(color.white,0)  ) 
+        table.cell(table_Net, 4,1, 'Drawdown',text_size = size_ , bgcolor = color.new(color_Net,tra),text_color =color.new(color.white,0)  ) 
+        
+        table.cell(table_Net, 0, 2, Netprofit,text_size = size_ ,  bgcolor = color.new(color.black,30),text_color =color.new(colprofit,0)) 
+        table.cell(table_Net, 1, 2, close_Trad,text_size = size_  , bgcolor = color.new(color.black,30),text_color =color.new(color.white,0)) 
+        table.cell(table_Net, 2, 2, win ,text_size = size_  , bgcolor = color.new(color.black,30),text_color =color.new(color.white,0) ) 
+        table.cell(table_Net, 3, 2, profitFactor,text_size = size_  , bgcolor = color.new(color.black,30),text_color =color.new(colprofit,0)) 
+        table.cell(table_Net, 4, 2, max_drawdown,text_size = size_  , bgcolor = color.new(color.black,30),text_color =color.new(color.red,0)) 
+
+
+
+
+export Count_Bar_Back_Test(bool Back_Test ,int Back_Test_bar_start,int Back_Test_step_start,int Back_Test_bar_end, int Back_Test_step_end ,bool i_dateFilter,int i_fromYear,int i_fromMonth,int i_fromDay,int i_toYear,int i_toMonth,int i_toDay ) =>        
+
+    count_backtest_bar_start = Back_Test ?  ( Back_Test_bar_start * Back_Test_step_start) : 0
+    count_backtest_bar_end = Back_Test ? last_bar_index  - ( Back_Test_bar_end* Back_Test_step_end) : last_bar_index
+    BarBackTEST = bar_index >= count_backtest_bar_start and bar_index <= count_backtest_bar_end 
+    maxbar = last_bar_index / Back_Test_step_start
+
+    fromDate        = timestamp(i_fromYear, i_fromMonth, i_fromDay, 00, 00)                                                                 
+    toDate          = time < timestamp(i_toYear, i_toMonth, i_toDay, 23, 59) ? time :  timestamp(i_toYear, i_toMonth, i_toDay, 23, 59)      
+
+    date_start_entry    = i_dateFilter ? fromDate < time ? time : fromDate : time
+    var begin           = date_start_entry
+    days                = (toDate - begin) / (24 * 60 * 60 * 1000) 
+
+    mess1 = str.tostring(days, "#.0 days /") + str.tostring(days/30, "#.0 month  /")  + str.tostring( strategy.closedtrades / days, "#.0 ") + 'ครั้งต่อวัน'
+    mess2 = Back_Test ?   count_backtest_bar_start > last_bar_index ? ('start ' +   str.tostring( count_backtest_bar_start,'#,###.##') +'....Over Bar' +' MAX:'+ str.tostring(maxbar,'#,###') )  : ('start ' +   str.tostring( count_backtest_bar_start,'#,###.##') +' MAX:'+ str.tostring(maxbar,'#,###') )   :    'start 0 Bar  MAX:'+ str.tostring(maxbar,'#,###')
+    mess3 = ( Back_Test ?  ('end ' + str.tostring(last_bar_index ,'#,###.##') +' - ' + str.tostring( Back_Test_bar_end* Back_Test_step_end) + ' = ' + str.tostring(count_backtest_bar_end ,'#,###.##') )  : 'end ' +str.tostring(count_backtest_bar_end ,'#,###.##') ) + ' Bar'
+
+  
+    table table_countbar = table.new(position.bottom_right, 1,50 ,border_color = color.orange)
+    table.cell(table_countbar,0, 0, mess1, bgcolor =color.new(color.blue,80),text_color =color.new(color.white,0) ) 
+    table.cell(table_countbar, 0, 1, mess2, bgcolor = color.new(color.red,80),text_color =  count_backtest_bar_start > last_bar_index ? color.new(color.red,0) : color.new(color.white,15)  ) 
+    table.cell(table_countbar, 0, 2, mess3, bgcolor = color.new(color.red,80),text_color =color.new(color.white,0) ) 
+
+    x = BarBackTEST  and (not i_dateFilter or (time >= fromDate and time <= toDate))

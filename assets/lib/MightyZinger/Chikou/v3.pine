@@ -1,0 +1,98 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © MightyZinger
+
+//@version=5
+
+// @description This library defines Chikou Filter function to enhances functionality of Chikou-Span from Ichimoku Cloud using a simple trend filter.
+     //Chikou is basically close value of ticker offset to close and it is a good for indicating if close value has crossed potential Support/Resistance zone from past. Chikou is usually used with 26 period.
+     //Chikou filter uses a lookback length calculated from provided lookback percentage and checks if trend was bullish or bearish within that lookback period.
+     //Bullish : Trend is bullish if Chikou span is above high values of all candles within defined lookback period. Bull color shows bullish trend .
+     //Bearish: Trend is bearish if Chikou span is below low values of all candles within defined lookback period. This is indicated by Bearish color.
+     //Reversal / Choppiness : Reversal color indicates that Chikou are swinging around candles within defined lookback period which is an indication of consolidation or trend reversal.
+
+library("Chikou")
+
+// @function             Chikou Filter for Ichimoku Cloud with Color and Signal Output
+// @param src            Price Source (better to use (OHLC4+high+low/3 instead of default close value)
+// @param len            Chikou Legth (displaced source value) 
+// @param _high          Ticker High Value
+// @param _low           Ticker Low Value
+// @param bull_col       Color to be returned if source value is greater than all candels within provided lookback percentage.
+// @param bear_col       Color to be returned if source value is lower than all candels within provided lookback percentage.
+// @param r_col          Color to be returned if source value is swinging around candles within defined lookback period which is an indication of consolidation or trend reversal.
+// @returns              Color based on trend. 'bull_col' if trend is bullish, 'bear_col' if trend is bearish. 'r_col' if no prominent trend. Integer Signal is also returned as 1 for Bullish, -1 for Bearish and 0 for no prominent trend.
+export chikou(float src, simple int len, float _high, float _low, color bull_col, color bear_col, color r_col)=>
+    var _up = bool(na)
+    var _dn = bool(na)
+    var _re = bool(na)
+    var color _clr = color.new(na, 0)
+    var sig = int(na)
+    
+    _up := src > ta.highest(_high, len)[len]
+    _dn := src < ta.lowest(_low, len)[len]
+    _re := src < ta.highest(_high, len)[len] and src > ta.lowest(_low, len)[len]
+    
+    _clr := _up ? bull_col : _dn ? bear_col : r_col
+    
+    sig := _up ? 1 : _dn ? -1 : 0     // provides Bullish and Bearish condition in Integer format that can be used as signals
+    
+    [_clr, sig]
+
+
+/////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////
+
+/////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////
+/////                     Source Options                       //////
+/////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////
+
+// ─── Different Sources Options List ───► [
+string SRC_Tv = 'Use traditional TradingView Sources '
+string SRC_Wc = '(high + low + (2 * close)) / 4'
+string SRC_Wo = 'close+high+low-2*open'
+string SRC_Wi = '(close+high+low) / 3'
+string SRC_Ex = 'close>open ? high : low'
+string SRC_Hc = 'Heikin Ashi Close'
+string src_grp = 'Source Parameters'
+
+// ●───────── Inputs ─────────● {
+diff_src = input.string(SRC_Wi, '→ Different Sources Options', options=[SRC_Tv, SRC_Wc, SRC_Wo, SRC_Wi, SRC_Ex, SRC_Hc], group=src_grp)
+i_sourceSetup = input.source(close, 'Source Setup', group=src_grp)
+uha_src = input.bool(true, title='Use Heikin Ashi Candles for Different Source Calculations', group=src_grp)
+i_Symmetrical = input.bool(true, 'Apply Symmetrically Weighted Moving Average at the price source (May Result Repainting)', group=src_grp)
+
+// Heikinashi Candles for calculations
+h_close = uha_src ? ohlc4 : close
+f_ha_open() =>
+    haopen   = float(na)
+    haopen := na(haopen[1]) ? (open + close) / 2 : (nz(haopen[1]) + nz(ohlc4[1])) / 2
+    haopen
+h_open  = uha_src ? f_ha_open() : open
+h_high = high
+h_low = low
+// Get Source 
+src_o = diff_src == SRC_Wc ? (h_high + h_low + 2 * h_close) / 4 :
+     diff_src == SRC_Wo ? h_close + h_high + h_low - 2 * h_open :
+     diff_src == SRC_Wi ? (h_close + h_high + h_low) / 3 : diff_src == SRC_Ex ? h_close > h_open ? h_high :
+     h_low : diff_src == SRC_Hc ? ohlc4 :
+     i_sourceSetup
+
+src_f = i_Symmetrical ? ta.swma(src_o) : src_o  // Symmetrically Weighted Moving Average?
+
+string grp1 = 'Chikou Parameters'
+c_len = input.int(26, title='Chikou Period:', group=grp1)
+
+/////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////
+
+// Chikou Plot
+
+[c_col, _trend] = chikou(src_f, c_len, high, low, color.green, color.red, color.yellow) 
+
+chikou_plot = plot(src_f, offset = -c_len+1 , color= c_col , title="Chikou-Span",  linewidth=4)
+
+
+/////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////

@@ -1,0 +1,202 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © X4815162342
+
+//@version=5
+
+// Thanks For Code by Cayoshi this code back up for my strategy, make sure when use libary direct the code in my libary
+
+//เรียกใช้  library
+//import X4815162342/X48_LibaryStrategyStatus/1 as fuLi 
+//แสดงผล Backtest
+
+//show_Net = input.bool(true,'Show Net', inline = 'Lnet')
+//position_ = input.string('bottom_center','Position', options = ['top_right','middle_right','bottom_right','top_center','middle_center','bottom_center','middle_left','bottom_left'] , inline = 'Lnet')
+//size_i = input.string('auto','size', options = ['auto','tiny','small','normal'] , inline = 'Lnet') 
+//color_Net = input.color(color.blue,"" , inline = 'Lnet')
+//fuLi.NetProfit_Show(show_Net , position_ , size_i,  color_Net )
+
+library("X48_LibaryStrategyStatus")
+
+export Win_Loss_Show() =>
+                                                                                                                                                                                                   //==
+	var entryP = 0.                                                                                                                                                                                                                                           //==
+    var exitP  = 0.																																																													  //==
+                                                                                                                                                                                                                                           //==
+    if(ta.change(strategy.position_size) and  strategy.position_size == 0)                                                                                                                                                                                    //==
+    																																																														  //==
+        entryP := nz(strategy.closedtrades.entry_price(strategy.closedtrades-1))                                                                                                                                                                              //==
+        exitP  := nz(strategy.closedtrades.exit_price(strategy.closedtrades-1))                                                                                                                                                                               //==
+    buy_entryP = entryP                                                                                                                                                                                                                                              //==
+    sell_exitP = exitP                                                                                                                                                                                                                                              //==
+    var buy_SELL = 2                                                                                                                                                                                                                                          //==
+    buy_SELL := strategy.position_size > 0 ? 0 : strategy.position_size < 0 ? 1 : 2
+    win = nz(buy_SELL[1]) ==0 and ta.change(strategy.position_size) and  strategy.position_size == 0 and buy_entryP < sell_exitP 
+    loss = nz(buy_SELL[1]) ==0 and ta.change(strategy.position_size) and  strategy.position_size == 0 and buy_entryP > sell_exitP
+    equal = nz(buy_SELL[1]) ==0 and ta.change(strategy.position_size) and  strategy.position_size == 0 and buy_entryP == sell_exitP
+    [win,loss,equal]
+            
+
+
+export NetProfit_Show(bool show_Net ,string position_ ,string size_i,color color_Net ) =>
+    percenProfit = (strategy.netprofit / strategy.initial_capital ) *100
+    colprofit = percenProfit < 0 ?  color.red : color.white
+    profitFac = strategy.grossprofit / strategy.grossloss
+    percenwin = (strategy.wintrades / strategy.closedtrades) * 100 
+    Netprofit =  str.tostring(strategy.netprofit,'#,###.##') +'\n'+str.tostring(percenProfit,'#,###.##')+' % '
+    win = str.tostring(percenwin,'#.##')+' % '
+    profitFactor = str.tostring(profitFac,'#.###')
+    close_Trade = str.tostring(strategy.closedtrades,'#,###') + '\n' + 'W: '+str.tostring(strategy.wintrades)+' | L: '+ str.tostring(strategy.losstrades)
+    max_drawdown =str.tostring( strategy.max_drawdown,'#,###.##')
+    tra = 80
+    
+    position_CH = position_ == 'bottom_right' ? position.bottom_right : 
+                     position_ == 'bottom_left' ? position.bottom_left : 
+                         position_ == 'bottom_center' ? position.bottom_center :
+                             position_ == 'middle_right' ? position.middle_right :
+                                 position_ == 'middle_left' ? position.middle_left :
+                                     position_ == 'middle_center' ? position.middle_center :
+                                         position_ == 'top_right' ? position.top_right :
+                                             position_ == 'top_center' ? position.top_center : position.bottom_right
+    size_ = size_i == 'auto' ? size.auto :
+             size_i == 'tiny' ?  size.tiny :    
+               size_i == 'small' ? size.small : 
+                 size_i == 'small' ? size.normal :  size.auto
+    if show_Net               
+        table table_Net = table.new(position_CH , 5,50 ,border_color = color.black, border_width = 1 )
+        table.cell(table_Net, 0,1, 'Netprofit',text_size = size_ , bgcolor = color.new(color_Net,tra),text_color =color.new(color.white,0)  ) 
+        table.cell(table_Net, 1,1, 'CloseTrade',text_size = size_ , bgcolor = color.new(color_Net,tra),text_color =color.new(color.white,0)  ) 
+        table.cell(table_Net, 2,1, 'Win',text_size = size_  , bgcolor = color.new(color_Net,tra),text_color =color.new(color.white,0)  ) 
+        table.cell(table_Net, 3,1, 'Factor',text_size =size_  , bgcolor = color.new(color_Net,tra),text_color =color.new(color.white,0)  ) 
+        table.cell(table_Net, 4,1, 'Drawdown',text_size = size_ , bgcolor = color.new(color_Net,tra),text_color =color.new(color.white,0)  ) 
+        
+        table.cell(table_Net, 0, 2, Netprofit,text_size = size_ ,  bgcolor = color.new(color.black,30),text_color =color.new(colprofit,0)) 
+        table.cell(table_Net, 1, 2, close_Trade,text_size = size_  , bgcolor = color.new(color.black,30),text_color =color.new(color.white,0)) 
+        table.cell(table_Net, 2, 2, win ,text_size = size_  , bgcolor = color.new(color.black,30),text_color =color.new(color.white,0) ) 
+        table.cell(table_Net, 3, 2, profitFactor,text_size = size_  , bgcolor = color.new(color.black,30),text_color =color.new(colprofit,0)) 
+        table.cell(table_Net, 4, 2, max_drawdown,text_size = size_  , bgcolor = color.new(color.black,30),text_color =color.new(color.red,0)) 
+
+
+
+
+export Count_Bar_Back_Test(bool Back_Test ,int Back_Test_bar_start,int Back_Test_step_start,int Back_Test_bar_end, int Back_Test_step_end ,bool i_dateFilter,int i_fromYear,int i_fromMonth,int i_fromDay,int i_toYear,int i_toMonth,int i_toDay ) =>        
+
+    count_backtest_bar_start = Back_Test ?  ( Back_Test_bar_start * Back_Test_step_start) : 0
+    count_backtest_bar_end = Back_Test ? last_bar_index  - ( Back_Test_bar_end* Back_Test_step_end) : last_bar_index
+    BarBackTEST = bar_index >= count_backtest_bar_start and bar_index <= count_backtest_bar_end 
+    maxbar = last_bar_index / Back_Test_step_start
+
+    fromDate        = timestamp(i_fromYear, i_fromMonth, i_fromDay, 00, 00)                                                                 
+    toDate          = time < timestamp(i_toYear, i_toMonth, i_toDay, 23, 59) ? time :  timestamp(i_toYear, i_toMonth, i_toDay, 23, 59)      
+
+    date_start_entry    = i_dateFilter ? fromDate < time ? time : fromDate : time
+    var begin           = date_start_entry
+    days                = (toDate - begin) / (24 * 60 * 60 * 1000) 
+
+    mess1 = str.tostring(days, "#.0 days /") + str.tostring(days/30, "#.0 month  /")  + str.tostring( strategy.closedtrades / days, "#.0 ") + 'ครั้งต่อวัน'
+    mess2 = Back_Test ?   count_backtest_bar_start > last_bar_index ? ('start ' +   str.tostring( count_backtest_bar_start,'#,###.##') +'....Over Bar' +' MAX:'+ str.tostring(maxbar,'#,###') )  : ('start ' +   str.tostring( count_backtest_bar_start,'#,###.##') +' MAX:'+ str.tostring(maxbar,'#,###') )   :    'start 0 Bar  MAX:'+ str.tostring(maxbar,'#,###')
+    mess3 = ( Back_Test ?  ('end ' + str.tostring(last_bar_index ,'#,###.##') +' - ' + str.tostring( Back_Test_bar_end* Back_Test_step_end) + ' = ' + str.tostring(count_backtest_bar_end ,'#,###.##') )  : 'end ' +str.tostring(count_backtest_bar_end ,'#,###.##') ) + ' Bar'
+
+  
+    table table_countbar = table.new(position.bottom_right, 1,50 ,border_color = color.orange)
+    table.cell(table_countbar,0, 0, mess1, bgcolor =color.new(color.blue,80),text_color =color.new(color.white,0) ) 
+    table.cell(table_countbar, 0, 1, mess2, bgcolor = color.new(color.red,80),text_color =  count_backtest_bar_start > last_bar_index ? color.new(color.red,0) : color.new(color.white,15)  ) 
+    table.cell(table_countbar, 0, 2, mess3, bgcolor = color.new(color.red,80),text_color =color.new(color.white,0) ) 
+
+    x = BarBackTEST  and (not i_dateFilter or (time >= fromDate and time <= toDate))
+
+export percen(float pcnt) => 
+    strategy.position_size != 0 ? math.round(pcnt / 100 * strategy.position_avg_price / syminfo.mintick) : float(na)
+    
+export curProfitInPts() =>
+    if strategy.position_size > 0                                                                                                                                       
+        (high - strategy.position_avg_price) / syminfo.mintick
+    else if strategy.position_size < 0
+        (strategy.position_avg_price - low) / syminfo.mintick
+    else
+        0
+        
+export calcStopLossPrice(float OffsetPts) =>  
+    var float price = 0.
+    if strategy.position_size > 0                                                                                                                                       
+        //ราคาเปิด -  
+		price := strategy.position_avg_price - OffsetPts * syminfo.mintick                                                                                              
+    else if strategy.position_size < 0                                                                                                                                  
+        price := strategy.position_avg_price + OffsetPts * syminfo.mintick                                                                                              
+    else                                                                                                                                                                
+        price := na
+export calcProfitTrgtPrice(float OffsetPts) =>                                                                                                                          
+    calcStopLossPrice(-OffsetPts)    
+
+export getCurrentStage(float tp1 ,float tp2) =>                                                                                                                         
+    var stage = 0                                                                                                                                                       
+    if strategy.position_size == 0                                                                                                                                      
+        stage := 0                                                                                                                                                      
+    if stage == 0 and strategy.position_size != 0                                                                                                                       
+        stage := 1                                                                                                                                                      
+    else if stage == 1 and curProfitInPts() >= tp1// 5                                                                                                                  
+        stage := 2                                                                                                                                                      
+    else if stage == 2 and curProfitInPts() >= tp2//10                                                                                                                  
+        stage := 3                                                                                                                                                      
+    stage                                                                                                                                                                
+    																																									
+export calcTrailingAmountLevel(float points) =>                                                                                                                          
+    var float level = na                                                                                                                                                 
+    level := calcProfitTrgtPrice(points)                                                                                                                                 
+    if not na(level)                                                                                                                                                     
+        if strategy.position_size > 0                                                                                                                                    
+            if not na(level[1])                                                                                                                                          
+                level := math.max(level[1], level)                                                                                                                       
+            if not na(level)                                                                                                                                             
+                level := math.max(high, level)                                                                                                                           
+        else if strategy.position_size < 0                                                                                                                               
+            if not na(level[1])                                                                                                                                          
+                level := math.min(level[1], level)                                                                                                                       
+            if not na(level)                                                                                                                                             
+                level := math.min(low, level)                                                                                                                            
+    																																									
+export calcTrailingOffsetLevel(float points, float offset) =>                                                                                                            
+    float result = na                                                                                                                                                    
+    amountLevel = calcTrailingAmountLevel(points)                                                                                                                        
+    if strategy.position_size > 0                                                                                                                                        
+        trailActiveDiff = amountLevel - calcProfitTrgtPrice(points)                                                                                                      
+        if trailActiveDiff > 0                                                                                                                                               
+            result := trailActiveDiff + calcProfitTrgtPrice(offset)                                                                                                          
+    else if strategy.position_size < 0                                                                                                                                       
+        trailActiveDiff = calcProfitTrgtPrice(points) - amountLevel                                                                                                          
+        if trailActiveDiff > 0                                                                                                                                               
+            result := calcProfitTrgtPrice(offset) - trailActiveDiff                                                                                                          
+    result        
+export trailing_3step(float tp1_,float tp2_,float tp3_,bool activateTrailingOnThirdStep,float sl_ ) =>
+
+    var float tp1 = 0.
+    tp1 := percen(tp1_)
+    
+    var float tp2 = 0.
+    tp2 := percen(tp2_)
+    var float tp3 = 0.
+    tp3 := percen(tp3_)
+    var float sl = 0.
+    sl := percen(sl_)
+    float stopLevel = na                                                                                                                                            
+    float trailOffsetLevel = na      
+    float c1 = calcTrailingAmountLevel(tp3)
+    float c2 = calcProfitTrgtPrice(tp3)  
+    float profitLevel = activateTrailingOnThirdStep ? c1 : c2                                                                                                       
+    																																								
+    curStage = getCurrentStage(tp1,tp2)    
+    
+    if curStage == 1                                                                                                                                                
+        stopLevel := calcStopLossPrice(sl)                                                                                                                          
+        strategy.exit("x", loss = sl, profit = tp3, comment = "sl or tp3")                                                                                          
+    else if curStage == 2                                                                                                                                           
+        stopLevel := calcStopLossPrice(0)                                                                                                                           
+        strategy.exit("x", stop = stopLevel, profit = tp3, comment = "breakeven or tp3")                                                                            
+    else if curStage == 3                                                                                                                                           
+        stopLevel := calcStopLossPrice(-tp1)                                                                                                                        
+        if activateTrailingOnThirdStep                                                                                                                              
+    																																								
+            strategy.exit("x", stop = stopLevel, trail_points = tp3, trail_offset = tp3-tp2, comment = "stop tp1 or trailing tp3 with offset tp2")                  
+        else                                                                                                                                                        
+            strategy.exit("x", stop = stopLevel, profit = tp3, comment = "tp1 or tp3")                                                                              
+    else
+        strategy.cancel("x")

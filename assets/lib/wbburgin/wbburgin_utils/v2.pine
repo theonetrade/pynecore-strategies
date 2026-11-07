@@ -1,0 +1,167 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © wbburgin
+//Changed to public
+//@version=5
+
+library("wbburgin_utils")
+
+//TABLE OF CONTENTS																											NOTES
+//	1. ESSENTIAL UTILS
+//  2. INDICATORS
+//	    2.1 RANGE FILTER
+//	    2.2 FUSION INDICATOR
+//	    2.3 ZONE STRENGTH
+//      2.4 ATR ANY SOURCE
+//      2.5 SUPERTREND ANY SOURCE
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 1. ESSENTIAL UTILS
+// _____________________________________________________________________________________________________________________
+
+export selective_ma(bool condition, float source, int length) =>
+    selective_data = condition ? source : na
+    sum_selective_data = 0.0
+    count = 0
+    for i = 0 to length - 1
+        if not na(selective_data[i])
+            sum_selective_data := sum_selective_data + selective_data[i]
+            count := count + 1
+    selma = count > 0 ? sum_selective_data / count : na
+    selma
+
+export trendUp(float source)=>
+    upward   = 0.0
+    upward  := source > source[1] ? nz(upward[1]) + 1 : source < source[1] ? 0 : nz(upward[1])
+    upward
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 1. INDICATORS
+// _____________________________________________________________________________________________________________________
+
+// RANGE FILTER ________________________________________________________________________________________________________
+
+// Average Range SMOOTHING
+export smoothrng(float source, int sampling_period = 50, float range_mult = 3)=>
+    wper      = (sampling_period*2) - 1
+    avrng     = ta.ema(math.abs(source - source[1]), sampling_period)
+    smoothrng = ta.ema(avrng, wper)*range_mult
+    smoothrng
+
+// Range Filter
+export rngfilt(float source, float smoothrng)=>
+    rngfilt  = source
+    rngfilt := source > nz(rngfilt[1]) ? ((source - smoothrng) < nz(rngfilt[1]) ? nz(rngfilt[1]) : (source - smoothrng))
+     : ((source + smoothrng) > nz(rngfilt[1]) ? nz(rngfilt[1]) : (source + smoothrng))
+    rngfilt
+
+// FUSION OSCILLATOR ___________________________________________________________________________________________________
+
+export fusion(simple int overallLength = 3, simple int rsiLength=14, simple int mfiLength=14, simple int macdLength=12, 
+ simple int cciLength=12, simple int tsiLength=13, simple int rviLength=10, simple int atrLength=14, 
+  simple int adxLength=14) =>
+    
+    // Directional Oscillators
+    rsi = (ta.rsi(close,rsiLength)-50)/20
+    mfi = (ta.mfi(close,mfiLength)-50)/20
+    [macdRaw, _, _] = ta.macd(close, macdLength*overallLength, macdLength*2*overallLength, 9)
+    mHighest = ta.highest(macdRaw,macdLength*overallLength)
+    mLowest = ta.lowest(macdRaw,macdLength*overallLength)
+    macd = switch  
+        macdRaw > 0 => macdRaw/mHighest
+        macdRaw < 0 => macdRaw/math.abs(mLowest)
+        => 0
+    cci = ta.cci(close,cciLength*overallLength)/100
+    tsiRaw = ta.tsi(close,tsiLength*overallLength,tsiLength*2*overallLength)
+    tHighest = ta.highest(tsiRaw,tsiLength*overallLength)
+    tLowest = ta.lowest(tsiRaw,tsiLength*overallLength)
+    tsi = switch
+        tsiRaw > 0 => tsiRaw/tHighest
+        tsiRaw < 0 => tsiRaw/math.abs(tLowest)
+        => 0
+    src = close
+    len = 14
+    stddev = ta.stdev(src, rviLength*overallLength)
+    upper = ta.ema(ta.change(src) <= 0 ? 0 : stddev, len)
+    lower = ta.ema(ta.change(src) > 0 ? 0 : stddev, len)
+    rvi = ((upper / (upper + lower) * 100)-50)/20
+    super_dir = math.avg(rsi,mfi,macd,cci,tsi,rvi)
+
+    // Nondirectional Oscillators
+    atrRaw = ta.atr(atrLength)
+    atrStdev = ta.stdev(atrRaw,atrLength)
+    atrEMA = ta.ema(atrRaw,atrLength)
+    atr = (((atrRaw/atrEMA)-1)*(1+atrStdev))-1
+
+    [_, _, adxRaw] = ta.dmi(17, adxLength)
+    adxStdev = ta.stdev(adxRaw,adxLength)
+    adxEMA = ta.ema(adxRaw,adxLength)
+    adx = (((adxRaw/adxEMA)-1)*(1+adxStdev))
+
+    super_nondirRough = math.avg(atr,adx)
+    highestNondir = ta.highest(super_nondirRough,200)
+    lowestNondir = ta.lowest(super_nondirRough,200)
+
+    super_nondir = switch
+        super_nondirRough > 0 => super_nondirRough/highestNondir
+        super_nondirRough < 0 => super_nondirRough/math.abs(lowestNondir)
+        => 0
+    
+    [super_dir , super_nondir]
+
+// ZONE STRENGTH _______________________________________________________________________________________________________
+
+export zonestrength(int amplitude,int wavelength) =>
+    ohlc_avg = .25 * (open + high + low + close)
+    ocp_avg = .5 * (open[1] + close[1])
+    g = math.avg(ohlc_avg, ocp_avg)
+    h = g * (1 + (ohlc_avg > ocp_avg ? high > ohlc_avg ? high - ohlc_avg + high - ocp_avg : high - ocp_avg : low < 
+     ohlc_avg ? low - ocp_avg - ohlc_avg + low : low - ocp_avg) * -1 / g)
+    
+    amp_highest = ta.highest(h, amplitude)
+    amp_lowest = ta.lowest(h, amplitude)
+    high_deviation = amp_highest - high
+    low_deviation = low - amp_lowest
+
+    m = high_deviation > low_deviation ? amp_lowest : amp_highest
+    n = high_deviation < low_deviation ? amp_lowest : amp_highest
+    o = math.avg(amp_highest, amp_lowest)
+
+    q4 = math.avg(o, m)
+    q2 = math.avg(o, n)
+
+    s = ta.ema(amp_lowest, wavelength)
+    t = ta.ema(amp_highest, wavelength)
+    u = (ohlc_avg - s) / (t - s) - .5
+    zonestrength = u
+    zonestrength
+
+// ATR ANY SOURCE ______________________________________________________________________________________________________
+
+export atr_anysource(float source, int atr_length) =>
+	highest = ta.highest(source,atr_length)
+    lowest = ta.lowest(source,atr_length)
+    trueRange = na(highest[1])? highest-lowest : math.max(math.max(highest - lowest, math.abs(highest - source[1])), 
+     math.abs(lowest-source[1]))
+    ta.rma(trueRange,atr_length)
+
+// SUPERTREND ANY SOURCE _______________________________________________________________________________________________
+
+export supertrend_anysource(float source, float factor, simple int atr_length) =>
+	atr = atr_anysource(source,atr_length)
+	upperBand = source + factor * atr
+	lowerBand = source - factor * atr
+	prevLowerBand = nz(lowerBand[1])
+	prevUpperBand = nz(upperBand[1])
+	lowerBand := lowerBand > prevLowerBand or source[1] < prevLowerBand ? lowerBand : prevLowerBand
+	upperBand := upperBand < prevUpperBand or source[1] > prevUpperBand ? upperBand : prevUpperBand
+	int direction = na
+	float superTrend = na
+	prevSuperTrend = superTrend[1]
+	if na(atr[1])
+		direction := 1
+	else if prevSuperTrend == prevUpperBand
+		direction := source > upperBand ? -1 : 1
+	else
+		direction := source < lowerBand ? 1 : -1
+	superTrend := direction == -1 ? lowerBand : upperBand
+	[superTrend, direction]

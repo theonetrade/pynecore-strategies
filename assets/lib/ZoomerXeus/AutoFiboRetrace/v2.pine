@@ -1,0 +1,60 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © ZoomerXeus
+
+//@version=5
+
+// @description TODO: add library description here
+library("AutoFiboRetrace")
+
+// @function TODO: add function description here
+// @param x TODO: add parameter x description here
+// @returns TODO: add what function returns
+export original(int FPeriod, float sourceLow, float sourceHigh) =>
+	Fhigh=ta.highest(sourceHigh, FPeriod)
+    Flow=ta.lowest(sourceLow, FPeriod)
+    //FH=ta.highestbars(sourceHigh,FPeriod)
+    //FL=ta.lowestbars(sourceLow,FPeriod)
+    FL236M = Flow - (Fhigh-Flow)*0.236
+    FL382M = Flow - (Fhigh-Flow)*0.382
+    FL500M = Flow - (Fhigh-Flow)*0.500
+    FL618M = Flow - (Fhigh-Flow)*0.618
+    FL786M = Flow - (Fhigh-Flow)*0.786
+    FL0 = Flow
+    FL236 = (Fhigh-Flow)*0.236+Flow
+    FL382 = (Fhigh-Flow)*0.382+Flow
+    FL500 = (Fhigh-Flow)*0.500+Flow
+    FL618 = (Fhigh-Flow)*0.618+Flow
+    FL786 = (Fhigh-Flow)*0.786+Flow
+    FL1000 = (Fhigh-Flow)*1.000+Flow
+    FL1236 = (Fhigh-Flow)*1.236+Flow
+    FL1382 = (Fhigh-Flow)*1.382+Flow
+    FL1500 = (Fhigh-Flow)*1.500+Flow
+    FL1618 = (Fhigh-Flow)*1.618+Flow
+    FL1786 = (Fhigh-Flow)*1.786+Flow
+    FL2 = (Fhigh-Flow)*2+Flow
+    [FL236M, FL382M, FL500M, FL618M, FL786M, FL0,FL236, FL382, FL500, FL618, FL786, FL1000, FL1236, FL1382, FL1500, FL1618, FL1786, FL2]
+    
+export renderOnly(float sourceLow, float sourceHigh) => 
+    Fhigh=sourceHigh
+    Flow=sourceLow
+    //FH=ta.highestbars(sourceHigh,FPeriod)
+    //FL=ta.lowestbars(sourceLow,FPeriod)
+    FL236M = Flow - (Fhigh-Flow)*0.236
+    FL382M = Flow - (Fhigh-Flow)*0.382
+    FL500M = Flow - (Fhigh-Flow)*0.500
+    FL618M = Flow - (Fhigh-Flow)*0.618
+    FL786M = Flow - (Fhigh-Flow)*0.786
+    FL0 = Flow
+    FL236 = (Fhigh-Flow)*0.236+Flow
+    FL382 = (Fhigh-Flow)*0.382+Flow
+    FL500 = (Fhigh-Flow)*0.500+Flow
+    FL618 = (Fhigh-Flow)*0.618+Flow
+    FL786 = (Fhigh-Flow)*0.786+Flow
+    FL1000 = (Fhigh-Flow)*1.000+Flow
+    FL1236 = (Fhigh-Flow)*1.236+Flow
+    FL1382 = (Fhigh-Flow)*1.382+Flow
+    FL1500 = (Fhigh-Flow)*1.500+Flow
+    FL1618 = (Fhigh-Flow)*1.618+Flow
+    FL1786 = (Fhigh-Flow)*1.786+Flow
+    FL2 = (Fhigh-Flow)*2+Flow
+    [FL236M, FL382M, FL500M, FL618M, FL786M, FL0,FL236, FL382, FL500, FL618, FL786, FL1000, FL1236, FL1382, FL1500, FL1618, FL1786, FL2]

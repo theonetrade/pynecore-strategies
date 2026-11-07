@@ -1,0 +1,101 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © HeWhoMustNotBeNamed
+//                                       ░▒             
+//                                  ▒▒▒   ▒▒      
+//                              ▒▒▒▒▒     ▒▒      
+//                      ▒▒▒▒▒▒▒░     ▒     ▒▒          
+//                  ▒▒▒▒▒▒           ▒     ▒▒          
+//             ▓▒▒▒       ▒        ▒▒▒▒▒▒▒▒▒▒▒  
+//   ▒▒▒▒▒▒▒▒▒▒▒ ▒        ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒         
+//   ▒  ▒       ░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░        
+//   ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░▒▒▒▒▒▒▒▒         
+//   ▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ ▒▒                       
+//    ▒▒▒▒▒         ▒▒▒▒▒▒▒                            
+//                 ▒▒▒▒▒▒▒▒▒                           
+//                ▒▒▒▒▒ ▒▒▒▒▒                          
+//               ░▒▒▒▒   ▒▒▒▒▓      ████████╗██████╗ ███████╗███╗   ██╗██████╗  ██████╗ ███████╗ ██████╗ ██████╗ ██████╗ ███████╗
+//              ▓▒▒▒▒     ▒▒▒▒      ╚══██╔══╝██╔══██╗██╔════╝████╗  ██║██╔══██╗██╔═══██╗██╔════╝██╔════╝██╔═══██╗██╔══██╗██╔════╝
+//              ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒        ██║   ██████╔╝█████╗  ██╔██╗ ██║██║  ██║██║   ██║███████╗██║     ██║   ██║██████╔╝█████╗ 
+//             ▒▒▒▒▒       ▒▒▒▒▒       ██║   ██╔══██╗██╔══╝  ██║╚██╗██║██║  ██║██║   ██║╚════██║██║     ██║   ██║██╔═══╝ ██╔══╝  
+//            ▒▒▒▒▒         ▒▒▒▒▒      ██║   ██║  ██║███████╗██║ ╚████║██████╔╝╚██████╔╝███████║╚██████╗╚██████╔╝██║     ███████╗
+//             ▒▒             ▒                        
+//@version=5
+// @description Library containing few key calculations for strategy involving leveraged limit and stop orders
+library("strategy", overlay = true)
+
+// @function calculate qty and leverage based on entry and stop price for given risk percentage.
+// @param entry Entry Price
+// @param stop Stop Price
+// @param riskAmount risk percentage per trade or risk cash per trade
+// @param riskType Can be either trategy.percent_of_equity or strategy.cash
+// @returns [quantity, leverage] - Quantity based on the risk and calculated leverage on position including existing positions
+export getQty(float entry, float stop, simple float riskAmount=0.25, simple string riskType=strategy.percent_of_equity) =>
+    risk = riskType == strategy.percent_of_equity? strategy.equity*riskAmount/100 : riskAmount
+    quantity = risk/(entry-stop)
+	existingPosition = nz(strategy.position_avg_price*strategy.position_size)
+	newPosition = math.abs(existingPosition + quantity*entry)
+	leverage = math.ceil(newPosition/strategy.equity)
+	[math.abs(quantity), leverage]
+
+// @function Calculates position size based on risk and creates bracket orders for given entry/stop/target 
+// @param entry Entry Price
+// @param stop Stop Price
+// @param target Target Price
+// @param maxLeverage Maximum leverage allowed
+// @param isLimitOrder if true, places limit order for entry, else places stop order.
+// @param riskAmount risk percentage per trade or risk cash per trade
+// @param riskType Can be either trategy.percent_of_equity or strategy.cash
+// @returns orderPlaced - true if orders successfully placed, false otherwise.
+export bracketOrder(string id, float entry, float stop, float target, int maxLeverage=100,
+					 bool isLimitOrder=false, simple float riskAmount=0.25, simple string riskType=strategy.percent_of_equity)=>
+    dir = entry > stop and entry < target ? 1 : entry < stop and entry > target? -1 : 0
+    [qty, leverage] = getQty(entry, stop, riskAmount, riskType)
+    bool orderPlaced = false
+	if(dir != 0 and leverage <= maxLeverage)
+		if(isLimitOrder)
+            strategy.entry(str.tostring(id), dir > 0 ? strategy.long : strategy.short, qty, limit=entry)
+        else
+            strategy.entry(str.tostring(id), dir > 0 ? strategy.long : strategy.short, qty, stop=entry)
+        strategy.exit('Exit '+str.tostring(id), str.tostring(id), stop=stop, limit=target)
+		orderPlaced := true
+	orderPlaced
+
+// @function Creates bracket orders for given entry/stop/target without leverage and qty calculation. (Uses the values from strategy definition)
+// @param entry Entry Price
+// @param stop Stop Price
+// @param target Target Price
+// @param isLimitOrder if true, places limit order for entry, else places stop order.
+// @returns orderPlaced - true if orders successfully placed, false otherwise.
+export bracketOrderWithoutLeverage(string id, float entry, float stop, float target, bool isLimitOrder=false)=>
+    dir = entry > stop and entry < target ? 1 : entry < stop and entry > target? -1 : 0
+    bool orderPlaced = false
+	if(dir != 0)
+		if(isLimitOrder)
+            strategy.entry(str.tostring(id), dir > 0 ? strategy.long : strategy.short, limit=entry)
+        else
+            strategy.entry(str.tostring(id), dir > 0 ? strategy.long : strategy.short, stop=entry)
+        strategy.exit('Exit '+str.tostring(id), str.tostring(id), stop=stop, limit=target)
+		orderPlaced := true
+	orderPlaced
+
+// @function Calculates position size based on risk and creates order for given entry/stop 
+// @param entry Entry Price
+// @param stop Stop Price
+// @param maxLeverage Maximum leverage allowed
+// @param isLimitOrder if true, places limit order for entry, else places stop order.
+// @param riskAmount risk percentage per trade or risk cash per trade
+// @param riskType Can be either trategy.percent_of_equity or strategy.cash
+// @returns orderPlaced - true if orders successfully placed, false otherwise.
+export order(string id, float entry, float stop, int maxLeverage=100,
+					 bool isLimitOrder=false, simple float riskAmount=0.25, simple string riskType=strategy.percent_of_equity)=>
+    dir = entry > stop? 1 : entry < stop? -1 : 0
+    [qty, leverage] = getQty(entry, stop, riskAmount, riskType)
+    bool orderPlaced = false
+    if(leverage <= maxLeverage and dir != 0)
+		if(isLimitOrder)
+            strategy.entry(str.tostring(id), dir > 0 ? strategy.long : strategy.short, qty, limit=entry)
+        else
+            strategy.entry(str.tostring(id), dir > 0 ? strategy.long : strategy.short, qty, stop=entry)
+        strategy.exit('Exit '+str.tostring(id), str.tostring(id), stop=stop)
+		orderPlaced := true
+	orderPlaced
