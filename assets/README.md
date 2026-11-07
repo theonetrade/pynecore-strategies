@@ -24,6 +24,7 @@ normalized to LF.
 ```
 assets/
   README.md
+  compile_state.json          progress of compiling these sources to scripts/ (see "Compiling to scripts/")
   strategy/                   scripts with Type STR (place orders, verified trade by trade)
     bit-exact/
     verified/
@@ -260,6 +261,26 @@ to date:
 5. Remove `.pine` files whose URL is no longer in `links.txt`.
 6. Run the checks in step 4, then update the folder's row in the Status table with the counts
    and the date.
+
+## Compiling to scripts/
+
+`tools/compile_assets.py` compiles every `.pine` file here through the PyneSys API (`pyne
+compile`, key in `config/api.toml`) into `scripts/strategy_<name>.py` or
+`scripts/indicator_<name>.py`, where `<name>` is the `.pine` file name without the extension.
+
+```bash
+.venv/bin/python tools/compile_assets.py --status      # progress per folder and API quota; uses no quota
+.venv/bin/python tools/compile_assets.py               # compile until done or until the quota runs out
+.venv/bin/python tools/compile_assets.py --limit 50    # at most 50 files this run
+```
+
+The API quota is limited per hour and per day, so the work spans several runs. Each run stops
+on its own when the quota is used up (exit code 3, with the reset time) or the key is rejected
+(exit code 2); it can also be killed at any moment. Running the same command later continues
+where the last run stopped. Progress is kept in `compile_state.json`, keyed by the SHA-256 of
+each source, so a fresh clone does not recompile anything and an edited `.pine` file is
+compiled again. Sources that fail to compile are recorded there with the error and skipped
+until `--retry-failed`.
 
 ## Licensing
 

@@ -1,0 +1,134 @@
+{
+ "assets/strategy/verified/3_signal_directional_trend_strategy_for_e_minis_pCxvfqFv.pine": {
+  "dst": "strategy_3_signal_directional_trend_strategy_for_e_minis_pCxvfqFv.py",
+  "sha256": "ddf024a019909ddb397f055460fe7081947d82490c3fabc3099635d36ab49924",
+  "status": "ok",
+  "at": "2026-11-07T17:00:12+00:00"
+ },
+ "assets/strategy/verified/acrypto_weighted_strategy_OF3TzrNS.pine": {
+  "dst": "strategy_acrypto_weighted_strategy_OF3TzrNS.py",
+  "sha256": "045e6484501f093592bc5613bfdda1dced3ca8328acaa3c40587e71e992af664",
+  "status": "ok",
+  "at": "2026-11-07T17:00:24+00:00"
+ },
+ "assets/strategy/verified/atr_rsi_strategy_v2_with_no_repaint_liwei666_mqh6UJ9p.pine": {
+  "dst": "strategy_atr_rsi_strategy_v2_with_no_repaint_liwei666_mqh6UJ9p.py",
+  "sha256": "97a32c89f94e73810a75ae5d1f3f4438ce29d7597ecd1908bef62b36835fc0db",
+  "status": "ok",
+  "at": "2026-11-07T17:00:25+00:00"
+ },
+ "assets/strategy/verified/bjorgum_double_tap_rLkjr2sQ.pine": {
+  "dst": "strategy_bjorgum_double_tap_rLkjr2sQ.py",
+  "sha256": "f45df214dbb49c70fd848f2f9998a59a0172fdd1f32398771fcebeb652f866cf",
+  "status": "ok",
+  "at": "2026-11-07T17:00:36+00:00"
+ },
+ "assets/strategy/verified/blackcat_l2_reversal_labels_strategy_FH1VyeNT.pine": {
+  "dst": "strategy_blackcat_l2_reversal_labels_strategy_FH1VyeNT.py",
+  "sha256": "e62ccc2eecf98c3befd2b63cabea3ffecd97dd8be46d4be5aa57d9db550205eb",
+  "status": "ok",
+  "at": "2026-11-07T17:00:37+00:00"
+ },
+ "assets/strategy/verified/bollingerbands_strat_pending_order_alerts_via_tradingconnector_a5CmxEJq.pine": {
+  "dst": "strategy_bollingerbands_strat_pending_order_alerts_via_tradingconnector_a5CmxEJq.py",
+  "sha256": "8ab8f308d85508692068c1b37b1c9e5fd6b5fa408e402b2824deba1d418d19b7",
+  "status": "ok",
+  "at": "2026-11-07T17:00:38+00:00"
+ },
+ "assets/strategy/verified/bsl_ssl_sweep_fvg_strategy_jobin_c_TQZdIvcg.pine": {
+  "dst": "strategy_bsl_ssl_sweep_fvg_strategy_jobin_c_TQZdIvcg.py",
+  "sha256": "148558b526d0536028c32e8232adce5c764227e210b1b85e9811638e8087790b",
+  "status": "ok",
+  "at": "2026-11-07T17:00:43+00:00"
+ },
+ "assets/strategy/verified/btc_bot_DPBeZbMP.pine": {
+  "dst": "strategy_btc_bot_DPBeZbMP.py",
+  "sha256": "324ca4e1a3067810e62435030c021d24baf9d0f0163273dc547d46f3652cd15f",
+  "status": "ok",
+  "at": "2026-11-05T14:15:07+00:00"
+ },
+ "assets/strategy/verified/btfd_strategy_3min_qRwx46ZQ.pine": {
+  "dst": "strategy_btfd_strategy_3min_qRwx46ZQ.py",
+  "sha256": "7069020ccbcfaed7d2f1ce518bb89b95af7e4d7baa645c6b5ffa48066a99d2b1",
+  "status": "ok",
+  "at": "2026-11-07T17:00:44+00:00"
+ },
+ "assets/strategy/verified/calculation_a_position_size_based_on_risk_hoCPm5UY.pine": {
+  "dst": "strategy_calculation_a_position_size_based_on_risk_hoCPm5UY.py",
+  "sha256": "e1e8a6db0b5d010ab43eab787ee1827c098f30836602e82b03f19a8f80346d47",
+  "status": "ok",
+  "at": "2026-11-07T17:00:46+00:00"
+ },
+ "assets/strategy/verified/camarilla_pivot_points_v2_backtest_MXkclJVM.pine": {
+  "dst": "strategy_camarilla_pivot_points_v2_backtest_MXkclJVM.py",
+  "sha256": "99f0281c6720f8fa0b4710f79ebbd86406bc0834463dc249eb3514866097bf01",
+  "status": "ok",
+  "at": "2026-11-07T17:00:47+00:00"
+ },
+ "assets/strategy/verified/chandelier_exit_strategy_with_200_ema_filter_T7c4n0Qu.pine": {
+  "dst": "strategy_chandelier_exit_strategy_with_200_ema_filter_T7c4n0Qu.py",
+  "sha256": "719e6367f9bf3b8817349573f96af2c88d74a5f9d9ec555f0c4bac0aa2151a11",
+  "status": "ok",
+  "at": "2026-11-07T17:00:48+00:00"
+ },
+ "assets/strategy/verified/combined_strategy_trading_bot_rsi_adx_20sma_7wrshs1q.pine": {
+  "dst": "strategy_combined_strategy_trading_bot_rsi_adx_20sma_7wrshs1q.py",
+  "sha256": "393528051200c21e49e032d3ccf415a865309ec0fc9c4eeead7b616b2f0b3b33",
+  "status": "ok",
+  "at": "2026-11-07T17:00:49+00:00"
+ },
+ "assets/strategy/verified/combo_2_20_ema_accelerator_oscillator_ac_Cfz1HMO1.pine": {
+  "dst": "strategy_combo_2_20_ema_accelerator_oscillator_ac_Cfz1HMO1.py",
+  "sha256": "a4b20ffabfc30f77f5485a698130b5ccc94d1cec041960bf45643aaf0bb12b2d",
+  "status": "ok",
+  "at": "2026-11-07T17:00:51+00:00"
+ },
+ "assets/strategy/verified/combo_backtest_123_reversal_rsi_IuTkaU1w.pine": {
+  "dst": "strategy_combo_backtest_123_reversal_rsi_IuTkaU1w.py",
+  "sha256": "780d669045480348d254a801b31a46b366efc1eb88d3aa665df6732b739c0d89",
+  "status": "ok",
+  "at": "2026-11-07T17:00:52+00:00"
+ },
+ "assets/strategy/verified/combo_backtest_123_reversal_smart_money_index_smi_NudssmJx.pine": {
+  "dst": "strategy_combo_backtest_123_reversal_smart_money_index_smi_NudssmJx.py",
+  "sha256": "afff77ba48495679fc3e5418cafc6d16bd71cecd49ad95ab84e02a70b389d6b3",
+  "status": "ok",
+  "at": "2026-11-07T17:00:54+00:00"
+ },
+ "assets/strategy/verified/combo_backtest_123_reversal_statistical_volatility_3w6l57bw.pine": {
+  "dst": "strategy_combo_backtest_123_reversal_statistical_volatility_3w6l57bw.py",
+  "sha256": "f25ccf1d029056422979bbb14a08b9c858ee2b88c369a323728af5e0f43f489a",
+  "status": "ok",
+  "at": "2026-11-07T17:00:56+00:00"
+ },
+ "assets/strategy/verified/crypto_bot_lower_timeframes_IS7yz9s4.pine": {
+  "dst": "strategy_crypto_bot_lower_timeframes_IS7yz9s4.py",
+  "sha256": "b09a78c7efd9eac4d9e547e0534f881be7bb6cc703b56f1677adbfb70ba2eaaf",
+  "status": "ok",
+  "at": "2026-11-07T17:01:00+00:00"
+ },
+ "assets/strategy/verified/crypto_scalper_divergence_macd_psar_ema_200_84YDnJ9V.pine": {
+  "dst": "strategy_crypto_scalper_divergence_macd_psar_ema_200_84YDnJ9V.py",
+  "sha256": "dd87cb06f62d10b296758946a75e21099994433c58acfa91f540232f7a182cb3",
+  "status": "ok",
+  "at": "2026-11-07T17:01:02+00:00"
+ },
+ "assets/strategy/verified/crypto_zigzag_rsi_strategy_15min_LhpfQMtP.pine": {
+  "dst": "strategy_crypto_zigzag_rsi_strategy_15min_LhpfQMtP.py",
+  "sha256": "7416c3cc5c892cf48d21e8a15f9b5a624052b312be55b1207006193d1c31c094",
+  "status": "ok",
+  "at": "2026-11-07T17:01:03+00:00"
+ },
+ "assets/strategy/verified/dca_bot_emulator_vyStpg6g.pine": {
+  "dst": "strategy_dca_bot_emulator_vyStpg6g.py",
+  "sha256": "c59ecaf4ed37b56deb214be6d86571d4b7ba3f6510c89b0b2242532a132ff04e",
+  "status": "ok",
+  "at": "2026-11-07T17:01:05+00:00"
+ },
+ "assets/strategy/verified/dynamic_swing_anchored_vwap_strat_zeiierman_pineindicators_gjFSGRCo.pine": {
+  "dst": "strategy_dynamic_swing_anchored_vwap_strat_zeiierman_pineindicators_gjFSGRCo.py",
+  "sha256": "7b99a2b56ed5d44f0f0ecaa159cb0963855becdf350cdc50e1fe08e43e412497",
+  "status": "ok",
+  "at": "2026-11-07T17:01:06+00:00"
+ }
+}
