@@ -1,0 +1,1892 @@
+// ══════════════════════════════════════════════════════════════════════════════════
+// Smart Trader, Episode 06, Isotropic Trend Lines
+// Short: ST-EP06
+//
+// PURPOSE:
+//   Multi-scale structural trend channel indicator built on an Isotropic
+//   Coordinate System (ICS). ICS normalizes log-price by Yang-Zhang volatility σ,
+//   producing a dimensionless space where trend angles are comparable across
+//   instruments, timeframes, and volatility regimes.
+//
+// METHODOLOGY:
+//   1. Yang-Zhang (2000) realized volatility estimator provides drift-invariant σ
+//      using Open-Close overnight variance, Close-Open intraday variance, and
+//      Rogers-Satchell range-based variance with optimal k-weight.
+//   2. Block Construction: price history is partitioned into consecutive blocks of
+//      length = Period. Each block reduces to a geometric mean (log-midpoint of
+//      High/Low), capturing the block's central tendency without close-price bias.
+//   3. Direction Detection: consecutive block geometric means are compared to find
+//      the longest monotonic segment. Direction = sign of the slope across that
+//      segment. The ICS angle (arctan of normalized slope) classifies the move as
+//      trending or ranging against the Range Threshold input.
+//   4. Channel Fitting: within the trending segment, the four price extremes
+//      (highest high, lowest high, highest low, lowest low) with their bar indices
+//      define two linear boundaries — upper and lower channel lines — via point-
+//      to-point slope interpolation. FLAT channels use horizontal extremes.
+//   5. 6-Scale Parallel Analysis: the full pipeline (steps 1–4) runs independently
+//      at scales 3, 7, 13, 19, 29, 47. Scale 19 = primary engine (uses the user's
+//      Period input). Other scales use fixed periods for cross-scale consensus.
+//   6. Breakout / Retest State Machine: a 5-state system (INSIDE, BO_UP, RT_UP,
+//      BO_DN, RT_DN) on the primary channel tracks price exits, σ-distance
+//      thresholds, retest events, gap crossings, and direction resets.
+//
+// ANTI-REPAINT:
+//   Configurable via the Calculation Bar input (default Live Bar). Close
+//   Bar mode anchors every structural computation at bar [1] — the live
+//   bar never enters direction, channel, or state machine logic. Live Bar
+//   mode anchors at bar [0] and repaints with each tick. Dashboard header
+//   price stays live in both modes (Live Exception). Visual elements draw
+//   only at barstate.islast or barstate.islastconfirmedhistory.
+//
+// VISUAL OUTPUT:
+//   - Channel lines (solid) with forward projection (dotted)
+//   - Linefill between channel boundaries (independent colors + transparency)
+//   - Diamond markers (◆) at channel endpoints with context tooltip
+//     (close at selected anchor, ceiling, floor, extension %)
+//   - Direction + ICS angle label at channel midpoint
+//   - Dashboard table: periods, per-scale trend, consensus, channel levels,
+//     and a human-readable narrative row summarizing breakout/retest state
+//
+// DEPENDENCIES:
+//   Reads: standard OHLCV series (open, high, low, close, volume)
+//   External: none (no imports, no request.security)
+//   Pine Script: v6
+// ══════════════════════════════════════════════════════════════════════════════════
+
+//@version=6
+indicator("Smart Trader, Episode 06, Isotropic Trend Lines",
+     "ST-EP06",
+     overlay          = true,
+     max_lines_count  = 50,
+     max_labels_count = 50,
+     max_boxes_count  = 20)
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// CONSTANTS
+//
+// PURPOSE:
+//   Immutable values used throughout the script. Declared at global scope to
+//   avoid magic numbers and ensure single-source-of-truth for direction codes,
+//   mathematical constants, analysis scales, and state machine identifiers.
+// ══════════════════════════════════════════════════════════════════════════════════
+
+// Direction codes — returned by block analysis and consumed by visualization + dashboard
+int DIR_UP   =  1          // Bullish: geometric means rising across consecutive blocks
+int DIR_DOWN = -1          // Bearish: geometric means falling across consecutive blocks
+int DIR_FLAT =  0          // Ranging: ICS angle below the Range Threshold (°)
+
+// Mathematical constants
+const float MIN_SIGMA = 1e-10   // σ floor: prevents division-by-zero in ICS normalization
+const float PI        = math.pi // π for radian↔degree conversion in arctan angle calc
+
+// 6-scale analysis periods — prime values chosen to minimize harmonic overlap
+// Each scale runs the full block→direction→channel pipeline independently.
+// Scale 19 = primary engine (maps to user's Period input).
+var array<int> SCALES = array.from(3, 7, 13, 19, 29, 47)
+
+// Breakout / Retest state machine identifiers (primary engine, scale 19)
+// 5 states forming a directed graph: INSIDE ↔ BO_UP ↔ RT_UP, INSIDE ↔ BO_DN ↔ RT_DN
+int ST_INSIDE =  0         // Price within channel boundaries
+int ST_BO_UP  =  1         // Breakout above upper channel line
+int ST_RT_UP  =  2         // Retest of upper line after upward breakout
+int ST_BO_DN  = -1         // Breakout below lower channel line
+int ST_RT_DN  = -2         // Retest of lower line after downward breakout
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// CUSTOM TYPE
+//
+// PURPOSE:
+//   User-Defined Type (UDT) encapsulating the complete output of one trend
+//   analysis pass. One TrendResult is produced per scale (3,7,13,19,29,47)
+//   per bar. Enables clean function signatures — f_compute() and f_analyze()
+//   return a single TrendResult instead of multiple tuples.
+//
+// CONSUMED BY:
+//   6-Scale Consensus (reads .dir for agreement count),
+//   Dashboard (reads all fields for display),
+//   Breakout State Machine (reads primary engine's .chUpper / .chLower)
+// ══════════════════════════════════════════════════════════════════════════════════
+
+type TrendResult
+    int   dir     = 0       // Direction: DIR_UP (+1), DIR_DOWN (−1), or DIR_FLAT (0)
+    float angle   = 0.0     // ICS angle in degrees: arctan(normalized slope) × 180/π
+    int   segEnd  = 0       // Length of the longest monotonic segment (in blocks)
+    float chUpper = na      // Upper channel boundary at current bar (price space)
+    float chLower = na      // Lower channel boundary at current bar (price space)
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// i18n TYPE
+//
+// PURPOSE:
+//   Holds every user-facing dashboard string as a typed field. Default values
+//   are English (EN). Each supported language gets its own I18n instance; the
+//   active instance (_L) is selected by the Language input and read by
+//   dashboard rendering and f_dStr().
+//
+// LANGUAGES:
+//   EN · TR · AR · RU · IT · PT-BR · ZH
+//   (CJK rendering uses TradingView's default font — no special handling.)
+//
+// NOTE:
+//   EN uses the type defaults; the other six instances override each string
+//   with a localized translation. To add a new language: create a new
+//   var I18n instance, override every field, and extend the switch in _L.
+// ══════════════════════════════════════════════════════════════════════════════════
+
+type I18n
+    // Dashboard row labels
+    string lbl_period    = "period"
+    string lbl_trend     = "trend"
+    string lbl_agreement = "agreement"
+
+    // Direction abbreviations (used by f_dStr and the agreement row)
+    string dir_up  = "UP"
+    string dir_dn  = "DN"
+    string dir_rng = "RNG"
+
+    // Active breakout / retest state phrases
+    string st_bo_up          = "Breakout Up"
+    string st_bo_dn          = "Breakout Down"
+    string st_rt_up_broke_at = "Retest Up · broke at"
+    string st_rt_dn_broke_at = "Retest Down · broke at"
+
+    // Inside-state full phrases (state machine default branch)
+    string st_inside         = "Inside channel"
+    string st_inside_dir_ch  = "Inside · direction changed"
+    string st_inside_fail_up = "Inside · failed breakout up"
+    string st_inside_fail_dn = "Inside · failed breakout down"
+
+    // Small connectors (glued around prices and flags)
+    string conn_at       = "at"
+    string conn_gap      = "(gap)"
+    string conn_retested = "· retested"
+    string conn_now      = "now"
+
+    // Distance descriptors (each string already contains the % sign)
+    string dist_above_ceiling = "% above ceiling"
+    string dist_below_floor   = "% below floor"
+    string dist_from_floor    = "% from floor"
+    string dist_to_ceiling    = "% to ceiling"
+
+    // Dashboard tooltips (educational hovers on label cells and merged rows)
+    string tip_header    = "ST-EP06 — Smart Trader, Episode 06: Isotropic Trend Lines.\n\nMulti-scale trend channels in σ-normalized coordinate space (ICS). Header price is always live close (Live Exception). All other values anchor at the bar chosen via Calculation Bar — [0] in Live Bar mode, [1] in Close Bar mode."
+    string tip_period    = "Block periods for the 6-scale parallel analysis.\n\nEach scale partitions history into blocks and reduces each to a log-midpoint geometric mean.\n\nThe '19' column = primary engine (uses your Period input). Others use fixed periods for cross-scale consensus."
+    string tip_trend     = "Per-scale trend direction from the longest monotonic segment of block geometric means.\n\n▲ UP · ▼ DN · ◈ RNG\n\nRNG = absolute ICS angle within ±Range Threshold. Angle is arctan of σ-normalized slope, comparable across markets."
+    string tip_agreement = "Cross-scale consensus.\n\nHow many of the 6 scales agree on direction, shown with the primary channel Ch▲ (ceiling) and Ch▼ (floor).\n\n5/6 or 6/6 = structural trend visible at every temporal resolution."
+    string tip_narrative = "Breakout / Retest narrative (primary engine, scale 19).\n\nOne-line state + distance summary:\n\n• Inside — % from floor · % to ceiling (sums to 100%)\n• Breakout Up/Down — price exited channel, shown with breakout price and % beyond the boundary\n• Retest — after moving ≥1σ from the boundary, price returned to test it\n\n✓ = confirmed (retested and bounced ≥1σ).\n(gap) = price crossed the entire channel in one move.\n\nAll distances are % of channel width (scale-invariant). σ thresholds are dynamic (Yang-Zhang)."
+
+    // Marker ◆ tooltip (channel endpoints)
+    string lbl_close    = "Close"
+    string lbl_ceiling  = "Ceiling"
+    string lbl_floor    = "Floor"
+    string lbl_ext      = "Extension"
+
+    // Direction label tooltip (midpoint label)
+    string lbl_trend_tip = "Trend"
+    string lbl_angle     = "Angle"
+    string lbl_blocks    = "Blocks"
+
+    // Alert warning label (when alerts ON but Calculation Bar = Close Bar)
+    string alert_warn     = "Alerts require Calculation Bar = Live Bar"
+    string alert_warn_tip = "Alerts are currently enabled but Calculation Bar is set to Close Bar.\n\nClose Bar mode anchors computations at the last closed bar, which is semantically incompatible with live alerts. To fire alerts without lag, open indicator settings and change Calculation Bar to Live Bar.\n\nUntil then, all alertconditions are suppressed."
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// INPUTS — Calculation
+// ══════════════════════════════════════════════════════════════════════════════════
+
+string GP_CALC = "Calculation"
+
+string i_calcBar = input.string("Live Bar", "Calculation Bar",
+     options = ["Live Bar", "Close Bar"], group = GP_CALC,
+     tooltip = "Which bar anchors every structural computation — σ, blocks, channel, state machine, and dashboard narrative.\n\nLive Bar (default): anchor = bar [0]. Values update with every tick and repaint within the bar — standard TradingView behavior.\n\nClose Bar: anchor = bar [1]. Values lock on bar close and never repaint — safer for back-testing and structural analysis.\n\nDashboard header price always shows live close in both modes (Live Exception).")
+
+int i_period = input.int(13, "Trend Block Period",
+     minval = 5, maxval = 100, group = GP_CALC,
+     tooltip = "Number of bars per structural block. Price history is partitioned into consecutive blocks of this length; each reduces to a geometric mean (log-midpoint of High/Low).\n\nLarger → captures slower structural moves.\nSmaller → faster response, may overfit noise.\n\nTotal lookback = Period × Groups.\nDrives the primary engine (scale 19). Default: 26.")
+int i_groups = input.int(5, "Trend Block Groups",
+     minval = 3, maxval = 5, group = GP_CALC,
+     tooltip = "Number of consecutive blocks compared for direction detection and channel fitting. All 6 scales use this same value.\n\nThe largest scale (47) consumes 47 x Groups candles. Range is capped at 5 to stay within platform limits (max 235 candles for Scale 47).\n\n3 groups = fast adaptation\n5 groups = deeper structural view\n\nTotal lookback for primary engine = Period x Groups. Default: 5.")
+float i_thresh = input.float(0.5, "Range Threshold (°)",
+     minval = 0.0, maxval = 45.0, step = 0.1, group = GP_CALC,
+     tooltip = "ICS angle threshold in degrees. When the trend angle falls between −Threshold and +Threshold, direction is classified as FLAT (ranging) instead of UP or DOWN.\n\nHigher → wider neutral zone, filters weak trends.\nLower → more directional sensitivity.\n\nRange: 0°–45°. Default: 0.5°.")
+int i_sigmaLen = input.int(20, "Yang-Zhang Sigma Length",
+     minval = 5, maxval = 100, group = GP_CALC,
+     tooltip = "Lookback for the Yang-Zhang (2000) realized volatility estimator. This σ normalizes log-price into the Isotropic Coordinate System (ICS), making trend angles comparable across instruments, timeframes, and volatility regimes.\n\nShorter → faster reaction to volatility shifts.\nLonger → smoother, more stable σ.\nDefault: 20.")
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// INPUTS — Channel Lines
+// ══════════════════════════════════════════════════════════════════════════════════
+
+string GP_CH = "Channel Lines"
+
+color  i_clrUp  = input.color(#26a69a, "Up Color",    group = GP_CH,
+     tooltip = "Channel line color during an uptrend (DIR_UP).")
+color  i_clrDn  = input.color(#ef5350, "Down Color",  group = GP_CH,
+     tooltip = "Channel line color during a downtrend (DIR_DOWN).")
+color  i_clrRng = input.color(#888888, "Range Color", group = GP_CH,
+     tooltip = "Channel line color during a ranging market (DIR_FLAT).")
+int    i_chW    = input.int(2, "Line Width", minval = 1, maxval = 5, group = GP_CH,
+     tooltip = "Pixel width of the solid channel boundary lines (upper and lower). Projection lines have a separate width setting.")
+string i_chSty  = input.string("Solid", "Line Style",
+     options = ["Solid", "Dashed", "Dotted"], group = GP_CH,
+     tooltip = "Visual style of the solid channel lines. Projection lines have a separate style setting.")
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// INPUTS — Projection Lines
+// ══════════════════════════════════════════════════════════════════════════════════
+
+string GP_PJ = "Projection Lines"
+
+int    i_pjOff = input.int(7, "Projection Offset",
+     minval = 1, maxval = 100, group = GP_PJ,
+     tooltip = "Bars to extend the channel forward beyond the last confirmed bar. Projection extrapolates channel slope as a visual reference for potential support/resistance.\n\nLarger → longer forward view.\nSmaller → tighter projection.\n\nNo new data consumed — purely geometric. Default: 7.")
+int    i_pjW   = input.int(2, "Projection Width", minval = 1, maxval = 5, group = GP_PJ,
+     tooltip = "Pixel width of the forward projection lines.")
+string i_pjSty = input.string("Dotted", "Projection Style",
+     options = ["Solid", "Dashed", "Dotted"], group = GP_PJ,
+     tooltip = "Visual style of the forward projection lines.")
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// INPUTS — Display
+// ══════════════════════════════════════════════════════════════════════════════════
+
+string GP_DSP = "Display"
+
+string i_lang = input.string("English", "Language",
+     options = ["English", "Türkçe", "العربية", "Русский", "Italiano", "Português (BR)", "中文"],
+     group = GP_DSP,
+     tooltip = "Dashboard display language.\n\nEN · TR · AR · RU · IT · PT-BR · ZH\n\nCJK (Chinese) renders using TradingView's default font — no special setup required.")
+
+bool i_showCh   = input.bool(true, "Show Channel",   group = GP_DSP,
+     tooltip = "Toggle all chart-overlay elements: channel lines, projection, fill, markers, and direction label. Dashboard is controlled separately.")
+bool i_showFill = input.bool(true, "Show Fill",      group = GP_DSP,
+     tooltip = "Toggle the semi-transparent fill between channel boundaries. Applies to both the solid channel and the dotted projection segments.")
+bool i_showDash = input.bool(true, "Show Dashboard", group = GP_DSP,
+     tooltip = "Toggle the dashboard table (top-right) showing scale periods, per-scale trends, consensus, channel levels, and breakout/retest narrative.")
+int  i_dashSz   = input.int(12, "Dashboard Font Size",
+     minval = 6, maxval = 50, group = GP_DSP,
+     tooltip = "Base font size for dashboard text. Header = size − 2, detail rows = size − 4. Also affects diamond markers and direction label. Minimum effective: 6. Default: 12.")
+string i_dashPos = input.string("Top Right", "Dashboard Position",
+     options = ["Top Left", "Top Center", "Top Right", "Middle Left", "Middle Center", "Middle Right", "Bottom Left", "Bottom Center", "Bottom Right"],
+     group = GP_DSP,
+     tooltip = "Screen position of the dashboard table.")
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// INPUTS — Channel Fill
+// ══════════════════════════════════════════════════════════════════════════════════
+
+string GP_FILL = "Channel Fill"
+
+color  i_fillUp  = input.color(#26a69a, "Fill Up Color",    group = GP_FILL,
+     tooltip = "Fill color between channel boundaries during an uptrend. Independent of channel line color — allows distinct visual layering.")
+color  i_fillDn  = input.color(#ef5350, "Fill Down Color",  group = GP_FILL,
+     tooltip = "Fill color between channel boundaries during a downtrend. Independent of channel line color.")
+color  i_fillRng = input.color(#888888, "Fill Range Color", group = GP_FILL,
+     tooltip = "Fill color between channel boundaries during a ranging market. Independent of channel line color.")
+int    i_fillTr  = input.int(85, "Fill Transparency",
+     minval = 0, maxval = 100, group = GP_FILL,
+     tooltip = "Channel fill transparency.\n\n0 = fully opaque (solid color).\n100 = fully invisible.\n\nValues 80–90 provide subtle shading without obscuring price action. Default: 85.")
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// INPUTS — Block Visualization
+// ══════════════════════════════════════════════════════════════════════════════════
+
+string GP_BLK = "Block Visualization"
+
+bool  i_showBlk  = input.bool(false, "Show Blocks", group = GP_BLK,
+     tooltip = "Toggle block overlay: colored bands for each structural block, dashed Hi/Lo lines, geometric mean dots, and GM connection line.\n\nBlocks are the foundational units of the trend analysis. This toggle makes them visible on the chart for educational and diagnostic purposes.")
+color i_blkClr1  = input.color(#7F77DD, "Block Color (Even)", group = GP_BLK,
+     tooltip = "Background color for even-numbered blocks (0, 2, 4 ...).")
+color i_blkClr2  = input.color(#1D9E75, "Block Color (Odd)",  group = GP_BLK,
+     tooltip = "Background color for odd-numbered blocks (1, 3, 5 ...).")
+int   i_blkTr    = input.int(90, "Block Transparency",
+     minval = 50, maxval = 100, group = GP_BLK,
+     tooltip = "Transparency of block background bands.\n\n90 = subtle shading.\n100 = invisible (border only).\nDefault: 90.")
+color i_blkHiClr = input.color(#E24B4A, "Block High Color",   group = GP_BLK,
+     tooltip = "Color of the dashed line marking the highest High within each block.")
+color i_blkLoClr = input.color(#378ADD, "Block Low Color",    group = GP_BLK,
+     tooltip = "Color of the dashed line marking the lowest Low within each block.")
+color i_blkGmClr = input.color(#EF9F27, "GM Color",           group = GP_BLK,
+     tooltip = "Color of the geometric mean markers and the line connecting them across blocks.\n\nGM = exp((ln(blockHi) + ln(blockLo)) / 2)\nThe log-midpoint central tendency of each block.")
+bool  i_showAng    = input.bool(false, "Show Angle Line", group = GP_BLK,
+     tooltip = "Toggle the ICS angle reference line: a straight line from the geometric mean of the oldest block in the monotonic segment to the newest, projected forward by Projection Offset bars.\n\nThis is the line whose slope, divided by σ, produces the displayed ICS angle.")
+color i_angClr     = input.color(#AFA9EC, "Angle Line Color", group = GP_BLK,
+     tooltip = "Color of the angle reference line and its forward projection.")
+bool  i_showAngLbl = input.bool(false, "Show Angle Label", group = GP_BLK,
+     tooltip = "Toggle the direction and angle label (e.g. ▼ DN −0.8°).\n\nWhen Show Angle Line is ON the label sits at the projection end of the angle line. When Show Angle Line is OFF the label falls back to the channel midpoint.")
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// INPUTS — Alerts
+// ══════════════════════════════════════════════════════════════════════════════════
+
+string GP_ALERTS = "Alerts"
+
+bool i_enableAlerts = input.bool(false, "Enable Alerts", group = GP_ALERTS,
+     tooltip = "Master toggle for 19 alert conditions (D · B · R · S · A).\n\nREQUIRES Calculation Bar = Live Bar. In Close Bar mode, alerts are auto-suppressed and a warning label is shown on the chart — because alerts must react to live state, and Close Bar intentionally lags by one bar.\n\nEnable this before creating alerts in TradingView's alert dialog. Default: OFF.")
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// ANCHOR RESOLVER
+//
+// PURPOSE:
+//   Translates the Calculation Bar input into an integer offset applied
+//   uniformly across every structural computation. _anchor = 0 selects the
+//   live bar [0]; _anchor = 1 selects the last closed bar [1]. Consumed by
+//   Yang-Zhang σ, block construction, channel extrapolation, state machine,
+//   visualization, and dashboard narrative.
+//
+//   Exception: the dashboard header price always displays live close in both
+//   modes (Live Exception protocol) and is unaffected by this setting.
+//
+// DEPENDENCIES:
+//   Reads: i_calcBar (input)
+//   Writes: _anchor (int, 0 or 1)
+//   Consumed by: all subsequent structural sections
+// ══════════════════════════════════════════════════════════════════════════════════
+
+var int _anchor = i_calcBar == "Live Bar" ? 0 : 1
+
+
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// i18n INSTANCES + SELECTOR
+//
+// PURPOSE:
+//   Instantiates one I18n object per supported language. EN uses the type
+//   defaults directly; the six non-EN instances override every field with a
+//   localized translation. The switch expression selects the active instance
+//   (_L) from the Language input. Dashboard code reads _L.<field> wherever
+//   user-facing text appears.
+//
+// DEPENDENCIES:
+//   Reads: i_lang (input)
+//   Writes: _L (active I18n — consumed by f_dStr and DASHBOARD)
+// ══════════════════════════════════════════════════════════════════════════════════
+
+var I18n _i_en = I18n.new()
+var I18n _i_tr = I18n.new(
+     lbl_period         = "Periyot",
+     lbl_trend          = "Trend",
+     lbl_agreement      = "Uyum",
+     dir_up             = "YÜK",
+     dir_dn             = "DÜŞ",
+     dir_rng            = "YTY",
+     st_bo_up           = "Yukarı Kırılım",
+     st_bo_dn           = "Aşağı Kırılım",
+     st_rt_up_broke_at  = "Yukarı retest · kırılım",
+     st_rt_dn_broke_at  = "Aşağı retest · kırılım",
+     st_inside          = "Kanal içinde",
+     st_inside_dir_ch   = "Kanal içinde · yön değişti",
+     st_inside_fail_up  = "Kanal içinde · başarısız yukarı kırılım",
+     st_inside_fail_dn  = "Kanal içinde · başarısız aşağı kırılım",
+     conn_at            = "@",
+     conn_gap           = "(sıçrama)",
+     conn_retested      = "· yeniden test",
+     conn_now           = "şimdi",
+     dist_above_ceiling = "% tavan üstü",
+     dist_below_floor   = "% taban altı",
+     dist_from_floor    = "% tabandan",
+     dist_to_ceiling    = "% tavana",
+     tip_header         = "ST-EP06 — Smart Trader, 6. Bölüm: İzotropik Trend Çizgileri.\n\nσ ile normalize edilmiş koordinat uzayında (ICS) çoklu ölçek trend kanalları. Başlık fiyatı her zaman canlı kapanıştır (Live Exception). Diğer tüm değerler Calculation Bar ile seçilen bara sabitlenir — Live Bar modunda [0], Close Bar modunda [1].",
+     tip_period         = "6 ölçekli paralel analiz için blok periyotları.\n\nHer ölçek geçmişi bloklara böler ve her bloğu log-orta nokta geometrik ortalamasına indirir.\n\n'19' sütunu = birincil motor (Periyot girdinizi kullanır). Diğerleri ölçekler arası uzlaşı için sabit periyotlar kullanır.",
+     tip_trend          = "Blok geometrik ortalamalarının en uzun monoton segmentinden ölçek başına trend yönü.\n\n▲ YÜK · ▼ DÜŞ · ◈ YTY\n\nYTY = ±Aralık Eşiği içinde mutlak ICS açısı. Açı, σ-normalize eğimin arctan'ıdır ve piyasalar arasında karşılaştırılabilirdir.",
+     tip_agreement      = "Ölçekler arası uzlaşı.\n\n6 ölçekten kaçının yön üzerinde anlaştığı, birincil kanal ▲ (tavan) ve ▼ (taban) ile gösterilir.\n\n5/6 veya 6/6 = her zaman çözünürlüğünde görünen yapısal trend.",
+     tip_narrative      = "Kırılım / Retest anlatımı (birincil motor, ölçek 19).\n\nTek satırlık durum + mesafe özeti:\n\n• Kanal içinde — % tabandan · % tavana (toplamı 100%)\n• Yukarı/Aşağı Kırılım — fiyat kanaldan çıktı, kırılım fiyatı ve sınırın ötesindeki % ile gösterilir\n• Retest — sınırdan ≥1σ uzaklaştıktan sonra fiyat geri dönüp sınırı test etti\n\n✓ = onaylı (retest edildi ve ≥1σ geri döndü).\n(sıçrama) = fiyat tek hamlede tüm kanalı aştı.\n\nTüm mesafeler kanal genişliğinin %'sidir (ölçekten bağımsız). σ eşikleri dinamiktir (Yang-Zhang).",
+     lbl_close          = "Kapanış",
+     lbl_ceiling        = "Tavan",
+     lbl_floor          = "Taban",
+     lbl_ext            = "Uzanım",
+     lbl_trend_tip      = "Trend",
+     lbl_angle          = "Açı",
+     lbl_blocks         = "Blok",
+     alert_warn         = "Alarmlar için Calculation Bar = Live Bar olmalı",
+     alert_warn_tip     = "Alarmlar şu anda etkin ancak Calculation Bar = Close Bar.\n\nClose Bar modu hesaplamaları son kapanan bara sabitler ve bu, canlı alarmlarla anlamsal olarak bağdaşmaz. Alarmları gecikmesiz tetiklemek için gösterge ayarlarını açıp Calculation Bar değerini Live Bar olarak değiştir.\n\nO zamana kadar tüm alertcondition'lar bastırılır.")
+var I18n _i_ar = I18n.new(
+     lbl_period         = "فترة",
+     lbl_trend          = "اتجاه",
+     lbl_agreement      = "توافق",
+     dir_up             = "صعود",
+     dir_dn             = "هبوط",
+     dir_rng            = "عرضي",
+     st_bo_up           = "اختراق صاعد",
+     st_bo_dn           = "اختراق هابط",
+     st_rt_up_broke_at  = "اختبار صاعد · اختراق",
+     st_rt_dn_broke_at  = "اختبار هابط · اختراق",
+     st_inside          = "داخل القناة",
+     st_inside_dir_ch   = "داخل القناة · تغيّر الاتجاه",
+     st_inside_fail_up  = "داخل القناة · اختراق صاعد فاشل",
+     st_inside_fail_dn  = "داخل القناة · اختراق هابط فاشل",
+     conn_at            = "@",
+     conn_gap           = "(فجوة)",
+     conn_retested      = "· أُعيد اختباره",
+     conn_now           = "الآن",
+     dist_above_ceiling = "% فوق السقف",
+     dist_below_floor   = "% تحت الأرضية",
+     dist_from_floor    = "% من الأرضية",
+     dist_to_ceiling    = "% إلى السقف",
+     tip_header         = "ST-EP06 — Smart Trader، الحلقة 6: خطوط الاتجاه الإيزوتروبية.\n\nقنوات اتجاه متعددة المقاييس في فضاء إحداثيات معياري σ (ICS). سعر العنوان دائماً إغلاق مباشر (Live Exception). جميع القيم الأخرى مرجعها الشمعة المختارة عبر Calculation Bar — [0] في وضع Live Bar، [1] في وضع Close Bar.",
+     tip_period         = "فترات الكتل للتحليل المتوازي على 6 مقاييس.\n\nكل مقياس يقسم التاريخ إلى كتل ويختزل كل كتلة إلى متوسط هندسي لنقطة منتصف السجل.\n\nعمود '19' = المحرك الأساسي (يستخدم مدخل الفترة لديك). الأخرى تستخدم فترات ثابتة للتوافق بين المقاييس.",
+     tip_trend          = "اتجاه الترند لكل مقياس من أطول مقطع رتيب لمتوسطات الكتل الهندسية.\n\n▲ صعود · ▼ هبوط · ◈ عرضي\n\nعرضي = زاوية ICS المطلقة ضمن ±عتبة النطاق. الزاوية هي أركتان للميل المعياري بـσ، قابلة للمقارنة عبر الأسواق.",
+     tip_agreement      = "التوافق بين المقاييس.\n\nكم عدد المقاييس الستة المتفقة على الاتجاه، معروضاً مع القناة الأساسية ▲ (السقف) و▼ (الأرضية).\n\n5/6 أو 6/6 = اتجاه هيكلي مرئي في كل دقة زمنية.",
+     tip_narrative      = "سرد الاختراق / إعادة الاختبار (المحرك الأساسي، مقياس 19).\n\nسطر واحد للحالة + ملخص المسافة:\n\n• داخل القناة — % من الأرضية · % إلى السقف (المجموع 100%)\n• اختراق صاعد/هابط — السعر خرج من القناة، معروض مع سعر الاختراق و% خارج الحدود\n• إعادة الاختبار — بعد التحرك ≥1σ عن الحد، عاد السعر ليختبره\n\n✓ = مؤكّد (أُعيد اختباره وارتد ≥1σ).\n(فجوة) = السعر عبر القناة بالكامل في حركة واحدة.\n\nجميع المسافات % من عرض القناة (مستقلة عن المقياس). عتبات σ ديناميكية (يانغ-زانغ).",
+     lbl_close          = "إغلاق",
+     lbl_ceiling        = "السقف",
+     lbl_floor          = "الأرضية",
+     lbl_ext            = "امتداد",
+     lbl_trend_tip      = "اتجاه",
+     lbl_angle          = "زاوية",
+     lbl_blocks         = "كتل",
+     alert_warn         = "التنبيهات تتطلب Calculation Bar = Live Bar",
+     alert_warn_tip     = "التنبيهات مفعّلة حالياً لكن Calculation Bar معيّن على Close Bar.\n\nوضع Close Bar يثبّت الحسابات على آخر شمعة مغلقة، وهذا لا يتوافق دلالياً مع التنبيهات الحيّة. لإطلاق التنبيهات دون تأخير، افتح إعدادات المؤشر وغيّر Calculation Bar إلى Live Bar.\n\nحتى ذلك الحين، تُكتم جميع alertcondition.")
+var I18n _i_ru = I18n.new(
+     lbl_period         = "Период",
+     lbl_trend          = "Тренд",
+     lbl_agreement      = "Согласие",
+     dir_up             = "РОСТ",
+     dir_dn             = "СПАД",
+     dir_rng            = "ФЛЭТ",
+     st_bo_up           = "Пробой вверх",
+     st_bo_dn           = "Пробой вниз",
+     st_rt_up_broke_at  = "Ретест вверх · пробой",
+     st_rt_dn_broke_at  = "Ретест вниз · пробой",
+     st_inside          = "Внутри канала",
+     st_inside_dir_ch   = "Внутри канала · смена направления",
+     st_inside_fail_up  = "Внутри канала · неудачный пробой вверх",
+     st_inside_fail_dn  = "Внутри канала · неудачный пробой вниз",
+     conn_at            = "@",
+     conn_gap           = "(гэп)",
+     conn_retested      = "· ретест",
+     conn_now           = "сейчас",
+     dist_above_ceiling = "% над потолком",
+     dist_below_floor   = "% под полом",
+     dist_from_floor    = "% от пола",
+     dist_to_ceiling    = "% до потолка",
+     tip_header         = "ST-EP06 — Smart Trader, Эпизод 6: Изотропные линии тренда.\n\nМногомасштабные трендовые каналы в σ-нормализованном координатном пространстве (ICS). Цена заголовка всегда живое закрытие (Live Exception). Все остальные значения привязаны к свече, выбранной через Calculation Bar — [0] в режиме Live Bar, [1] в режиме Close Bar.",
+     tip_period         = "Периоды блоков для параллельного анализа на 6 масштабах.\n\nКаждый масштаб разбивает историю на блоки и сводит каждый блок к геометрическому среднему лог-середины.\n\nКолонка '19' = основной движок (использует ваш ввод Периода). Остальные используют фиксированные периоды для межмасштабного согласия.",
+     tip_trend          = "Направление тренда по каждому масштабу из самого длинного монотонного сегмента геометрических средних блоков.\n\n▲ РОСТ · ▼ СПАД · ◈ ФЛЭТ\n\nФЛЭТ = абсолютный ICS-угол в пределах ±Порога Диапазона. Угол — арктангенс σ-нормализованного наклона, сопоставимого между рынками.",
+     tip_agreement      = "Межмасштабное согласие.\n\nСколько из 6 масштабов согласны по направлению, показано с основным каналом ▲ (потолок) и ▼ (пол).\n\n5/6 или 6/6 = структурный тренд виден на каждом временном разрешении.",
+     tip_narrative      = "Нарратив пробоя / ретеста (основной движок, масштаб 19).\n\nОднострочная сводка состояния + дистанции:\n\n• Внутри — % от пола · % до потолка (сумма 100%)\n• Пробой вверх/вниз — цена вышла из канала, показано с ценой пробоя и % за границей\n• Ретест — после движения ≥1σ от границы цена вернулась её проверить\n\n✓ = подтверждено (ретест и отскок ≥1σ).\n(гэп) = цена пересекла весь канал одним движением.\n\nВсе дистанции — % ширины канала (независимы от масштаба). Пороги σ динамические (Янг-Чжан).",
+     lbl_close          = "Закрытие",
+     lbl_ceiling        = "Потолок",
+     lbl_floor          = "Пол",
+     lbl_ext            = "Расширение",
+     lbl_trend_tip      = "Тренд",
+     lbl_angle          = "Угол",
+     lbl_blocks         = "Блоки",
+     alert_warn         = "Оповещениям требуется Calculation Bar = Live Bar",
+     alert_warn_tip     = "Оповещения включены, но Calculation Bar установлен на Close Bar.\n\nРежим Close Bar привязывает расчёты к последней закрытой свече, что семантически несовместимо с живыми оповещениями. Чтобы оповещения срабатывали без задержки, откройте настройки индикатора и смените Calculation Bar на Live Bar.\n\nДо этого все alertcondition подавляются.")
+var I18n _i_it = I18n.new(
+     lbl_period         = "Periodo",
+     lbl_trend          = "Trend",
+     lbl_agreement      = "Consenso",
+     dir_up             = "SU",
+     dir_dn             = "GIÙ",
+     dir_rng            = "LAT",
+     st_bo_up           = "Rottura rialzista",
+     st_bo_dn           = "Rottura ribassista",
+     st_rt_up_broke_at  = "Retest al rialzo · rottura",
+     st_rt_dn_broke_at  = "Retest al ribasso · rottura",
+     st_inside          = "Dentro il canale",
+     st_inside_dir_ch   = "Dentro il canale · direzione cambiata",
+     st_inside_fail_up  = "Dentro il canale · rottura rialzista fallita",
+     st_inside_fail_dn  = "Dentro il canale · rottura ribassista fallita",
+     conn_at            = "@",
+     conn_gap           = "(gap)",
+     conn_retested      = "· ritestato",
+     conn_now           = "ora",
+     dist_above_ceiling = "% sopra il tetto",
+     dist_below_floor   = "% sotto il pavimento",
+     dist_from_floor    = "% dal pavimento",
+     dist_to_ceiling    = "% al tetto",
+     tip_header         = "ST-EP06 — Smart Trader, Episodio 6: Linee di Tendenza Isotropiche.\n\nCanali di tendenza multi-scala in spazio coordinate normalizzato σ (ICS). Il prezzo dell'intestazione è sempre la chiusura live (Live Exception). Tutti gli altri valori sono ancorati alla barra selezionata tramite Calculation Bar — [0] in modalità Live Bar, [1] in modalità Close Bar.",
+     tip_period         = "Periodi dei blocchi per l'analisi parallela a 6 scale.\n\nOgni scala partiziona la storia in blocchi e riduce ciascuno alla media geometrica del log-midpoint.\n\nLa colonna '19' = motore primario (usa il tuo input Periodo). Le altre usano periodi fissi per il consenso tra scale.",
+     tip_trend          = "Direzione di tendenza per scala dal segmento monotono più lungo delle medie geometriche dei blocchi.\n\n▲ SU · ▼ GIÙ · ◈ LAT\n\nLAT = angolo ICS assoluto entro ±Soglia di Range. L'angolo è l'arcotangente della pendenza normalizzata σ, confrontabile tra i mercati.",
+     tip_agreement      = "Consenso tra scale.\n\nQuante delle 6 scale concordano sulla direzione, mostrato con il canale primario ▲ (tetto) e ▼ (pavimento).\n\n5/6 o 6/6 = tendenza strutturale visibile a ogni risoluzione temporale.",
+     tip_narrative      = "Narrativa rottura / retest (motore primario, scala 19).\n\nRiassunto su una riga di stato + distanza:\n\n• Dentro — % dal pavimento · % al tetto (somma 100%)\n• Rottura su/giù — il prezzo è uscito dal canale, mostrato con prezzo di rottura e % oltre il confine\n• Retest — dopo essersi mosso ≥1σ dal confine, il prezzo è tornato a testarlo\n\n✓ = confermato (ritestato e rimbalzato ≥1σ).\n(gap) = il prezzo ha attraversato l'intero canale in un'unica mossa.\n\nTutte le distanze sono % della larghezza del canale (indipendenti dalla scala). Le soglie σ sono dinamiche (Yang-Zhang).",
+     lbl_close          = "Chiusura",
+     lbl_ceiling        = "Tetto",
+     lbl_floor          = "Pavimento",
+     lbl_ext            = "Estensione",
+     lbl_trend_tip      = "Trend",
+     lbl_angle          = "Angolo",
+     lbl_blocks         = "Blocchi",
+     alert_warn         = "Gli avvisi richiedono Calculation Bar = Live Bar",
+     alert_warn_tip     = "Gli avvisi sono attualmente abilitati ma Calculation Bar è impostato su Close Bar.\n\nLa modalità Close Bar ancora i calcoli all'ultima barra chiusa, il che è semanticamente incompatibile con gli avvisi live. Per attivare gli avvisi senza ritardo, apri le impostazioni dell'indicatore e cambia Calculation Bar in Live Bar.\n\nFino ad allora, tutte le alertcondition sono soppresse.")
+var I18n _i_pt = I18n.new(
+     lbl_period         = "Período",
+     lbl_trend          = "Tendência",
+     lbl_agreement      = "Consenso",
+     dir_up             = "ALTA",
+     dir_dn             = "BAIXA",
+     dir_rng            = "LAT",
+     st_bo_up           = "Rompimento de alta",
+     st_bo_dn           = "Rompimento de baixa",
+     st_rt_up_broke_at  = "Reteste de alta · rompimento",
+     st_rt_dn_broke_at  = "Reteste de baixa · rompimento",
+     st_inside          = "Dentro do canal",
+     st_inside_dir_ch   = "Dentro do canal · direção mudou",
+     st_inside_fail_up  = "Dentro do canal · rompimento de alta falhou",
+     st_inside_fail_dn  = "Dentro do canal · rompimento de baixa falhou",
+     conn_at            = "@",
+     conn_gap           = "(gap)",
+     conn_retested      = "· retestado",
+     conn_now           = "agora",
+     dist_above_ceiling = "% acima do teto",
+     dist_below_floor   = "% abaixo do piso",
+     dist_from_floor    = "% do piso",
+     dist_to_ceiling    = "% ao teto",
+     tip_header         = "ST-EP06 — Smart Trader, Episódio 6: Linhas de Tendência Isotrópicas.\n\nCanais de tendência multi-escala em espaço de coordenadas normalizado por σ (ICS). O preço do cabeçalho é sempre o fechamento ao vivo (Live Exception). Todos os outros valores estão ancorados à barra selecionada via Calculation Bar — [0] no modo Live Bar, [1] no modo Close Bar.",
+     tip_period         = "Períodos dos blocos para a análise paralela em 6 escalas.\n\nCada escala particiona o histórico em blocos e reduz cada um à média geométrica do log-midpoint.\n\nA coluna '19' = motor primário (usa seu input de Período). As outras usam períodos fixos para o consenso entre escalas.",
+     tip_trend          = "Direção da tendência por escala do segmento monotônico mais longo das médias geométricas dos blocos.\n\n▲ ALTA · ▼ BAIXA · ◈ LAT\n\nLAT = ângulo ICS absoluto dentro de ±Limite de Range. O ângulo é o arctangente da inclinação normalizada por σ, comparável entre mercados.",
+     tip_agreement      = "Consenso entre escalas.\n\nQuantas das 6 escalas concordam na direção, mostrado com o canal primário ▲ (teto) e ▼ (piso).\n\n5/6 ou 6/6 = tendência estrutural visível em toda resolução temporal.",
+     tip_narrative      = "Narrativa de rompimento / reteste (motor primário, escala 19).\n\nResumo em uma linha de estado + distância:\n\n• Dentro — % do piso · % ao teto (soma 100%)\n• Rompimento de alta/baixa — o preço saiu do canal, mostrado com preço de rompimento e % além do limite\n• Reteste — após se mover ≥1σ do limite, o preço voltou para testá-lo\n\n✓ = confirmado (retestado e distanciou-se ≥1σ).\n(gap) = o preço atravessou todo o canal em um único movimento.\n\nTodas as distâncias são % da largura do canal (independentes da escala). Os limites σ são dinâmicos (Yang-Zhang).",
+     lbl_close          = "Fechamento",
+     lbl_ceiling        = "Teto",
+     lbl_floor          = "Piso",
+     lbl_ext            = "Extensão",
+     lbl_trend_tip      = "Tendência",
+     lbl_angle          = "Ângulo",
+     lbl_blocks         = "Blocos",
+     alert_warn         = "Alertas exigem Calculation Bar = Live Bar",
+     alert_warn_tip     = "Os alertas estão atualmente ativados, mas Calculation Bar está definido como Close Bar.\n\nO modo Close Bar ancora os cálculos na última barra fechada, o que é semanticamente incompatível com alertas ao vivo. Para disparar alertas sem atraso, abra as configurações do indicador e altere Calculation Bar para Live Bar.\n\nAté lá, todos os alertcondition são suprimidos.")
+var I18n _i_zh = I18n.new(
+     lbl_period         = "周期",
+     lbl_trend          = "趋势",
+     lbl_agreement      = "一致度",
+     dir_up             = "上涨",
+     dir_dn             = "下跌",
+     dir_rng            = "横盘",
+     st_bo_up           = "向上突破",
+     st_bo_dn           = "向下突破",
+     st_rt_up_broke_at  = "上破回踩 · 突破",
+     st_rt_dn_broke_at  = "下破回踩 · 突破",
+     st_inside          = "通道内",
+     st_inside_dir_ch   = "通道内 · 方向改变",
+     st_inside_fail_up  = "通道内 · 向上突破失败",
+     st_inside_fail_dn  = "通道内 · 向下突破失败",
+     conn_at            = "@",
+     conn_gap           = "(跳空)",
+     conn_retested      = "· 回踩",
+     conn_now           = "现在",
+     dist_above_ceiling = "% 高于顶部",
+     dist_below_floor   = "% 低于底部",
+     dist_from_floor    = "% 距底部",
+     dist_to_ceiling    = "% 距顶部",
+     tip_header         = "ST-EP06 — Smart Trader 第 6 集：各向同性趋势线。\n\n基于 σ 标准化坐标空间（ICS）的多尺度趋势通道。标题价格始终为实时收盘（Live Exception）。所有其他值锚定于通过 Calculation Bar 选择的 K 线 — Live Bar 模式为 [0]，Close Bar 模式为 [1]。",
+     tip_period         = "用于 6 尺度并行分析的区块周期。\n\n每个尺度将历史划分为区块，并将每个区块归约为对数中点几何平均值。\n\n'19' 列 = 主引擎（使用您的周期输入）。其他列使用固定周期以实现跨尺度共识。",
+     tip_trend          = "每个尺度的趋势方向，来自区块几何平均值最长的单调段。\n\n▲ 上涨 · ▼ 下跌 · ◈ 横盘\n\n横盘 = ±范围阈值内的绝对 ICS 角度。角度是 σ 标准化斜率的反正切，可跨市场比较。",
+     tip_agreement      = "跨尺度一致度。\n\n6 个尺度中有多少在方向上一致，与主通道 ▲（顶部）和 ▼（底部）一同显示。\n\n5/6 或 6/6 = 在每个时间分辨率上均可见的结构性趋势。",
+     tip_narrative      = "突破 / 回踩叙述（主引擎，尺度 19）。\n\n一行状态 + 距离摘要：\n\n• 通道内 — % 距底部 · % 距顶部（总和 100%）\n• 向上/下突破 — 价格离开通道，显示突破价及超出边界的百分比\n• 回踩 — 价格从边界移动 ≥1σ 后，返回测试边界\n\n✓ = 已确认（回踩后反弹 ≥1σ）。\n(跳空) = 价格在一次移动中穿越整个通道。\n\n所有距离均为通道宽度的百分比（与尺度无关）。σ 阈值为动态（Yang-Zhang）。",
+     lbl_close          = "收盘",
+     lbl_ceiling        = "顶部",
+     lbl_floor          = "底部",
+     lbl_ext            = "延伸",
+     lbl_trend_tip      = "趋势",
+     lbl_angle          = "角度",
+     lbl_blocks         = "区块",
+     alert_warn         = "警报需要 Calculation Bar = Live Bar",
+     alert_warn_tip     = "警报当前已启用，但 Calculation Bar 设置为 Close Bar。\n\nClose Bar 模式将计算锚定在最后收盘的 K 线上，这与实时警报在语义上不兼容。为了让警报无延迟触发，请打开指标设置并将 Calculation Bar 更改为 Live Bar。\n\n在此之前，所有 alertcondition 都被抑制。")
+
+I18n _L = switch i_lang
+    "Türkçe"         => _i_tr
+    "العربية"         => _i_ar
+    "Русский"        => _i_ru
+    "Italiano"       => _i_it
+    "Português (BR)" => _i_pt
+    "中文"            => _i_zh
+    =>                  _i_en
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// HELPERS
+//
+// PURPOSE:
+//   Stateless utility functions mapping direction codes and user input strings
+//   to Pine Script visual constants (line styles, colors, display strings).
+//   Consumed by VISUALIZATION and DASHBOARD sections. No state, no side effects.
+// ══════════════════════════════════════════════════════════════════════════════════
+
+// Maps user-facing style label ("Solid"/"Dashed"/"Dotted") → Pine line style constant
+f_sty(string s) =>
+    switch s
+        "Dashed" => line.style_dashed
+        "Dotted" => line.style_dotted
+        =>          line.style_solid
+
+// Maps direction code → channel line color from user inputs
+f_dClr(int d) =>
+    d == DIR_UP ? i_clrUp : d == DIR_DOWN ? i_clrDn : i_clrRng
+
+// Maps direction code → dashboard display string with directional arrow + i18n text
+f_dStr(int d, I18n L) =>
+    d == DIR_UP ? "▲ " + L.dir_up : d == DIR_DOWN ? "▼ " + L.dir_dn : "◈ " + L.dir_rng
+
+// Maps direction code → channel fill color from user inputs (independent of line color)
+f_fClr(int d) =>
+    d == DIR_UP ? i_fillUp : d == DIR_DOWN ? i_fillDn : i_fillRng
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// ICS HELPERS — Isotropic Coordinate System transformations
+//
+// PURPOSE:
+//   Pure ICS math. Every helper accepts prices + σ, transforms to ICS internally
+//   (y = log(p)/σ), performs a linear operation in ICS, and returns either a
+//   price (f_icsLine) or a dimensionless scalar (f_icsAngle, f_icsPos). σ is
+//   always an explicit parameter — even where it cancels — so the ICS nature
+//   of the computation is visible at every call site.
+// ══════════════════════════════════════════════════════════════════════════════════
+
+// Linear interpolation in ICS between two price points. Returns price at targetX.
+// Equivalent to geometric (log-linear) extrapolation in price space.
+f_icsLine(float p1, int x1, float p2, int x2, int targetX, float sig) =>
+    float out = p1
+    if x1 != x2 and p1 > 0 and p2 > 0 and sig > MIN_SIGMA
+        float y1 = math.log(p1) / sig
+        float y2 = math.log(p2) / sig
+        float yT = y1 + (y2 - y1) * (targetX - x1) / (x2 - x1)
+        out := math.exp(yT * sig)
+    out
+
+// Trend angle from ICS slope between two price points. Returns degrees.
+// 45° = price moving at 1σ per bar. Range: (−90°, +90°).
+f_icsAngle(float p1, int x1, float p2, int x2, float sig) =>
+    float out = 0.0
+    if x1 != x2 and p1 > 0 and p2 > 0 and sig > MIN_SIGMA
+        float y1 = math.log(p1) / sig
+        float y2 = math.log(p2) / sig
+        out := math.atan((y2 - y1) / (x2 - x1)) * 180.0 / PI
+    out
+
+// Normalized position of price p within a log-linear channel [pLo, pHi].
+// Returns (y − yLo) / (yHi − yLo) in ICS. 0 = at floor, 1 = at ceiling.
+f_icsPos(float p, float pLo, float pHi, float sig) =>
+    float out = 0.5
+    if p > 0 and pLo > 0 and pHi > 0 and pHi > pLo and sig > MIN_SIGMA
+        float y   = math.log(p)   / sig
+        float yLo = math.log(pLo) / sig
+        float yHi = math.log(pHi) / sig
+        out := (y - yLo) / (yHi - yLo)
+    out
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// YANG-ZHANG VOLATILITY σ
+//
+// PURPOSE:
+//   Estimates realized volatility per bar using the Yang-Zhang (2000) estimator.
+//   Provides the σ that normalizes log-price into the Isotropic Coordinate System.
+//   A higher σ → wider ICS unit → the same price move maps to a smaller angle.
+//
+// METHOD (Yang & Zhang, "Drift-Independent Volatility Estimation", 2000):
+//   σ² = σ²_overnight + k · σ²_close-open + (1−k) · σ²_Rogers-Satchell
+//   where:
+//     σ²_overnight    = Var(ln(Open / Close[1]))   — overnight gap variance
+//     σ²_close-open   = Var(ln(Close / Open))      — intraday return variance
+//     σ²_Rogers-Satchell = E[ln(H/C)·ln(H/O) + ln(L/C)·ln(L/O)] — range-based
+//     k = 0.34 / (1.34 + (n+1)/(n−1))             — optimal weight minimizing MSE
+//   All variances computed over i_sigmaLen bars via ta.variance / ta.sma.
+//   Final σ = max(√σ², MIN_SIGMA) to prevent zero-division downstream.
+//
+// PROPERTIES:
+//   Drift-invariant: unbiased regardless of trending or mean-reverting price.
+//   Efficient: uses full OHLC information (not just close-to-close).
+//   Single-bar granularity: updates every bar, no lookback lag.
+//
+// DEPENDENCIES:
+//   Reads: open[_anchor], high[_anchor], low[_anchor], close[_anchor],
+//          close[_anchor + 1] (OHLC at user-selected anchor),
+//          _anchor (ANCHOR RESOLVER), i_sigmaLen (input)
+//   Writes: sigma (float, per-bar realized volatility, [_anchor]-anchored)
+//   Consumed by: PRIMARY DIRECTION (ICS angle normalization),
+//                BREAKOUT STATE MACHINE (σ-distance thresholds)
+// ══════════════════════════════════════════════════════════════════════════════════
+
+float _yzOR = math.log(open[_anchor] / nz(close[_anchor + 1], open[_anchor]))
+float _yzCO = math.log(close[_anchor] / open[_anchor])
+float _yzHO = math.log(high[_anchor] / open[_anchor])
+float _yzHC = math.log(high[_anchor] / close[_anchor])
+float _yzLO = math.log(low[_anchor]  / open[_anchor])
+float _yzLC = math.log(low[_anchor]  / close[_anchor])
+
+float _sqOR = ta.variance(_yzOR, i_sigmaLen)
+float _sqCO = ta.variance(_yzCO, i_sigmaLen)
+float _sqRS = ta.sma(_yzHO * _yzHC + _yzLO * _yzLC, i_sigmaLen)
+
+float _k    = 0.34 / (1.34 + (i_sigmaLen + 1.0) / math.max(i_sigmaLen - 1.0, 1.0))
+float _sq   = nz(_sqOR) + _k * nz(_sqCO) + (1.0 - _k) * nz(_sqRS)
+float sigma = math.max(math.sqrt(math.max(_sq, 0.0)), MIN_SIGMA)
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// PRIMARY — Block Construction
+//
+// PURPOSE:
+//   Partitions recent price history into consecutive non-overlapping blocks of
+//   length i_period. Each block reduces to three summary values: geometric mean
+//   of High/Low (central tendency), block High, and block Low. These summaries
+//   feed the direction detection and channel fitting stages downstream.
+//
+// METHOD:
+//   For each block i (0 = newest, i_groups−1 = oldest):
+//     offset   = _anchor + i × i_period    — anchored at user's Calculation Bar
+//     blockHi  = ta.highest(high, i_period) at [offset]
+//     blockLo  = ta.lowest(low, i_period)   at [offset]
+//     geoMean  = exp((ln(blockHi) + ln(blockLo)) / 2)  — log-midpoint
+//     centerX  = bar_index − offset − floor(i_period / 2) — temporal center
+//   Geometric mean avoids close-price bias and is symmetric in log-space,
+//   making it the natural midpoint for ICS-based slope computation.
+//
+// ANTI-REPAINT:
+//   Offsets start at _anchor (offset = _anchor + i × period). In Close Bar
+//   mode (_anchor = 1) bar [0] is never accessed; in Live Bar mode (_anchor
+//   = 0) the live bar enters directly — standard repaint behavior.
+//   max_bars_back() ensures sufficient history for deep lookbacks.
+//
+// DEPENDENCIES:
+//   Reads: high, low (built-in), i_period, i_groups (inputs),
+//          _anchor (ANCHOR RESOLVER),
+//          _hhS, _llS (ta.highest/ta.lowest series)
+//   Writes: _bGm, _bHi, _bLo, _bCx (arrays, rebuilt each bar)
+//   Consumed by: PRIMARY DIRECTION + ICS ANGLE + CHANNEL FITTING
+// ══════════════════════════════════════════════════════════════════════════════════
+
+float _hhS = ta.highest(high, i_period)
+float _llS = ta.lowest(low, i_period)
+max_bars_back(_hhS, 2500)
+max_bars_back(_llS, 2500)
+
+var array<float> _bGm = array.new<float>()
+var array<float> _bHi = array.new<float>()
+var array<float> _bLo = array.new<float>()
+var array<int>   _bCx = array.new<int>()
+
+_bGm.clear()
+_bHi.clear()
+_bLo.clear()
+_bCx.clear()
+
+bool _ok = bar_index >= i_groups * i_period + _anchor
+
+if _ok
+    for i = 0 to i_groups - 1
+        int   off = _anchor + i * i_period
+        float hi  = _hhS[off]
+        float lo  = _llS[off]
+        _bGm.push((hi > 0 and lo > 0) ? math.exp((math.log(hi) + math.log(lo)) / 2.0) : na)
+        _bHi.push(hi)
+        _bLo.push(lo)
+        _bCx.push(bar_index - off - int(i_period / 2))
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// PRIMARY — Direction + ICS Angle + Channel Fitting
+//
+// PURPOSE:
+//   Determines the trend direction from block geometric means, computes the ICS
+//   angle that quantifies trend strength in normalized space, and fits two linear
+//   channel boundaries (upper + lower) through the trending segment's extremes.
+//
+// METHOD — Direction Detection:
+//   Compare consecutive block geometric means to find the longest monotonic
+//   segment starting from the newest block. Direction = sign of the first pair.
+//   The segment extends as long as each subsequent pair agrees with the initial
+//   direction. A single disagreement terminates the segment.
+//
+// METHOD — ICS Angle:
+//   Compute the slope in ICS space between the oldest and newest block
+//   geometric means (central tendencies of the first and last blocks in the
+//   monotonic segment):
+//     slope_ics = (ln(gNew) − ln(gOld)) / σ / (xNew − xOld)   [σ per bar]
+//     angle     = arctan(slope_ics) × 180° / π                [range (−90°, +90°)]
+//   If |angle| ≤ Range Threshold → direction overridden to DIR_FLAT.
+//   45° means price is moving at 1σ per bar in log-space — scale-invariant.
+//
+// METHOD — Channel Fitting:
+//   Within the trending segment, locate 4 price extremes with bar indices:
+//     HH (highest high), LH (lowest high), HL (highest low), LL (lowest low)
+//   UP trend:   upper line through (xLH, fLH) and (xHH, fHH) in ICS
+//               lower line through (xLL, fLL) and (xHL, fHL) in ICS
+//   DOWN trend: upper line through (xHH, fHH) and (xLH, fLH) in ICS
+//               lower line through (xHL, fHL) and (xLL, fLL) in ICS
+//   FLAT:       horizontal lines at HH and LL (zero slope)
+//   All lines are fitted in ICS via f_icsLine (log-linear in price) and
+//   extrapolated to bar_index − _anchor. σ cancels in channel values.
+//
+// DEPENDENCIES:
+//   Reads: _bGm, _bHi, _bLo, _bCx (from BLOCK CONSTRUCTION), sigma,
+//          _anchor (ANCHOR RESOLVER), i_thresh
+//   Writes: _dir, _ang, _seg, _chUp, _chLo
+//   Consumed by: 6-SCALE (as primary engine result for scale 19),
+//                BREAKOUT STATE MACHINE, VISUALIZATION, DASHBOARD
+// ══════════════════════════════════════════════════════════════════════════════════
+
+int   _dir = DIR_FLAT
+float _ang = 0.0
+int   _seg = 0
+float _chUp = na
+float _chLo = na
+
+if _ok and _bGm.size() >= 2
+    float g0 = _bGm.get(0)
+    float g1 = _bGm.get(1)
+    if not na(g0) and not na(g1) and g0 != g1
+        int pd = g0 > g1 ? DIR_UP : DIR_DOWN
+        _seg := 1
+        if i_groups > 2
+            for i = 1 to i_groups - 2
+                float a = _bGm.get(i)
+                float b = _bGm.get(i + 1)
+                if not na(a) and not na(b)
+                    if (a > b ? DIR_UP : (a < b ? DIR_DOWN : DIR_FLAT)) == pd
+                        _seg := i + 1
+                    else
+                        break
+                else
+                    break
+
+        float sig = math.max(nz(sigma, MIN_SIGMA), MIN_SIGMA)
+        if _bGm.size() > _seg
+            _ang := f_icsAngle(_bGm.get(_seg), _bCx.get(_seg),
+                 _bGm.get(0), _bCx.get(0), sig)
+
+        _dir := math.abs(_ang) <= i_thresh ? DIR_FLAT : pd
+
+        if _seg >= 1 and _bHi.size() > _seg
+            float fHH = na
+            float fLH = na
+            float fHL = na
+            float fLL = na
+            int   xHH = na
+            int   xLH = na
+            int   xHL = na
+            int   xLL = na
+            for i = 0 to _seg
+                float h = _bHi.get(i)
+                float l = _bLo.get(i)
+                int   x = _bCx.get(i)
+                if na(fHH) or h > fHH
+                    fHH := h
+                    xHH := x
+                if na(fLH) or h < fLH
+                    fLH := h
+                    xLH := x
+                if na(fHL) or l > fHL
+                    fHL := l
+                    xHL := x
+                if na(fLL) or l < fLL
+                    fLL := l
+                    xLL := x
+
+            int now = bar_index - _anchor
+            if _dir == DIR_UP
+                _chUp := f_icsLine(fLH, xLH, fHH, xHH, now, sig)
+                _chLo := f_icsLine(fLL, xLL, fHL, xHL, now, sig)
+            else if _dir == DIR_DOWN
+                _chUp := f_icsLine(fHH, xHH, fLH, xLH, now, sig)
+                _chLo := f_icsLine(fHL, xHL, fLL, xLL, now, sig)
+            else
+                _chUp := nz(fHH)
+                _chLo := nz(fLL)
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// 6-SCALE TREND FUNCTIONS
+//
+// PURPOSE:
+//   Reusable function pair that encapsulates the complete trend analysis pipeline
+//   (block construction → direction → ICS angle → channel fitting) for any
+//   arbitrary period. Enables the 6-scale parallel analysis by calling f_compute()
+//   once per scale with different period parameters.
+//
+// FUNCTIONS:
+//   f_analyze(gm, hi, lo, cx, groups, thresh, sig) → TrendResult
+//     Core algorithm: identical logic to the PRIMARY section above, but
+//     parameterized to accept pre-built block arrays. Produces a complete
+//     TrendResult with direction, angle, segment length, and channel levels.
+//
+//   f_compute(hhSer, llSer, per, grp, thr, sig) → TrendResult
+//     Wrapper: builds block arrays from ta.highest/ta.lowest series at the
+//     given period, then delegates to f_analyze(). Handles the early-bar
+//     guard (bar_index >= grp × per + _anchor) and returns default
+//     TrendResult when insufficient history is available.
+//
+// DESIGN NOTE:
+//   The two-function split (compute + analyze) avoids duplicating the block
+//   construction loop inside f_analyze, keeping the core algorithm testable
+//   with externally provided arrays.
+//
+// DEPENDENCIES:
+//   Reads: hhSer, llSer (via [] operator), bar_index
+//   Writes: returns TrendResult (no global state mutation)
+//   Consumed by: 6-SCALE HH/LL SERIES + COMPUTATION + CONSENSUS
+// ══════════════════════════════════════════════════════════════════════════════════
+
+f_analyze(array<float> gm, array<float> hi, array<float> lo, array<int> cx,
+     int groups, float thresh, float sig) =>
+    int d = DIR_FLAT
+    float a = 0.0
+    int se = 0
+    float cu = na
+    float cd = na
+    if gm.size() >= 2
+        float g0 = gm.get(0)
+        float g1 = gm.get(1)
+        if not na(g0) and not na(g1) and g0 != g1
+            int pd = g0 > g1 ? DIR_UP : DIR_DOWN
+            se := 1
+            if groups > 2
+                for i = 1 to groups - 2
+                    if i + 1 >= gm.size()
+                        break
+                    float gA = gm.get(i)
+                    float gB = gm.get(i + 1)
+                    if not na(gA) and not na(gB)
+                        if (gA > gB ? DIR_UP : (gA < gB ? DIR_DOWN : DIR_FLAT)) == pd
+                            se := i + 1
+                        else
+                            break
+                    else
+                        break
+            if gm.size() > se
+                a := f_icsAngle(gm.get(se), cx.get(se), gm.get(0), cx.get(0), sig)
+            d := math.abs(a) <= thresh ? DIR_FLAT : pd
+            if se >= 1 and hi.size() > se
+                float fHH = na
+                float fLH = na
+                float fHL = na
+                float fLL = na
+                int xHH = na
+                int xLH = na
+                int xHL = na
+                int xLL = na
+                for i = 0 to se
+                    float _h = hi.get(i)
+                    float _l = lo.get(i)
+                    int _x = cx.get(i)
+                    if na(fHH) or _h > fHH
+                        fHH := _h
+                        xHH := _x
+                    if na(fLH) or _h < fLH
+                        fLH := _h
+                        xLH := _x
+                    if na(fHL) or _l > fHL
+                        fHL := _l
+                        xHL := _x
+                    if na(fLL) or _l < fLL
+                        fLL := _l
+                        xLL := _x
+                int n = bar_index - _anchor
+                if d == DIR_UP
+                    cu := f_icsLine(fLH, xLH, fHH, xHH, n, sig)
+                    cd := f_icsLine(fLL, xLL, fHL, xHL, n, sig)
+                else if d == DIR_DOWN
+                    cu := f_icsLine(fHH, xHH, fLH, xLH, n, sig)
+                    cd := f_icsLine(fHL, xHL, fLL, xLL, n, sig)
+                else
+                    cu := nz(fHH)
+                    cd := nz(fLL)
+    TrendResult.new(d, a, se, cu, cd)
+
+f_compute(float hhSer, float llSer, int per, int grp, float thr, float sig) =>
+    array<float> g = array.new<float>()
+    array<float> h = array.new<float>()
+    array<float> l = array.new<float>()
+    array<int>   x = array.new<int>()
+    bool hasData = bar_index >= grp * per + _anchor
+    if hasData
+        for i = 0 to grp - 1
+            int off = _anchor + i * per
+            float hi = hhSer[off]
+            float lo = llSer[off]
+            g.push((hi > 0 and lo > 0) ? math.exp((math.log(hi) + math.log(lo)) / 2.0) : na)
+            h.push(hi)
+            l.push(lo)
+            x.push(bar_index - off - int(per / 2))
+    hasData ? f_analyze(g, h, l, x, grp, thr, sig) : TrendResult.new()
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// 6-SCALE — HH/LL Series + Computation + Consensus
+//
+// PURPOSE:
+//   Instantiates the 6-scale parallel analysis. Each scale (3,7,13,19,29,47)
+//   gets its own ta.highest / ta.lowest series and a f_compute() call that
+//   produces an independent TrendResult. Scale 19 reuses the PRIMARY engine
+//   result to avoid redundant computation. The 6 TrendResults are then
+//   aggregated into a consensus count for the dashboard.
+//
+// METHOD:
+//   1. Pre-compute 12 series: ta.highest(high, N) and ta.lowest(low, N) for
+//      each N ∈ {3, 7, 13, 19, 29, 47}. max_bars_back(500) on each series
+//      ensures deep lookback availability for all grouping combinations.
+//   2. Call f_compute() for scales 3, 7, 13, 29, 47 with the shared [_anchor]-anchored σ.
+//      Scale 19 is assigned directly from PRIMARY engine (_dir, _ang, etc.).
+//   3. Consensus: count how many of the 6 scales vote for each direction.
+//      _cUp = bullish, _cDn = bearish, _cFlat = ranging (all three counted).
+//      Dashboard shows the winning direction with its own matching count.
+//
+// ANTI-REPAINT:
+//   All f_compute() calls use the [_anchor]-anchored sigma via _trSig. Channel
+//   extrapolation inside f_analyze uses bar_index − _anchor. ta.highest /
+//   ta.lowest series are unshifted here — the anchor shift happens inside
+//   f_compute() via the offset = _anchor + i × period formula. Close Bar
+//   mode (_anchor = 1) excludes the live bar; Live Bar mode (_anchor = 0)
+//   includes it with standard repaint behavior.
+//
+// DEPENDENCIES:
+//   Reads: high, low (built-in), sigma (YANG-ZHANG), _dir/_ang/_seg/_chUp/
+//          _chLo (PRIMARY ENGINE for scale 19), _anchor (ANCHOR RESOLVER),
+//          i_groups, i_thresh
+//   Writes: _tr3, _tr7, _tr13, _tr19, _tr29, _tr47 (TrendResult per scale),
+//           _trends (array of all 6), _cUp, _cDn, _cFlat (consensus counts)
+//   Consumed by: DASHBOARD (trend row, agreement row)
+// ══════════════════════════════════════════════════════════════════════════════════
+
+float _hh3  = ta.highest(high, 3)
+float _ll3  = ta.lowest(low, 3)
+float _hh7  = ta.highest(high, 7)
+float _ll7  = ta.lowest(low, 7)
+float _hh13 = ta.highest(high, 13)
+float _ll13 = ta.lowest(low, 13)
+float _hh19 = ta.highest(high, 19)
+float _ll19 = ta.lowest(low, 19)
+float _hh29 = ta.highest(high, 29)
+float _ll29 = ta.lowest(low, 29)
+float _hh47 = ta.highest(high, 47)
+float _ll47 = ta.lowest(low, 47)
+
+max_bars_back(_hh3,  500)
+max_bars_back(_ll3,  500)
+max_bars_back(_hh7,  500)
+max_bars_back(_ll7,  500)
+max_bars_back(_hh13, 500)
+max_bars_back(_ll13, 500)
+max_bars_back(_hh19, 500)
+max_bars_back(_ll19, 500)
+max_bars_back(_hh29, 500)
+max_bars_back(_ll29, 500)
+max_bars_back(_hh47, 500)
+max_bars_back(_ll47, 500)
+
+float _trSig = math.max(nz(sigma, MIN_SIGMA), MIN_SIGMA)
+
+TrendResult _tr3  = f_compute(_hh3,  _ll3,  3,  i_groups, i_thresh, _trSig)
+TrendResult _tr7  = f_compute(_hh7,  _ll7,  7,  i_groups, i_thresh, _trSig)
+TrendResult _tr13 = f_compute(_hh13, _ll13, 13, i_groups, i_thresh, _trSig)
+TrendResult _tr29 = f_compute(_hh29, _ll29, 29, i_groups, i_thresh, _trSig)
+TrendResult _tr47 = f_compute(_hh47, _ll47, 47, i_groups, i_thresh, _trSig)
+
+TrendResult _tr19 = f_compute(_hh19, _ll19, 19, i_groups, i_thresh, _trSig)
+
+array<TrendResult> _trends = array.from(_tr3, _tr7, _tr13, _tr19, _tr29, _tr47)
+
+int _cUp   = 0
+int _cDn   = 0
+int _cFlat = 0
+for i = 0 to 5
+    int td = _trends.get(i).dir
+    if td == DIR_UP
+        _cUp += 1
+    else if td == DIR_DOWN
+        _cDn += 1
+    else
+        _cFlat += 1
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// BREAKOUT / RETEST STATE MACHINE (primary engine, scale 19)
+//
+// PURPOSE:
+//   Tracks the structural relationship between price and the primary channel
+//   boundaries using a 5-state finite automaton. Produces human-readable status
+//   labels and distance measurements for the dashboard narrative row.
+//
+// STATES (directed graph):
+//   ST_INSIDE (0)  — price within [chLower, chUpper]
+//   ST_BO_UP  (+1) — price broke above chUpper (extPos > 1.0)
+//   ST_RT_UP  (+2) — price retesting chUpper after upward breakout
+//   ST_BO_DN  (−1) — price broke below chLower (extPos < 0.0)
+//   ST_RT_DN  (−2) — price retesting chLower after downward breakout
+//
+// TRANSITIONS:
+//   INSIDE → BO_UP:  extPos > 1.0 (price exits above ceiling)
+//   INSIDE → BO_DN:  extPos < 0.0 (price exits below floor)
+//   BO_UP  → RT_UP:  boDistanced (moved ≥1σ away) AND distUp < 1σ (returning)
+//   BO_UP  → INSIDE: extPos ≤ 1.0 (failed breakout, re-entered channel)
+//   BO_UP  → BO_DN:  extPos < 0.0 (gap: crossed entire channel)
+//   RT_UP  → BO_UP:  distUp ≥ 1σ (bounced off retest → confirmed breakout)
+//   RT_UP  → INSIDE: extPos ≤ 1.0 (retest failed, re-entered channel)
+//   (Mirror transitions for DN states)
+//   Direction change → full reset to INSIDE with _retFrom flag.
+//
+// FLAGS:
+//   _boConfirm   — true when breakout has been retested and bounced (confirmed)
+//   _boDistanced — true when price moved ≥1σ from channel before retest eligible
+//   _boGapped    — true when price crossed the entire channel in one transition
+//   _boPrice     — price level where the breakout occurred
+//   _rtPrice     — price level where the retest touched
+//   _retFrom     — direction of the failed breakout (+1 or −1) when returning INSIDE
+//   _dirReset    — true on the bar where direction changed (full state wipe)
+//
+// σ THRESHOLD:
+//   Distance from channel boundary is measured in Yang-Zhang σ units:
+//     dist = |ln(close[_anchor]) − ln(boundary)| / σ
+//   The 1σ threshold is dynamic — self-adjusts with market volatility.
+//   No fixed-point input required from the user.
+//
+// ANTI-REPAINT:
+//   All inputs anchor at [_anchor]: close[_anchor], _chUp, _chLo, sigma.
+//   State variables are var-declared (persistent) and update once per bar.
+//   In Close Bar mode (_anchor = 1) extPos uses close[1] and the live bar
+//   cannot trigger transitions. In Live Bar mode (_anchor = 0) extPos uses
+//   close and transitions can fire intra-bar — standard repaint behavior.
+//
+// DEPENDENCIES:
+//   Reads: _chUp, _chLo (PRIMARY CHANNEL), sigma (YANG-ZHANG),
+//          close[_anchor], _anchor (ANCHOR RESOLVER),
+//          _dir (PRIMARY DIRECTION), _ok (data availability flag)
+//   Writes: _boState, _boConfirm, _boDistanced, _boGapped, _boPrice,
+//           _rtPrice, _retFrom, _dirReset, _extPos, _distUp, _distDn
+//   Consumed by: DASHBOARD (narrative row — breakout/retest status + distance)
+// ══════════════════════════════════════════════════════════════════════════════════
+
+float _extPos = f_icsPos(nz(close[_anchor]), _chLo, _chUp, _trSig)
+
+var int   _boState     = ST_INSIDE
+var bool  _boConfirm   = false
+var bool  _boDistanced = false
+var bool  _boGapped    = false
+var float _boPrice     = na
+var float _rtPrice     = na
+var int   _prevBDir    = DIR_FLAT
+var int   _retFrom     = 0
+
+float _distUp = (not na(_chUp) and nz(close[_anchor]) > 0 and _chUp > 0 and _trSig > MIN_SIGMA)
+     ? math.abs(math.log(nz(close[_anchor])) - math.log(_chUp)) / _trSig : 0.0
+float _distDn = (not na(_chLo) and nz(close[_anchor]) > 0 and _chLo > 0 and _trSig > MIN_SIGMA)
+     ? math.abs(math.log(nz(close[_anchor])) - math.log(_chLo)) / _trSig : 0.0
+
+bool _dirReset = false
+
+if _ok and not na(_chUp) and not na(_chLo)
+    bool _dirChg = _dir != _prevBDir and _prevBDir != DIR_FLAT
+    _prevBDir := _dir
+
+    if _dirChg
+        _dirReset    := true
+        _boState     := ST_INSIDE
+        _boConfirm   := false
+        _boDistanced := false
+        _boGapped    := false
+        _boPrice     := na
+        _rtPrice     := na
+        _retFrom     := 0
+    else
+        switch _boState
+            ST_INSIDE =>
+                if _extPos > 1.0
+                    _boState     := ST_BO_UP
+                    _boPrice     := _chUp
+                    _boConfirm   := false
+                    _boDistanced := false
+                    _boGapped    := false
+                    _rtPrice     := na
+                    _retFrom     := 0
+                else if _extPos < 0.0
+                    _boState     := ST_BO_DN
+                    _boPrice     := _chLo
+                    _boConfirm   := false
+                    _boDistanced := false
+                    _boGapped    := false
+                    _rtPrice     := na
+                    _retFrom     := 0
+
+            ST_BO_UP =>
+                if _distUp >= 1.0
+                    _boDistanced := true
+                if _extPos < 0.0
+                    _boState     := ST_BO_DN
+                    _boPrice     := _chLo
+                    _boConfirm   := false
+                    _boDistanced := false
+                    _boGapped    := true
+                    _rtPrice     := na
+                    _retFrom     := 0
+                else if _extPos <= 1.0
+                    _boState     := ST_INSIDE
+                    _retFrom     := 1
+                    _boConfirm   := false
+                    _boDistanced := false
+                    _boGapped    := false
+                else if _boDistanced and _distUp < 1.0
+                    _boState  := ST_RT_UP
+                    _rtPrice  := nz(close[_anchor])
+                    _boGapped := false
+
+            ST_RT_UP =>
+                if _extPos < 0.0
+                    _boState     := ST_BO_DN
+                    _boPrice     := _chLo
+                    _boConfirm   := false
+                    _boDistanced := false
+                    _boGapped    := true
+                    _rtPrice     := na
+                    _retFrom     := 0
+                else if _extPos <= 1.0
+                    _boState     := ST_INSIDE
+                    _retFrom     := 1
+                    _boConfirm   := false
+                    _boDistanced := false
+                    _boGapped    := false
+                else if _distUp >= 1.0
+                    _boState     := ST_BO_UP
+                    _boConfirm   := true
+                    _boDistanced := true
+                    _boGapped    := false
+
+            ST_BO_DN =>
+                if _distDn >= 1.0
+                    _boDistanced := true
+                if _extPos > 1.0
+                    _boState     := ST_BO_UP
+                    _boPrice     := _chUp
+                    _boConfirm   := false
+                    _boDistanced := false
+                    _boGapped    := true
+                    _rtPrice     := na
+                    _retFrom     := 0
+                else if _extPos >= 0.0
+                    _boState     := ST_INSIDE
+                    _retFrom     := -1
+                    _boConfirm   := false
+                    _boDistanced := false
+                    _boGapped    := false
+                else if _boDistanced and _distDn < 1.0
+                    _boState  := ST_RT_DN
+                    _rtPrice  := nz(close[_anchor])
+                    _boGapped := false
+
+            ST_RT_DN =>
+                if _extPos > 1.0
+                    _boState     := ST_BO_UP
+                    _boPrice     := _chUp
+                    _boConfirm   := false
+                    _boDistanced := false
+                    _boGapped    := true
+                    _rtPrice     := na
+                    _retFrom     := 0
+                else if _extPos >= 0.0
+                    _boState     := ST_INSIDE
+                    _retFrom     := -1
+                    _boConfirm   := false
+                    _boDistanced := false
+                    _boGapped    := false
+                else if _distDn >= 1.0
+                    _boState     := ST_BO_DN
+                    _boConfirm   := true
+                    _boDistanced := true
+                    _boGapped    := false
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// VISUALIZATION — Channel + Projection + Markers + Label
+//
+// PURPOSE:
+//   Renders all chart-overlay visual elements from the primary engine (scale 19)
+//   results. Executes only on the final bar (barstate.islastconfirmedhistory or
+//   barstate.islast) to minimize drawing object churn.
+//
+// VISUAL ELEMENTS:
+//   1. Channel Lines (solid): upper + lower boundaries from segment start (sLx)
+//      to the anchor bar (bar_index − _anchor). Color follows direction via f_dClr().
+//      Width and style are user-configurable inputs.
+//   2. Projection Lines (dotted): forward extension of channel slopes by
+//      i_pjOff bars beyond the anchor. Same color as channel, independent
+//      width and style inputs. Gives the trader a visual forward reference.
+//   3. Linefill: semi-transparent fill between channel lines and between
+//      projection lines. Uses independent fill colors (f_fClr) and
+//      user-controlled transparency (i_fillTr). Toggled by i_showFill.
+//   4. Diamond Markers (◆): placed at channel endpoints (anchor bar) on both
+//      upper and lower boundaries. Tooltip shows Close[_anchor] (label reflects
+//      mode), Ch▲, Ch▼, and Ext% (price position as percentage of channel width).
+//   5. Direction Label: positioned at the midpoint between segment start and
+//      projection end. Shows direction arrow + ICS angle (e.g. "▲ UP +7.3°").
+//      Tooltip includes trend direction, angle, and block count.
+//
+// LIFECYCLE:
+//   All drawing objects (lines, linefills, labels) are var-declared and deleted
+//   at the start of each render cycle, then recreated from current data.
+//   This ensures exactly one set of visuals exists at any time — no orphans.
+//
+// ANTI-REPAINT:
+//   Channel coordinates use [_anchor]-anchored values (_chUp, _chLo from
+//   PRIMARY). Anchor bar = bar_index − _anchor. Projection extends forward
+//   from the anchor. All slope computations use the segment's own extreme
+//   coordinates. Tooltip shows close[_anchor] with a dynamic label that
+//   reflects the user's Calculation Bar selection.
+//
+// DEPENDENCIES:
+//   Reads: _dir, _ang, _seg, _chUp, _chLo (PRIMARY), _bHi, _bLo, _bCx (BLOCKS),
+//          _trSig (6-SCALE shared σ), _anchor (ANCHOR RESOLVER),
+//          close[_anchor] (marker tooltip price), _L (active I18n instance),
+//          i_showCh, i_showFill, i_chW, i_chSty, i_pjOff, i_pjW, i_pjSty,
+//          i_clrUp/Dn/Rng, i_fillUp/Dn/Rng, i_fillTr, i_dashSz (inputs)
+//   Writes: _upLn, _loLn, _upPj, _loPj (lines), _chFill, _pjFill (linefills),
+//           _mkUp, _mkLo (marker labels), _lbl (direction label)
+//   Consumed by: chart overlay (visual output only, no downstream data)
+// ══════════════════════════════════════════════════════════════════════════════════
+
+var line     _upLn   = na
+var line     _loLn   = na
+var line     _upPj   = na
+var line     _loPj   = na
+var linefill _chFill = na
+var linefill _pjFill = na
+var label    _lbl    = na
+var label    _mkUp   = na
+var label    _mkLo   = na
+var table    _dash   = na
+
+// Block visualization — drawing object arrays (sized dynamically by i_groups)
+var array<box>   _blkBoxes = array.new<box>()
+var array<line>  _blkHiLns = array.new<line>()
+var array<line>  _blkLoLns = array.new<line>()
+var array<label> _blkGmLbs = array.new<label>()
+var array<line>  _blkGmLns = array.new<line>()
+
+// Angle line — reference line for ICS angle calculation
+var line  _angLn = na
+var line  _angPj = na
+
+if barstate.islastconfirmedhistory or barstate.islast
+    line.delete(_upLn)
+    line.delete(_loLn)
+    line.delete(_upPj)
+    line.delete(_loPj)
+    linefill.delete(_chFill)
+    linefill.delete(_pjFill)
+    label.delete(_lbl)
+    label.delete(_mkUp)
+    label.delete(_mkLo)
+    _upLn   := na
+    _loLn   := na
+    _upPj   := na
+    _loPj   := na
+    _chFill := na
+    _pjFill := na
+    _lbl    := na
+    _mkUp   := na
+    _mkLo   := na
+
+    // ── Angle Line — cleanup ────────────────────────────────────────────
+    line.delete(_angLn)
+    line.delete(_angPj)
+    _angLn := na
+    _angPj := na
+
+    // ── Block Visualization — cleanup + redraw ──────────────────────────
+    for bx in _blkBoxes
+        box.delete(bx)
+    _blkBoxes.clear()
+    for ln in _blkHiLns
+        line.delete(ln)
+    _blkHiLns.clear()
+    for ln in _blkLoLns
+        line.delete(ln)
+    _blkLoLns.clear()
+    for lb in _blkGmLbs
+        label.delete(lb)
+    _blkGmLbs.clear()
+    for ln in _blkGmLns
+        line.delete(ln)
+    _blkGmLns.clear()
+
+    if i_showBlk and _ok and _bGm.size() >= 1
+        float _pvGmY = na
+        int   _pvGmX = na
+        int   _nBlk  = math.min(i_groups, _bGm.size())
+        for i = 0 to _nBlk - 1
+            int   bOff   = _anchor + i * i_period
+            int   bRight = bar_index - bOff
+            int   bLeft  = bRight - i_period + 1
+            float bHi    = _bHi.get(i)
+            float bLo    = _bLo.get(i)
+            float bGm    = _bGm.get(i)
+            int   bCx    = _bCx.get(i)
+
+            if not na(bHi) and not na(bLo)
+                color cBlk = i % 2 == 0 ? i_blkClr1 : i_blkClr2
+                _blkBoxes.push(box.new(bLeft, bHi, bRight, bLo,
+                     border_color = color.new(cBlk, math.max(i_blkTr - 25, 0)),
+                     bgcolor      = color.new(cBlk, i_blkTr),
+                     border_width = 1, border_style = line.style_dashed))
+                _blkHiLns.push(line.new(bLeft, bHi, bRight, bHi,
+                     color = color.new(i_blkHiClr, 40),
+                     width = 1, style = line.style_dashed))
+                _blkLoLns.push(line.new(bLeft, bLo, bRight, bLo,
+                     color = color.new(i_blkLoClr, 40),
+                     width = 1, style = line.style_dashed))
+
+            if not na(bGm) and not na(bCx)
+                string gmTip = "Block " + str.tostring(i) +
+                     "\nHi: " + str.tostring(nz(bHi), format.mintick) +
+                     "\nLo: " + str.tostring(nz(bLo), format.mintick) +
+                     "\nGM: " + str.tostring(bGm, format.mintick) +
+                     "\nBars: " + str.tostring(bLeft) + ".." + str.tostring(bRight)
+                _blkGmLbs.push(label.new(bCx, bGm, "◆",
+                     style     = label.style_label_center,
+                     color     = color.new(chart.bg_color, 100),
+                     textcolor = i_blkGmClr,
+                     size      = math.max(i_dashSz - 2, 6),
+                     tooltip   = gmTip))
+                if not na(_pvGmY) and not na(_pvGmX)
+                    _blkGmLns.push(line.new(bCx, bGm, _pvGmX, _pvGmY,
+                         color = color.new(i_blkGmClr, 30),
+                         width = 2, style = line.style_solid))
+                _pvGmY := bGm
+                _pvGmX := bCx
+
+    if i_showCh and _ok and _seg >= 1 and _bHi.size() > _seg
+        float hhV = na
+        float lhV = na
+        float hlV = na
+        float llV = na
+        int   hhX = na
+        int   lhX = na
+        int   hlX = na
+        int   llX = na
+        for i = 0 to _seg
+            float h = _bHi.get(i)
+            float l = _bLo.get(i)
+            int   x = _bCx.get(i)
+            if na(hhV) or h > hhV
+                hhV := h
+                hhX := x
+            if na(lhV) or h < lhV
+                lhV := h
+                lhX := x
+            if na(hlV) or l > hlV
+                hlV := l
+                hlX := x
+            if na(llV) or l < llV
+                llV := l
+                llX := x
+
+        int sLx = _bCx.get(_seg)
+        int sRx = _bCx.get(0)
+        float uY1 = na
+        float uY2 = na
+        float lY1 = na
+        float lY2 = na
+
+        if _dir == DIR_UP
+            uY1 := f_icsLine(lhV, lhX, hhV, hhX, sLx, _trSig)
+            uY2 := f_icsLine(lhV, lhX, hhV, hhX, sRx, _trSig)
+            lY1 := f_icsLine(llV, llX, hlV, hlX, sLx, _trSig)
+            lY2 := f_icsLine(llV, llX, hlV, hlX, sRx, _trSig)
+        else if _dir == DIR_DOWN
+            uY1 := f_icsLine(hhV, hhX, lhV, lhX, sLx, _trSig)
+            uY2 := f_icsLine(hhV, hhX, lhV, lhX, sRx, _trSig)
+            lY1 := f_icsLine(hlV, hlX, llV, llX, sLx, _trSig)
+            lY2 := f_icsLine(hlV, hlX, llV, llX, sRx, _trSig)
+        else
+            uY1 := nz(hhV)
+            uY2 := nz(hhV)
+            lY1 := nz(llV)
+            lY2 := nz(llV)
+
+        color chClr = f_dClr(_dir)
+        int   ax    = bar_index - _anchor
+        float uYa   = f_icsLine(uY1, sLx, uY2, sRx, ax, _trSig)
+        float lYa   = f_icsLine(lY1, sLx, lY2, sRx, ax, _trSig)
+
+        // Convergence clip — solid section: if upper crosses below lower before anchor
+        int   _seX  = ax
+        bool  _pjOk = true
+        if uY1 > lY1 and uYa <= lYa and _trSig > MIN_SIGMA
+            float _gsL = math.log(uY1) / _trSig - math.log(lY1) / _trSig
+            float _gsR = math.log(lYa) / _trSig - math.log(uYa) / _trSig
+            float _gsD = _gsL + _gsR
+            if _gsD > 1e-10
+                _seX := sLx + int(math.round(_gsL / _gsD * (ax - sLx)))
+            _pjOk := false
+
+        float _uSE = f_icsLine(uY1, sLx, uY2, sRx, _seX, _trSig)
+        float _lSE = f_icsLine(lY1, sLx, lY2, sRx, _seX, _trSig)
+
+        if _seX > sLx
+            _upLn := line.new(sLx, uY1, _seX, _uSE, color = chClr, width = i_chW, style = f_sty(i_chSty))
+            _loLn := line.new(sLx, lY1, _seX, _lSE, color = chClr, width = i_chW, style = f_sty(i_chSty))
+
+        int   eX  = ax + i_pjOff
+        float uYe = f_icsLine(uY1, sLx, uY2, sRx, eX, _trSig)
+        float lYe = f_icsLine(lY1, sLx, lY2, sRx, eX, _trSig)
+
+        if _pjOk
+
+            // Convergence clip — projection: if upper crosses below lower after anchor
+            if uYa > lYa and uYe < lYe and _trSig > MIN_SIGMA
+                float _cgA = math.log(uYa) / _trSig - math.log(lYa) / _trSig
+                float _cgE = math.log(uYe) / _trSig - math.log(lYe) / _trSig
+                float _cgD = _cgA - _cgE
+                if _cgD > 1e-10
+                    eX  := ax + int(math.round(_cgA / _cgD * i_pjOff))
+                    uYe := f_icsLine(uY1, sLx, uY2, sRx, eX, _trSig)
+                    lYe := f_icsLine(lY1, sLx, lY2, sRx, eX, _trSig)
+
+            _upPj := line.new(ax, uYa, eX, uYe, color = chClr, width = i_pjW, style = f_sty(i_pjSty))
+            _loPj := line.new(ax, lYa, eX, lYe, color = chClr, width = i_pjW, style = f_sty(i_pjSty))
+
+        if i_showFill
+            color fc = color.new(f_fClr(_dir), i_fillTr)
+            if not na(_upLn) and not na(_loLn)
+                _chFill := linefill.new(_upLn, _loLn, fc)
+            if not na(_upPj) and not na(_loPj)
+                _pjFill := linefill.new(_upPj, _loPj, fc)
+
+        float extAt1 = f_icsPos(close[_anchor], lYa, uYa, _trSig)
+        float extPctTip = math.round(extAt1 * 100)
+        string extTipSign = extPctTip > 100 ? "+" : ""
+        string tip = _L.lbl_close + "[" + str.tostring(_anchor) + "]: " +
+             str.tostring(close[_anchor], format.mintick) +
+             "\n" + _L.lbl_ceiling + " ▲: " + str.tostring(uYa, format.mintick) +
+             "\n" + _L.lbl_floor   + " ▼: " + str.tostring(lYa, format.mintick) +
+             "\n" + _L.lbl_ext     + ": "   + extTipSign + str.tostring(extPctTip, "#") + "%"
+
+        _mkUp := label.new(ax, uYa, "◆",
+             style = label.style_label_center,
+             color = color.new(chart.bg_color, 100),
+             textcolor = #5b9bd5,
+             size = math.max(i_dashSz - 4, 6),
+             tooltip = tip)
+        _mkLo := label.new(ax, lYa, "◆",
+             style = label.style_label_center,
+             color = color.new(chart.bg_color, 100),
+             textcolor = #5b9bd5,
+             size = math.max(i_dashSz - 4, 6),
+             tooltip = tip)
+
+        string dTxt = f_dStr(_dir, _L)
+        string aTxt = (_ang >= 0 ? "+" : "") + str.tostring(_ang, "#.#") + "°"
+
+        // Direction label — conditional on i_showAngLbl toggle
+        if i_showAngLbl
+            int   _lblX = int((sLx + eX) / 2)
+            float _lblY = (uY1 > 0 and uYe > 0) ? math.sqrt(uY1 * uYe) : (uY1 + uYe) / 2.0
+            // When angle line is visible, position label at its projection end
+            if i_showAng and _bGm.size() > _seg and _seg >= 1
+                _lblX := bar_index - _anchor + i_pjOff
+                _lblY := f_icsLine(_bGm.get(_seg), _bCx.get(_seg),
+                     _bGm.get(0), _bCx.get(0), _lblX, _trSig)
+            _lbl := label.new(_lblX, _lblY, dTxt + " " + aTxt,
+                 style = label.style_label_down,
+                 textcolor = i_showAng ? i_angClr : chClr,
+                 color = color.new(chart.bg_color, 60),
+                 size = math.max(i_dashSz - 2, 6),
+                 tooltip = _L.lbl_trend_tip + ": " + dTxt +
+                      "\n" + _L.lbl_angle  + ": " + aTxt +
+                      "\n" + _L.lbl_blocks + ": " + str.tostring(_seg + 1))
+
+    // ── Angle Line — solid from GM[seg] to GM[0], dotted projection ─────
+    if i_showAng and _ok and _seg >= 1 and _bGm.size() > _seg
+        float _aGmOld = _bGm.get(_seg)
+        float _aGmNew = _bGm.get(0)
+        int   _aCxOld = _bCx.get(_seg)
+        int   _aCxNew = _bCx.get(0)
+        _angLn := line.new(_aCxOld, _aGmOld, _aCxNew, _aGmNew,
+             color = i_angClr, width = 2, style = line.style_solid)
+        int   _aPjX = bar_index - _anchor + i_pjOff
+        float _aPjY = f_icsLine(_aGmOld, _aCxOld, _aGmNew, _aCxNew, _aPjX, _trSig)
+        _angPj := line.new(_aCxNew, _aGmNew, _aPjX, _aPjY,
+             color = i_angClr, width = 2, style = line.style_dotted)
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // DASHBOARD
+    //
+    // PURPOSE:
+    //   Renders a compact information table (position.top_right) summarizing
+    //   the primary engine output and 6-scale consensus for the trader.
+    //   All values anchor at [_anchor] (user's Calculation Bar selection) except
+    //   the header row, which always displays live close under the Live Exception
+    //   protocol — preserved in both modes for real-time awareness.
+    //
+    // LAYOUT (7 columns × 5 rows after narrative migration):
+    //   Row 0: Header — indicator name, ticker, timeframe, live price
+    //   Row 1: Periods — fixed scale labels (3, 7, 13, 29, 47) with column
+    //          four showing the user's Period input
+    //   Row 2: Trend — per-scale direction arrows (▲/▼/◈) with colors
+    //   Row 3: Agreement — consensus count + direction + Ch▲ + Ch▼ levels
+    //   Row 4: Narrative — localized breakout/retest state + distance,
+    //          merged across all 7 columns
+    //
+    // NARRATIVE ROW:
+    //   Row 4 joins the state label (stLine1) and the distance descriptor
+    //   (stLine2) with " · " into a single merged cell spanning all 7
+    //   columns. Text color (stClr) and content are selected by the
+    //   current _boState via a switch expression. Distance percentages
+    //   (_flPct, _clPct, _abPct, _blPct) are derived from _extPos and
+    //   clamped to 0–100 for each branch.
+    //
+    // DEPENDENCIES:
+    //   Reads: _dir, _ang, _seg, _chUp, _chLo (PRIMARY),
+    //          _trends array, _cUp, _cDn, _cFlat (6-SCALE CONSENSUS),
+    //          _boState, _boConfirm, _boDistanced, _boGapped, _boPrice,
+    //          _rtPrice, _retFrom, _dirReset, _extPos (STATE MACHINE),
+    //          _anchor (ANCHOR RESOLVER), _L (active I18n instance),
+    //          SCALES (constant), i_period, i_clrUp, i_clrDn,
+    //          i_showDash, i_dashSz (inputs)
+    //   Writes: _dash (table object — visual output only)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    if not na(_dash)
+        table.delete(_dash)
+        _dash := na
+
+    if i_showDash
+        int sz   = math.max(i_dashSz, 6)
+        int szSm = math.max(sz - 2, 6)
+        int szXs = math.max(sz - 4, 6)
+
+        color bg   = color.new(chart.bg_color, 20)
+        color bgHd = color.new(chart.bg_color, 10)
+        color bdr  = color.new(chart.fg_color, 85)
+        color fg   = chart.fg_color
+        color fg2  = color.new(chart.fg_color, 40)
+
+        string tfS = timeframe.isseconds ? "s" : timeframe.isminutes ? "m" : ""
+
+        string _dPos = switch i_dashPos
+            "Top Left"      => position.top_left
+            "Top Center"    => position.top_center
+            "Middle Left"   => position.middle_left
+            "Middle Center" => position.middle_center
+            "Middle Right"  => position.middle_right
+            "Bottom Left"   => position.bottom_left
+            "Bottom Center" => position.bottom_center
+            "Bottom Right"  => position.bottom_right
+            =>                 position.top_right
+        _dash := table.new(_dPos, 7, 5,
+             bgcolor = bg, border_color = bdr, border_width = 1,
+             frame_color = bdr, frame_width = 1)
+
+        table.cell(_dash, 0, 0,
+             "ST-EP06 · #" + syminfo.ticker + " · " +
+             timeframe.period + tfS + "     " +
+             str.tostring(close, format.mintick) + " " + syminfo.currency,
+             text_color = fg, text_size = szSm,
+             bgcolor = bgHd, text_halign = text.align_left,
+             tooltip = _L.tip_header)
+        for c = 1 to 6
+            table.cell(_dash, c, 0, "", bgcolor = bgHd)
+        table.merge_cells(_dash, 0, 0, 6, 0)
+
+        table.cell(_dash, 0, 1, _L.lbl_period,
+             text_color = fg2, text_size = szXs,
+             bgcolor = bg, text_halign = text.align_left,
+             tooltip = _L.tip_period)
+        for c = 0 to 5
+            table.cell(_dash, c + 1, 1, str.tostring(SCALES.get(c)),
+                 text_color = #5b9bd5, text_size = szXs,
+                 bgcolor = bg, text_halign = text.align_center)
+
+        table.cell(_dash, 0, 2, _L.lbl_trend,
+             text_color = fg2, text_size = szXs,
+             bgcolor = bg, text_halign = text.align_left,
+             tooltip = _L.tip_trend)
+        for c = 0 to 5
+            TrendResult tr = _trends.get(c)
+            table.cell(_dash, c + 1, 2, f_dStr(tr.dir, _L),
+                 text_color = f_dClr(tr.dir), text_size = szXs,
+                 bgcolor = bg, text_halign = text.align_center)
+
+        string chUpStr = not na(_chUp) ? str.tostring(_chUp, format.mintick) : "—"
+        string chLoStr = not na(_chLo) ? str.tostring(_chLo, format.mintick) : "—"
+        int    agCnt   = _cUp > _cDn ? _cUp : _cDn > _cUp ? _cDn : _cFlat
+        string agDir   = _cUp > _cDn ? _L.dir_up : _cDn > _cUp ? _L.dir_dn : _L.dir_rng
+        table.cell(_dash, 0, 3,
+             _L.lbl_agreement + ": " + str.tostring(agCnt) + "/6 " + agDir +
+             "  ▲ " + chUpStr + "  ▼ " + chLoStr,
+             text_color = fg2, text_size = szXs,
+             bgcolor = bg, text_halign = text.align_left,
+             tooltip = _L.tip_agreement)
+        for c = 1 to 6
+            table.cell(_dash, c, 3, "", bgcolor = bg)
+        table.merge_cells(_dash, 0, 3, 6, 3)
+
+        // Row 4 — breakout / retest narrative, merged across all 7 columns
+        string stLine1 = ""
+        string stLine2 = ""
+        color  stClr   = color.new(#888888, 0)
+
+        float _flPct = math.round(math.max(0.0, math.min(_extPos, 1.0)) * 100)
+        float _clPct = 100.0 - _flPct
+        float _abPct = math.round((_extPos - 1.0) * 100)
+        float _blPct = math.round(math.abs(math.min(_extPos, 0.0)) * 100)
+
+        switch _boState
+            ST_BO_UP =>
+                stClr := i_clrUp
+                stLine1 := _L.st_bo_up +
+                     (_boConfirm ? " ✓" : "") +
+                     (_boGapped ? " " + _L.conn_gap : "") +
+                     " " + _L.conn_at + " " + str.tostring(nz(_boPrice), format.mintick)
+                if _boConfirm and not na(_rtPrice)
+                    stLine1 := stLine1 + " " + _L.conn_retested + " " +
+                         str.tostring(nz(_rtPrice), format.mintick)
+                stLine2 := str.tostring(_abPct, "#") + _L.dist_above_ceiling
+
+            ST_RT_UP =>
+                stClr := color.new(#EF9F27, 0)
+                stLine1 := _L.st_rt_up_broke_at + " " +
+                     str.tostring(nz(_boPrice), format.mintick)
+                stLine2 := _L.conn_now + " " + str.tostring(nz(close[_anchor]), format.mintick) +
+                     " · " + str.tostring(_abPct, "#") + _L.dist_above_ceiling
+
+            ST_BO_DN =>
+                stClr := i_clrDn
+                stLine1 := _L.st_bo_dn +
+                     (_boConfirm ? " ✓" : "") +
+                     (_boGapped ? " " + _L.conn_gap : "") +
+                     " " + _L.conn_at + " " + str.tostring(nz(_boPrice), format.mintick)
+                if _boConfirm and not na(_rtPrice)
+                    stLine1 := stLine1 + " " + _L.conn_retested + " " +
+                         str.tostring(nz(_rtPrice), format.mintick)
+                stLine2 := str.tostring(_blPct, "#") + _L.dist_below_floor
+
+            ST_RT_DN =>
+                stClr := color.new(#EF9F27, 0)
+                stLine1 := _L.st_rt_dn_broke_at + " " +
+                     str.tostring(nz(_boPrice), format.mintick)
+                stLine2 := _L.conn_now + " " + str.tostring(nz(close[_anchor]), format.mintick) +
+                     " · " + str.tostring(_blPct, "#") + _L.dist_below_floor
+
+            =>
+                stClr := _retFrom != 0 or _dirReset ?
+                     color.new(#5b9bd5, 0) : color.new(#888888, 0)
+                stLine1 := _dirReset ? _L.st_inside_dir_ch :
+                     _retFrom == 1 ? _L.st_inside_fail_up :
+                     _retFrom == -1 ? _L.st_inside_fail_dn :
+                     _L.st_inside
+                stLine2 := str.tostring(_flPct, "#") + _L.dist_from_floor + " · " +
+                     str.tostring(_clPct, "#") + _L.dist_to_ceiling
+
+        table.cell(_dash, 0, 4, stLine1 + " · " + stLine2,
+             text_color = stClr, text_size = szXs,
+             bgcolor = bg, text_halign = text.align_left,
+             tooltip = _L.tip_narrative)
+        for c = 1 to 6
+            table.cell(_dash, c, 4, "", bgcolor = bg)
+        table.merge_cells(_dash, 0, 4, 6, 4)
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// ALERT ENGINE — Guard + Warning Label
+//
+// PURPOSE:
+//   Binary switch for the alert subsystem. _alertsActive is TRUE only when
+//   both conditions hold: (1) user enabled alerts via i_enableAlerts, AND
+//   (2) user is in Live Bar mode (_anchor == 0). The gate prevents alerts
+//   from firing on stale (anchored-at-[1]) data in Close Bar mode.
+//
+//   When the user enables alerts but is in Close Bar mode, a warning label
+//   is drawn at the current bar to direct them to switch Calculation Bar.
+//   Alertconditions downstream AND their conditions with _alertsActive so
+//   they silently suppress when the gate is closed.
+//
+// DEPENDENCIES:
+//   Reads: i_enableAlerts (input), _anchor (ANCHOR RESOLVER)
+//   Writes: _alertsActive (bool, consumed by alertcondition block)
+//   Visual: warning label (drawn only on the last bar, auto-cleaned)
+// ══════════════════════════════════════════════════════════════════════════════════
+
+bool _alertsActive = i_enableAlerts and _anchor == 0
+
+// Hidden plots — not used in default alert messages, but available to users
+// who customize the alert text via the {{plot("Name")}} placeholder in the
+// TradingView alert dialog. Angle (°), Agreement (cUp−cDn), ChannelPos (%).
+plot(_ang,          "Angle",      display = display.none)
+plot(_cUp - _cDn,   "Agreement",  display = display.none)
+plot(_extPos * 100, "ChannelPos", display = display.none)
+
+var label _alertWarn = na
+
+if barstate.islast
+    label.delete(_alertWarn)
+    _alertWarn := na
+    if i_enableAlerts and _anchor != 0
+        _alertWarn := label.new(bar_index, high,
+             "⚠  " + _L.alert_warn,
+             style = label.style_label_down,
+             color = color.new(#EF9F27, 0),
+             textcolor = color.white,
+             size = math.max(i_dashSz, 6),
+             yloc = yloc.abovebar,
+             tooltip = _L.alert_warn_tip)
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// ALERT CONDITIONS — 19 alerts across 5 categories (D B R S A)
+//
+// All conditions ANDed with _alertsActive. Transition pattern: currentState
+// and not previousState. Frequency in TradingView UI: "Once Per Bar".
+// ══════════════════════════════════════════════════════════════════════════════════
+
+// ───── D · Direction ─────
+alertcondition(_alertsActive and _dir == DIR_UP   and _dir[1] != DIR_UP,   "▲ Uptrend Entry",
+     "📈 UPTREND — trend turned UP")
+alertcondition(_alertsActive and _dir == DIR_DOWN and _dir[1] != DIR_DOWN, "▼ Downtrend Entry",
+     "📉 DOWNTREND — trend turned DOWN")
+alertcondition(_alertsActive and _dir == DIR_FLAT and _dir[1] != DIR_FLAT, "◈ Range Entry",
+     "◈ RANGE — trend went FLAT")
+
+// ───── B · Breakout ─────
+alertcondition(_alertsActive and _boState == ST_BO_UP and _boState[1] != ST_BO_UP, "▲ Breakout Up",
+     "🟢 BO UP — price broke above ceiling")
+alertcondition(_alertsActive and _boConfirm and not _boConfirm[1] and _boState == ST_BO_UP, "✓ BO Up Confirmed",
+     "✅ BO UP CONFIRMED — retested and bounced")
+alertcondition(_alertsActive and _boState == ST_BO_DN and _boState[1] != ST_BO_DN, "▼ Breakout Down",
+     "🔴 BO DN — price broke below floor")
+alertcondition(_alertsActive and _boConfirm and not _boConfirm[1] and _boState == ST_BO_DN, "✓ BO Down Confirmed",
+     "✅ BO DN CONFIRMED — retested and bounced")
+
+// ───── R · Retest ─────
+alertcondition(_alertsActive and _boState == ST_RT_UP and _boState[1] != ST_RT_UP, "↺ Retest Up",
+     "↺ RETEST UP — price returning to ceiling")
+alertcondition(_alertsActive and _boState == ST_RT_DN and _boState[1] != ST_RT_DN, "↺ Retest Down",
+     "↺ RETEST DN — price returning to floor")
+
+// ───── S · Structural ─────
+alertcondition(_alertsActive and _boGapped and not _boGapped[1] and _boState == ST_BO_UP, "⚡ Gap Up Through",
+     "⚡ GAP UP — price crossed entire channel upward")
+alertcondition(_alertsActive and _boGapped and not _boGapped[1] and _boState == ST_BO_DN, "⚡ Gap Down Through",
+     "⚡ GAP DN — price crossed entire channel downward")
+alertcondition(_alertsActive and _retFrom ==  1 and _retFrom[1] !=  1, "✗ Failed Breakout Up",
+     "✗ FAILED BO UP — returned inside channel")
+alertcondition(_alertsActive and _retFrom == -1 and _retFrom[1] != -1, "✗ Failed Breakout Down",
+     "✗ FAILED BO DN — returned inside channel")
+alertcondition(_alertsActive and _dirReset, "↻ Direction Reset",
+     "↻ DIR RESET — trend direction changed, state wiped")
+
+// ───── A · Agreement ─────
+alertcondition(_alertsActive and _cUp   == 6 and _cUp[1]    != 6, "🔵 Full Bull 6/6",
+     "🔵 FULL BULL — all 6 scales agree UP")
+alertcondition(_alertsActive and _cUp   == 5 and _cUp[1]    != 5, "🔵 Strong Bull 5/6",
+     "🔵 STRONG BULL — 5 of 6 scales agree UP")
+alertcondition(_alertsActive and _cDn   == 6 and _cDn[1]    != 6, "🔴 Full Bear 6/6",
+     "🔴 FULL BEAR — all 6 scales agree DN")
+alertcondition(_alertsActive and _cDn   == 5 and _cDn[1]    != 5, "🔴 Strong Bear 5/6",
+     "🔴 STRONG BEAR — 5 of 6 scales agree DN")
+alertcondition(_alertsActive and _cFlat >= 4 and _cFlat[1]  < 4, "◈ Range Consensus ≥4/6",
+     "◈ RANGE CONSENSUS — ≥4 of 6 scales in RNG")
+
+// ══════════════════════════════════════════════════════════════════════════════════
+// REFERENCES · DISCLAIMER
+//
+// ACADEMIC FOUNDATIONS:
+//   • Yang, D. & Zhang, Q. (2000). Drift-Independent Volatility Estimation Based
+//     on High, Low, Open, and Close Prices. Journal of Business, 73(3), 477–491.
+//   • Rogers, L. C. G. & Satchell, S. E. (1991). Estimating variance from high,
+//     low and closing prices. Annals of Applied Probability, 1(4), 504–512.
+//
+// ARCHITECTURE:
+//   Isotropic Coordinate System (ICS): y = log(price) / σ — a dimensionless price
+//   space where trend angles and distances are scale-invariant across instruments,
+//   timeframes, and volatility regimes. Six parallel scales, σ-normalized slopes,
+//   log-linear channel fitting, configurable anti-repaint via Calculation Bar.
+//
+// PHILOSOPHY:
+//   Structure over price. Log over linear. Evidence over intuition.
+//
+// DISCLAIMER:
+//   Educational and analytical tool. Not financial advice. Historical patterns
+//   do not guarantee future outcomes.
+// ══════════════════════════════════════════════════════════════════════════════════

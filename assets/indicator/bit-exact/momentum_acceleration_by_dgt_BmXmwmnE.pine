@@ -1,0 +1,442 @@
+//@version=6
+// ══════════════════════════════════════════════════════════════════════════════════════════════════ //
+//# * ══════════════════════════════════════════════════════════════════════════════════════════════
+//# *
+//# * Study       : Momentum Acceleration (SpeedyGonzales) 
+//# *                - with Backtest Framework Adaptation
+//# * Author      : © dgtrd
+//# *
+//# * Revision History
+//# *  Release    : Jul 08, 2020
+//# *  Update     : Sep 05, 2020  : On Balance Volume addition
+//# *  Update     : Nov 25, 2020  : Backtest framework adaptation
+//# *  Update     : Apr 09, 2021  : Enchanced Backtest Framework
+//# *                               - long/short/stoploss conditions enchaced
+//# *                               - early warning ability added (label + alert)
+//# *  Update     : Apr 21, 2022  : Price and On Balance Volume Momentum Acceleration Oscillator View Option
+//# *
+//# * ══════════════════════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════════════════════════ //
+
+indicator('Momentum Acceleration by DGT', 'SpeedyGonzales ☼☾', true, max_lines_count = 500)
+
+display = display.all - display.status_line
+
+group_sg = 'Momentum Acceleration Engine'
+
+s = input.string('Price', 'Data Source', options = ['Price', 'On Balance Volume'], group = group_sg, display = display,
+     tooltip = 'Select the data used to calculate momentum acceleration.\n\n' +
+               '• Price → Uses market price movement\n' +
+               '• On Balance Volume → Uses volume flow dynamics')
+
+t = input.int(13, '  Acceleration Period', group = group_sg, display = display,
+     tooltip = 'Controls how quickly momentum acceleration reacts to market changes.\n\n' +
+               'Lower values → Faster and more sensitive\n' +
+               'Higher values → Smoother and more stable')
+
+colorup = input.color(color.new(color.aqua, 80), '  Bullish Color', inline = 'COL', group = group_sg,
+     tooltip = 'Color used when momentum acceleration is positive.')
+
+colordown = input.color(color.new(color.orange, 80), 'Bearish Color', inline = 'COL', group = group_sg,
+     tooltip = 'Color used when momentum acceleration is negative.')
+
+p = input.int(233, '  Display Length', minval = 1, step = 10, group = group_sg, display = display,
+     tooltip = 'Number of recent bars shown for momentum arrows.')
+
+
+f_speedy(_d, _t) =>
+    v = ta.sma(ta.change(_d, _t) / _t, 3)
+    a = ta.change(v, _t) / _t
+    v - a
+
+// Plotting  ------------------------------------------------------------------------------------ //
+// ---------------------------------------------------------------------------------------------- //
+
+source = s == 'Price' ? close : ta.obv
+psgval = f_speedy(source, t)
+plotarrow(psgval, title = 'Momentum Acceleration', colorup = colorup, colordown = colordown, display = display, show_last = p)
+plotshape(psgval > 0 and psgval[1] <= 0, 'Bull', shape.triangleup, location.belowbar, color.new(colorup, 25), size=size.tiny, display = display, show_last = p)
+plotshape(psgval < 0 and psgval[1] >= 0, 'Bear', shape.triangledown, location.abovebar, color.new(colordown, 25), size=size.tiny, display = display, show_last = p)
+
+// -Alerts ══════════════════════════════════════════════════════════════════════════════════════ //
+
+bothAlertCondition = ta.cross(psgval, 0)
+alertcondition(bothAlertCondition, 'Early Warning', 'SpeedyGonzales : Probable Trade Opportunity\n{{exchange}}:{{ticker}}->\nPrice = {{close}},\nTime = {{time}}')
+alertcondition(bothAlertCondition[1], 'Trading Opportunity', 'SpeedyGonzales : Probable Trade Opportunity\n{{exchange}}:{{ticker}}->\nPrice = {{close}},\nTime = {{time}}')
+
+longAlertCondition = ta.crossover(psgval, 0)
+alertcondition(longAlertCondition, 'Long : Early Warning', 'SpeedyGonzales - Not Confirmed Probable Long Trade Opportunity\n{{exchange}}:{{ticker}}->\nPrice = {{close}},\nTime = {{time}}')
+alertcondition(longAlertCondition[1], 'Long : Trading Opportunity', 'SpeedyGonzales - Probable Long Trade Opportunity\n{{exchange}}:{{ticker}}->\nPrice = {{close}},\nTime = {{time}}')
+
+shortAlertCondition = ta.crossunder(psgval, 0)
+alertcondition(shortAlertCondition, 'Short : Early Warning', 'SpeedyGonzales - Not Confirmed Probable Short Trade Opportunity\n{{exchange}}:{{ticker}}->\nPrice = {{close}},\nTime = {{time}}')
+alertcondition(shortAlertCondition[1], 'Short : Trading Opportunity', 'SpeedyGonzales - Probable Short Trade Opportunity\n{{exchange}}:{{ticker}}->\nPrice = {{close}},\nTime = {{time}}')
+
+// -OCS View ════════════════════════════════════════════════════════════════════════════════════ //
+
+group_ocs = 'Oscillator Projection View'
+
+price = input.bool(false, 'Show Price Acceleration', inline = 'price', group = group_ocs,
+     tooltip = 'Projects price-based momentum acceleration onto the chart.')
+
+oscColor = input.color(color.aqua, '', inline = 'price', group = group_ocs)
+
+obv = input.bool(false, 'Show OBV Acceleration', inline = 'obv', group = group_ocs,
+     tooltip = 'Projects On Balance Volume momentum acceleration onto the chart.')
+
+oscColor2 = input.color(color.orange, '', inline = 'obv', group = group_ocs)
+
+oscHight = 11 - input.int(7, '  Scale', minval = 1, maxval = 10, inline = 'AA', group = group_ocs, display = display)
+
+oscVerticalOffset = input.int(3, 'Offset', minval = -3, maxval = 10, inline = 'AA', group = group_ocs, display = display,
+     tooltip = 'Scale:\nControls vertical scaling of the projected oscillator.\n\nOffset:\nAdjusts vertical placement of the oscillator projection.') / 10
+
+oscPlacement = input.string('Bottom', '  Placement', options = ['Top', 'Bottom'], group = group_ocs, display = display,
+     tooltip = 'Select where the oscillator is drawn relative to price.')
+
+oscLookbackLength = math.min(last_bar_index, p)
+
+var a_lines = array.new_line()
+
+oscPrice = f_speedy(close, t)
+oscObv = f_speedy(ta.obv, t)
+priceHighest = ta.highest(high, oscLookbackLength)
+priceLowest = ta.lowest(low, oscLookbackLength)
+priceChangeRate = (priceHighest - priceLowest) / priceHighest
+priceLowest := priceLowest * (1 - priceChangeRate * oscVerticalOffset)
+priceHighest := priceHighest * (1 + priceChangeRate * oscVerticalOffset)
+oscHighest = ta.highest(oscPrice, oscLookbackLength)
+oscHighest2 = ta.highest(oscObv, oscLookbackLength)
+
+if barstate.islast
+    if array.size(a_lines) > 0
+        for i = 1 to array.size(a_lines) by 1
+            line.delete(array.shift(a_lines))
+
+    hight = priceChangeRate / oscHight
+
+    if price or obv
+        midLine = 0
+        midLevel = (oscPlacement == 'Top' ? priceHighest : priceLowest) * (1 + midLine / oscHighest * hight)
+        array.push(a_lines, line.new(bar_index[oscLookbackLength], midLevel, bar_index, midLevel, xloc.bar_index, extend.none, color.new(color.gray, 25), line.style_dashed, 1))
+
+    for barIndex = 0 to oscLookbackLength - 1 by 1
+        if array.size(a_lines) < 498
+            if price
+                array.push(a_lines, line.new(bar_index[barIndex], (oscPlacement == 'Top' ? priceHighest : priceLowest) * (1 + oscPrice[barIndex] / oscHighest * hight), bar_index[barIndex + 1], (oscPlacement == 'Top' ? priceHighest : priceLowest) * (1 + oscPrice[barIndex + 1] / oscHighest * hight), xloc.bar_index, extend.none, oscColor, line.style_solid, 1))
+            if obv
+                array.push(a_lines, line.new(bar_index[barIndex], (oscPlacement == 'Top' ? priceHighest : priceLowest) * (1 + oscObv[barIndex] / oscHighest2 * hight), bar_index[barIndex + 1], (oscPlacement == 'Top' ? priceHighest : priceLowest) * (1 + oscObv[barIndex + 1] / oscHighest2 * hight), xloc.bar_index, extend.none, oscColor2, line.style_solid, 1))
+
+
+// -OCS View ════════════════════════════════════════════════════════════════════════════════════ //
+
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════════ //
+//# * ══════════════════════════════════════════════════════════════════════════════════════════════
+//# *
+//# * Study       : Backtest Framework
+//# * Author      : © dgtrd
+//# * Purpose     : Trade simulation with long, short and reverse trade ability
+//# *
+//# * Revision History
+//# *  Release    : Nov 21, 2020 : Initial Release
+//# *  Update     : Mar 13, 2021 : Enhanced framework — long/short/stoploss, early warning
+//# *  Update     : Apr 03, 2026 : Short trade support, trade mode selector (Long / Short / Both),
+//# *                              reverse on signal, intrabar stop loss, redesigned stats label
+//# *
+//# * ══════════════════════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════════════════════════ //
+
+bt_yAnchor = close
+
+// ── Inputs ───────────────────────────────────────────────────────────────────── //
+
+btGR = '=============   Backtest Framework   ============='
+
+isBackTest = input.bool(false, 'Enable Backtest', group = btGR,
+     tooltip = 'Enable or disable the backtest framework.\n' +
+               '• ON  → trades simulated using the rules below\n' +
+               '• OFF → only live signals shown')
+
+tradeMode = input.string('Both', 'Trade Mode', options = ['Long Only', 'Short Only', 'Both'], group   = btGR, display = display,
+     tooltip = 'Defines which trade directions are simulated.\n\n' +
+               '• Long Only  — enters on long signal, exits on short signal or stop loss\n' +
+               '• Short Only — enters on short signal, exits on long signal or stop loss\n' +
+               '• Both       — enters on either signal, optionally reverses on the opposite')
+
+reverseOnSignal = input.bool(true, 'Reverse on Opposite Signal', group = btGR,
+     tooltip = 'Only applies when Trade Mode is Both.\n' +
+               'When enabled, an opposite signal immediately closes the current trade\n' +
+               'and opens a new one in the other direction — always in trade once started.\n' +
+               'When disabled, opposite signal exits only — no new trade until next entry signal.')
+
+dasCapital = input.float(1000., 'Initial Capital', group = btGR, display = display,
+     tooltip = 'Starting capital for the simulation.\n' +
+               'Used to calculate compounding PnL and final equity.')
+
+lenBckTst = input.float(1., 'Period (Years)', minval = 0., step = .1, group = btGR, display = display,
+     tooltip = 'Lookback window for the simulation in years.\n' +
+               'Capped automatically if the selected timeframe has insufficient history.')
+
+isStopLoss = input.bool(false, 'Apply Stop Loss', inline = 'sl', group = btGR,
+     tooltip = 'Exits the trade if price moves against the position intrabar.\n' +
+               'Long SL : low  reaches entry × (1 − %)\n' +
+               'Short SL: high reaches entry × (1 + %)')
+
+stopLoss = input.float(1., '  %', step = .1, minval = 0., inline = 'sl', group = btGR, display = display) / 100
+
+useCandleL = input.bool(false, 'Long Candle Confirmation', group = btGR,
+     tooltip = 'Long entries only taken on bullish bars (close > open).')
+useCandleS = input.bool(false, 'Short Candle Confirmation', group = btGR,
+     tooltip = 'Short entries only taken on bearish bars (close < open).')
+
+isSudden = input.bool(true, 'Avoid Same-Bar Conflicts', group = btGR,
+     tooltip = 'Skips entries when both long and short signals fire on the same bar.\n' +
+               'Reduces false entries from volatile spikes.')
+
+isTest = input.bool(false, '❗ Next Bar Mode (Repaints)', group = btGR,
+     tooltip = 'Uses the next bar\'s open for simulation instead of the confirmed bar open.\n' +
+               'Produces earlier entries but signals will repaint.\n' +
+               'For testing and comparison only — do not use for live alerts.')
+
+lblInOutSL = input.bool(true, 'Show Entry / Exit Labels', group = btGR,
+     tooltip = 'Displays L / S / SL / TP labels at entry and exit bars with tooltips showing direction, price, change, and capital.')
+
+lblWarnings = input.bool(true, 'Show Early Warnings', group = btGR,
+     tooltip = 'Shows a ⚠️ label when a signal fires but has not yet been confirmed.\n' +
+               'Label is deleted on the following bar regardless of outcome.')
+
+lblTrdStat = input.bool(true, 'Show Trade Statistics', group = btGR,
+     tooltip = 'Displays a floating label with full trade summary.\n' +
+               'Includes win rate, PnL, long/short breakdown, and current trade status.')
+
+// ── Backtest period ──────────────────────────────────────────────────────────── //
+
+startBckTst = time > timenow - lenBckTst * 31556952000
+
+var _dir    = array.new_int  (1, 0)
+var _entry  = array.new_float(1, 0.)
+var _exit   = array.new_float(1, 0.)
+var _cap    = array.new_float(1, dasCapital)
+var _trades = array.new_int  (1, 0)
+var _winL   = array.new_int  (1, 0)
+var _lossL  = array.new_int  (1, 0)
+var _winS   = array.new_int  (1, 0)
+var _lossS  = array.new_int  (1, 0)
+
+bt_dir    () => array.get(_dir,    0)
+bt_entry  () => array.get(_entry,  0)
+bt_exit   () => array.get(_exit,   0)
+bt_cap    () => array.get(_cap,    0)
+bt_trades () => array.get(_trades, 0)
+bt_winL   () => array.get(_winL,   0)
+bt_lossL  () => array.get(_lossL,  0)
+bt_winS   () => array.get(_winS,   0)
+bt_lossS  () => array.get(_lossS,  0)
+
+f_open(_d, _lbl) =>
+    array.set(_entry,  0, open)
+    array.set(_dir,    0, _d)
+    array.set(_trades, 0, bt_trades() + 1)
+
+    if _lbl
+        label.new(bar_index, _d == 1 ? low : high, text = _d == 1 ? 'L' : 'S',
+             tooltip       = 'Direction .... : ' + (_d == 1 ? 'Long' : 'Short') + '\n' +
+                             'Entry price .. : ' + str.tostring(open) + '\n' +
+                             'Capital ...... : ' + str.tostring(bt_cap(), '#.##'),
+             style = _d == 1 ? label.style_label_up   : label.style_label_down, color = _d == 1 ? color.teal : color.red,
+             textcolor = color.white, size = size.tiny, force_overlay = true)
+
+f_close(_isSL, _lbl) =>
+    _d     = bt_dir()
+    _ep    = bt_entry()
+    _xp    = _isSL ? close : open
+
+    array.set(_exit, 0, _xp)
+
+    _entrySafe = math.max(_ep,  syminfo.mintick)
+    _exitSafe  = math.max(_xp,  syminfo.mintick)
+
+    _pnl    = _d == 1
+             ? _exitSafe / _entrySafe
+             : _entrySafe / _exitSafe
+
+    _newCap = bt_cap() * _pnl
+    _profit = _pnl > 1.
+
+    array.set(_cap, 0, _newCap)
+
+    if _d == 1
+        array.set(_winL,  0, bt_winL()  + (_profit ? 1 : 0))
+        array.set(_lossL, 0, bt_lossL() + (_profit ? 0 : 1))
+    else
+        array.set(_winS,  0, bt_winS()  + (_profit ? 1 : 0))
+        array.set(_lossS, 0, bt_lossS() + (_profit ? 0 : 1))
+
+    if _lbl
+        label.new(bar_index, _d == 1 ? high : low, text = _isSL ? 'SL' : 'TP',
+             tooltip       = 'Exit type .... : ' + (_isSL ? 'Stop Loss' : 'Take Profit') + '\n' +
+                             'Direction .... : ' + (_d == 1 ? 'Long' : 'Short') + '\n' +
+                             'Entry / Exit . : ' + str.tostring(_ep) + ' / ' + str.tostring(_xp) + '\n' +
+                             'Change ....... : ' + str.tostring((_pnl - 1) * 100, '#.##') + '%\n' +
+                             'Capital ...... : ' + str.tostring(_newCap, '#.##'),
+             style = _d == 1 ? label.style_label_down : label.style_label_up, color = _profit ? color.teal : color.red,
+             textcolor = color.white, size = size.tiny, force_overlay = true)
+
+    array.set(_dir, 0, 0)
+
+
+if isBackTest
+    sigL = isTest ? longAlertCondition[1]  : longAlertCondition[2]
+    sigS = isTest ? shortAlertCondition[1] : shortAlertCondition[2]
+
+    candleRef = isTest ? 0 : 1
+    conflict  = longAlertCondition[candleRef] and shortAlertCondition[candleRef]
+
+    okL = (not useCandleL or close[candleRef] > open[candleRef]) and (not isSudden or not conflict)
+    okS = (not useCandleS or close[candleRef] < open[candleRef]) and (not isSudden or not conflict)
+
+    longCond  = sigL and okL
+    shortCond = sigS and okS
+
+    canLong  = tradeMode != 'Short Only'
+    canShort = tradeMode != 'Long Only'
+
+    slL   = isStopLoss and bt_dir() ==  1 and low  <= bt_entry() * (1 - stopLoss)
+    slS   = isStopLoss and bt_dir() == -1 and high >= bt_entry() * (1 + stopLoss)
+    slHit = slL or slS
+
+    if startBckTst
+
+        var bool _reversed = false
+        _reversed := false
+
+        if reverseOnSignal and tradeMode == 'Both'
+            if bt_dir() == 1 and shortCond
+                f_close(false, lblInOutSL)
+                if canShort
+                    f_open(-1, lblInOutSL)
+                _reversed := true
+
+            else if bt_dir() == -1 and longCond
+                f_close(false, lblInOutSL)
+                if canLong
+                    f_open(1, lblInOutSL)
+                _reversed := true
+
+        if not _reversed
+            exitL = bt_dir() ==  1 and (shortCond or slHit)
+            exitS = bt_dir() == -1 and (longCond  or slHit)
+
+            if exitL or exitS
+                f_close(slHit, lblInOutSL)
+
+        if bt_dir() == 0
+            if longCond and canLong
+                f_open(1, lblInOutSL)
+                alert('Long entry — ' + syminfo.tickerid + ' | Price: ' + str.tostring(close), alert.freq_once_per_bar)
+
+            if shortCond and canShort
+                f_open(-1, lblInOutSL)
+                alert('Short entry — ' + syminfo.tickerid + ' | Price: ' + str.tostring(close), alert.freq_once_per_bar)
+
+        if slHit
+            alert('Stop loss — ' + syminfo.tickerid + ' | Price: ' + str.tostring(close), alert.freq_once_per_bar)
+
+    var label wLabel = na
+
+    if lblWarnings
+        if canLong and bt_dir() != 1 and longAlertCondition[1] and not shortAlertCondition
+            wLabel := label.new(bar_index, low, '⚠️',
+                 tooltip       = 'Probable long entry — awaiting confirmation\n' +
+                                 'If confirmed, trade executes at next bar open.',
+                 color = color.teal, style = label.style_none, textcolor = color.white, size = size.large, force_overlay = true)
+            label.delete(wLabel[1])
+            alert('Long early warning — ' + syminfo.tickerid + ' | Price: ' + str.tostring(close), alert.freq_once_per_bar)
+
+        if canShort and bt_dir() != -1 and shortAlertCondition[1] and not longAlertCondition
+            wLabel := label.new(bar_index, high, '⚠️',
+                 tooltip       = 'Probable short entry — awaiting confirmation\n' +
+                                 'If confirmed, trade executes at next bar open.',
+                 color = color.red, style = label.style_none, textcolor = color.white, size = size.large, force_overlay = true)
+            label.delete(wLabel[1])
+            alert('Short early warning — ' + syminfo.tickerid + ' | Price: ' + str.tostring(close), alert.freq_once_per_bar)
+
+        if bool(ta.change(time))
+            label.delete(wLabel[1])
+
+    if lblTrdStat
+        var float  years  = (timenow - time) / 31556952000
+        var string perTxt = ''
+        var label  statLbl = na
+
+        totalTrades = bt_trades()
+        totalWin    = bt_winL() + bt_winS()
+        totalLoss   = bt_lossL() + bt_lossS()
+
+        estimated =
+             bt_dir() ==  1 ? bt_cap() * (close / bt_entry()) :
+             bt_dir() == -1 ? bt_cap() * (bt_entry() / close) :
+             bt_cap()
+
+        winRate     = totalTrades > 0 ? totalWin / totalTrades * 100 : 0.
+        gainPct     = (estimated / dasCapital - 1) * 100
+        tradeDirTxt = bt_dir() ==  1 ? 'Long'  :
+                      bt_dir() == -1 ? 'Short' : 'Flat'
+
+        if years < lenBckTst
+            perTxt := str.tostring(lenBckTst, '#.##') + ' Yrs *** (' + str.tostring(bar_index) + ' bars max)'
+        else
+            perTxt := str.tostring(lenBckTst, '#.##') + ' Year(s)'
+
+        _slTxt = isStopLoss ?
+             str.tostring(stopLoss * 100, '#.#') + '% — level: ' +
+             str.tostring(
+                 bt_dir() ==  1 ? bt_entry() * (1 - stopLoss) :
+                 bt_dir() == -1 ? bt_entry() * (1 + stopLoss) : 0., '#.##')
+             : 'Off'
+
+        _sep = '\n═════════════════════════════════════'
+
+        _txt =
+             '☼☾ Trade Statistics | ' + timeframe.period +
+             ' | ' + perTxt + ' | Trade Mode : ' + tradeMode +
+             _sep +
+             '\nWin Rate : ' + str.tostring(winRate, '#.#') + '%' +
+             ' | Trades : ' + str.tostring(totalTrades) +
+             '\nWin/Loss : ' + str.tostring(totalWin)    + '/' + str.tostring(totalLoss) +
+             ' | Long  W/L : ' + str.tostring(bt_winL())   + '/' + str.tostring(bt_lossL()) +
+             ' | Short W/L : ' + str.tostring(bt_winS())   + '/' + str.tostring(bt_lossS()) +
+             _sep +
+             '\nGain/Loss : ' + str.tostring(gainPct,     '#.##') + '%' +
+             ' | Initial/Final Capital : ' + str.tostring(dasCapital,  '#.##') + '/' + str.tostring(estimated,   '#.##') +
+             _sep +
+             '\nStatus : ' + tradeDirTxt +
+             (bt_dir() != 0 ?
+                 ' | Entry Price : ' + str.tostring(bt_entry()) +
+                 ' | Unrealized : ' + str.tostring((estimated / bt_cap() - 1) * 100, '#.##') + '%' +
+                 '\nStop Loss : ' + _slTxt
+             : '') +
+             (years < lenBckTst ? '\n*** max available history for this timeframe' : '')
+
+        _statCol =
+             gainPct > 0 ? color.teal : gainPct < 0 ? color.red  : color.gray
+
+        label.delete(statLbl)
+        statLbl := label.new(bar_index + 5, bt_yAnchor, _txt, color = _statCol, xloc = xloc.bar_index, style = label.style_label_left,
+             textcolor = color.white, textalign = text.align_left, size = size.small, force_overlay = true)
+
+//bgcolor(isBackTest and startBckTst ? startBckTst != startBckTst[1] ? color.new(color.gray, 90) :
+//         bt_dir() ==  1 ? color.new(color.teal,  92) : bt_dir() == -1 ? color.new(color.red,   92) : na : na,
+//         title = 'Backtest Background', editable = false)
+
+// ── Entry / exit price line ───────────────────────────────────────────────────── //
+
+plot(bt_dir() != 0 ? bt_entry() : bt_exit() > 0 ? bt_exit() : na, 'Entry / Exit Price',
+     color = bt_dir() ==  1 ? color.teal : bt_dir() == -1 ? color.red  : color.gray,
+     style = plot.style_circles, display = display, editable = false, force_overlay = true)
+     
+
+var table logo = table.new(position.bottom_right, 1, 1)
+if barstate.islast
+    table.cell(logo, 0, 0, '☼☾  ', text_size=size.normal, text_color=color.teal, tooltip = 'SoleMare Analytics')

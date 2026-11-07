@@ -1,0 +1,60 @@
+//@version=6
+// Comparative Relative Strength - SJ
+// Compares the MOMENTUM of the stock against the index of the market.
+// Two display modes:
+//   RATIO mode - stock / benchmark. Good for READING one chart.
+//   ROC mode   - rate of change of that ratio. Scale-free, so it is the one
+//                that can be RANKED ACROSS SYMBOLS in a scanner.
+indicator("Comparative Relative Strength - SJ", shorttitle = "CRS-SJ", overlay = false)
+
+// ---------------- inputs ----------------
+benchSym = input.symbol("NASDAQ:NDX", "Benchmark index")
+maLen    = input.int(22, "Smoothing length", minval = 1, tooltip = "22 = one trading month on daily")
+maType   = input.string("EMA", "Smoothing type", options = ["EMA", "SMA"])
+mode     = input.string("Ratio", "Mode", options = ["Ratio", "ROC"])
+rocLen   = input.int(22, "ROC length", minval = 1)
+showTurn = input.bool(true, "Mark the turns")
+
+// ---------------- data ----------------
+benchRaw = request.security(benchSym, timeframe.period, close, ignore_invalid_symbol = true)
+
+// a halted or missing benchmark print must not blow the series up
+benchOk = not na(benchRaw) and benchRaw != 0
+bench   = benchOk ? benchRaw : na
+
+crs = close / bench
+
+crsMa = maType == "EMA" ? ta.ema(crs, maLen) : ta.sma(crs, maLen)
+
+// scale-free form - comparable between different symbols
+crsRoc   = ta.roc(crs, rocLen)
+crsRocMa = maType == "EMA" ? ta.ema(crsRoc, maLen) : ta.sma(crsRoc, maLen)
+
+isRoc = mode == "ROC"
+
+lineRaw = isRoc ? crsRoc : crs
+lineMa  = isRoc ? crsRocMa : crsMa
+
+// ---------------- plots ----------------
+pRaw = plot(lineRaw, "CRS", color = color.new(color.gray, 0))
+pMa  = plot(lineMa, "CRS smoothed", color = color.navy, linewidth = 2)
+
+plot(isRoc ? 0.0 : na, "Zero", color = color.new(color.gray, 40))
+
+fill(pRaw, pMa, color = lineRaw > lineMa ? color.new(color.green, 88) : color.new(color.red, 88))
+
+// ---------------- state ----------------
+outperforming = lineRaw > lineMa
+turnUp = ta.crossover(lineRaw, lineMa)
+turnDn = ta.crossunder(lineRaw, lineMa)
+
+plotshape(showTurn and turnUp, "CRS turns up", shape.circle, location.bottom, color.new(color.green, 0), size = size.tiny)
+plotshape(showTurn and turnDn, "CRS turns down", shape.circle, location.top, color.new(color.red, 0), size = size.tiny)
+
+alertcondition(turnUp, "CRS turn up", "CRS crossed above its average - stock beginning to beat the index")
+alertcondition(turnDn, "CRS turn down", "CRS crossed below its average - stock beginning to lag the index")
+
+// ---------------- scanner value ----------------
+// Plot this (ROC mode) invisibly so a screener column can read one number
+// that means the same thing on every symbol.
+plot(crsRoc, "SCAN: CRS ROC %", color = color.new(color.gray, 100), display = display.data_window)

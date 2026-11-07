@@ -1,0 +1,359 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © fluxchart
+
+//@version=5
+
+indicator(title = 'Liquidity Grab Zones | Flux Charts', overlay = true, max_boxes_count = 500, max_labels_count = 500, max_lines_count = 500, max_bars_back = 1005)
+
+//#region Constants
+const bool   DEBUG             = false
+const int    SHOW_LAST_X       = 500
+int          MAX_DISTANCE      = 500 // Affects Running Time
+const int    MAX_ZONES         = 100
+const int    EXTEND_ZONES_BY   = 15
+const int    RETEST_COOLDOWN   = 5
+const int    MIN_ZONE_SIZE     = 3
+const color  LINE_COLOR        = color.white
+const string LINE_STYLE        = "----"
+//#endregion
+
+//#region Inputs
+maxDistanceString   = input.string("Normal", "Max Distance To Last Bar", options = ["Normal", "Low"],  group = "General Configuration", display = display.none)
+pivotLenLiq         = input.int(25, "Pivot Length", group = "General Configuration", display = display.none)
+WBR                 = input.float(0.5, "Wick-Body Ratio", step = 0.1, group = "General Configuration", display = display.none)
+zoneInvalidation    = input.string("Close", "Zone Invalidation", group = "General Configuration", options = ["Wick", "Close"], display = display.none)
+retestsEnabled      = input.bool(true, "Retests", inline = "rb", group = "General Configuration", display = display.none)
+breaksEnabled       = input.bool(false, "Breaks", inline = "rb", group = "General Configuration", display = display.none)
+inverseZones        = input.bool(true, "Inverse Zones After Broken", group = "General Configuration", display = display.none)
+showInvalidated     = input.bool(true, "Show Historic Zones", group = "General Configuration", display = display.none)
+
+sellsideColor       = input(#08998180, 'Bullish', inline = 'bsColor', group = 'General Configuration', display = display.none)
+buysideColor        = input(#f2364680, 'Bearish', inline = 'bsColor', group = 'General Configuration', display = display.none)
+
+combineZones        = DEBUG ? input.bool(true, "[DBG] Combine Zones", group = "Debug", display = display.none) : true
+
+bubbleSize          = DEBUG ? input.int(5, "[DBG] Base Bubble Size", group = "Style", display = display.none) : 5
+minDist             = DEBUG ? input.int(0, "[DBG] Min Distance", group = "Style", display = display.none) : 0
+grabsPerZone        = DEBUG ? input.int(1, "[DBG] Max Grabs Per Zone", group = "Style", display = display.none) : 1
+minATRBetweenPivots = DEBUG ? input.float(1, "[DBG] Min ATR Between Pivots", group = "Style", display = display.none) : 1
+bubbleOffset        = DEBUG ? input.float(20, "[DBG] Bubble Offset", group = "Style", display = display.none) : 20
+textColor           = DEBUG ? input.color(#ffffff80, "[DBG] Text Color", group = "Style", inline = "BBcolors") : #ffffff80
+renderLiqZones      = DEBUG ? input.bool(false, "[DBG] Render Liquidity Zones", group = "Style") : false
+renderBubbles       = DEBUG ? input.bool(true, "[DBG] Render Bubbles", group = "Style") : false
+renderLiqGrabZones  = DEBUG ? input.bool(true, "[DBG] Render Liquidity Grab Zones", group = "Style") : true
+labelsAtSameLevel   = DEBUG ? input.bool(true, "[DBG] Place Labels At Same Level", group = "Style") : true
+
+MAX_DISTANCE := maxDistanceString == "Low" ? 150 : maxDistanceString == "Normal" ? 500 : 750
+//#endregion
+
+//#region UDTs
+type liqInfo
+    int startTime
+    int endTime
+    float price
+    string liqType
+    int grabsFound = 0
+
+type liq
+    liqInfo info
+    bool isRendered = false
+    line liqZone
+
+type liqGrabZone
+    int startTime = na
+    int endTime = na
+    float priceHigh
+    float priceLow
+    string liqType
+    bool disabled = false
+    bool ephemeral = false
+
+safeDeleteLiq (liq liqF) =>
+    liqF.isRendered := false
+    line.delete(liqF.liqZone)
+//#endregion
+
+var liq[] allLiqList                = array.new<liq>(0)
+var liqGrabZone[] allLiqGrabZones   = array.new<liqGrabZone>(0)
+
+highestTALiq    = ta.pivothigh(pivotLenLiq, pivotLenLiq)
+lowestTALiq     = ta.pivotlow(pivotLenLiq, pivotLenLiq)
+curATR          = ta.atr(5)
+
+//#region Functions
+renderLiq (liq liqF) =>
+    if renderLiqZones
+        liqF.liqZone := line.new(liqF.info.startTime, liqF.info.price, nz(liqF.info.endTime, time + 1), liqF.info.price, xloc = xloc.bar_time, color = liqF.info.liqType == "Buyside" ? buysideColor : sellsideColor)
+
+handleLiqsFinal () =>
+    if DEBUG
+        log.info("Liqudities Count " + str.tostring(allLiqList.size()))
+
+    if allLiqList.size() > 0
+        for i = 0 to allLiqList.size() - 1
+            curLiq = allLiqList.get(i)
+            safeDeleteLiq(curLiq)
+            if not curLiq.isRendered and not (not showInvalidated and not na(curLiq.info.endTime))
+                renderLiq(curLiq)
+
+areaOfZone (liqGrabZone zone) =>
+    XA1 = zone.startTime
+    XA2 = na(zone.endTime) ? zone.startTime + EXTEND_ZONES_BY : zone.endTime
+    YA1 = zone.priceHigh
+    YA2 = zone.priceLow
+    edge1 = math.sqrt((XA2 - XA1) * (XA2 - XA1) + (YA2 - YA2) * (YA2 - YA2))
+    edge2 = math.sqrt((XA2 - XA2) * (XA2 - XA2) + (YA2 - YA1) * (YA2 - YA1))
+    totalArea = edge1 * edge2
+    totalArea
+
+doZonesTouch (liqGrabZone zone1, liqGrabZone zone2) =>
+    XA1 = zone1.startTime
+    XA2 = na(zone1.endTime) ? bar_index : zone1.endTime
+    YA1 = zone1.priceHigh
+    YA2 = zone1.priceLow
+
+    XB1 = zone2.startTime
+    XB2 = na(zone2.endTime) ? bar_index : zone2.endTime
+    YB1 = zone2.priceHigh
+    YB2 = zone2.priceLow
+    intersectionArea = math.max(0, math.min(XA2, XB2) - math.max(XA1, XB1)) * math.max(0, math.min(YA1, YB1) - math.max(YA2, YB2))
+    unionArea = areaOfZone(zone1) + areaOfZone(zone2) - intersectionArea
+    
+    float overlapPercentage = (intersectionArea / unionArea) * 100.0
+    if intersectionArea > 0.0
+        //log.info(str.tostring(intersectionArea) + " | " + str.tostring(unionArea))
+        log.info(str.tostring(overlapPercentage))
+    
+    if overlapPercentage > 0
+        true
+    else
+        false
+
+combineFunc () =>
+    if allLiqGrabZones.size() > 0
+        lastCombinations = 999
+        while lastCombinations > 0
+            lastCombinations := 0
+            for i = 0 to allLiqGrabZones.size() - 1
+                curZone1 = allLiqGrabZones.get(i)
+                for j = 0 to allLiqGrabZones.size() - 1
+                    curZone2 = allLiqGrabZones.get(j)
+                    if i == j
+                        continue
+                    if curZone1.liqType != curZone2.liqType
+                        continue
+                    if curZone1.disabled or curZone2.disabled
+                        continue
+                    if doZonesTouch(curZone1, curZone2)
+                        //log.info("Zones Touch")
+                        curZone1.disabled := true
+                        curZone2.disabled := true
+                        liqGrabZone newZone = liqGrabZone.new(na, na, math.max(curZone1.priceHigh, curZone2.priceHigh), math.min(curZone1.priceLow, curZone2.priceLow), curZone1.liqType)
+
+                        // Combine Zone
+                        newZone.startTime := math.min(curZone1.startTime, curZone2.startTime)
+                        newZone.endTime := math.max(nz(curZone1.endTime), nz(curZone2.endTime))
+                        newZone.endTime := newZone.endTime == 0 ? na : newZone.endTime
+
+                        allLiqGrabZones.unshift(newZone)
+                        lastCombinations += 1
+//#endregion
+
+if bar_index > last_bar_index - MAX_DISTANCE
+    if allLiqList.size() > 0
+        for i = 0 to allLiqList.size() - 1
+            curLiq = allLiqList.get(i)
+            if na(curLiq.info.endTime) and (curLiq.info.liqType == "Buyside" ? close > curLiq.info.price : close < curLiq.info.price)
+                curLiq.info.endTime := time
+    
+    if not na(highestTALiq)
+        newLiqInfo = liqInfo.new(time[pivotLenLiq], na, highestTALiq, "Buyside")
+        addLiq = true
+        if allLiqList.size() > 0
+            for i = 0 to allLiqList.size() - 1
+                liqInfo curInfo = allLiqList.get(i).info
+                if na(curInfo.endTime) and curInfo.liqType == "Buyside"
+                    if math.abs(highestTALiq - curInfo.price) < curATR * minATRBetweenPivots
+                        addLiq := false
+                        break
+        if addLiq
+            allLiqList.unshift(liq.new(newLiqInfo))
+            if allLiqList.size () > SHOW_LAST_X
+                safeDeleteLiq(allLiqList.pop())
+    
+    if not na(lowestTALiq)
+        newLiqInfo = liqInfo.new(time[pivotLenLiq], na, lowestTALiq, "Sellside")
+        addLiq = true
+        if allLiqList.size() > 0
+            for i = 0 to allLiqList.size() - 1
+                liqInfo curInfo = allLiqList.get(i).info
+                if na(curInfo.endTime) and curInfo.liqType == "Sellside"
+                    if math.abs(lowestTALiq - curInfo.price) < curATR * minATRBetweenPivots
+                        addLiq := false
+                        break
+        if addLiq
+            allLiqList.unshift(liq.new(newLiqInfo))
+            if allLiqList.size () > SHOW_LAST_X
+                safeDeleteLiq(allLiqList.pop())
+
+var lastHigh = 0
+var lastLow = 0
+
+renderHighCircle5 = false
+renderHighCircle10 = false
+renderHighCircle15 = false
+float highCirclePrice = na
+
+renderLowCircle5 = false
+renderLowCircle10 = false
+renderLowCircle15 = false
+float lowCirclePrice = na
+
+if allLiqList.size() > 0
+    for i = 0 to allLiqList.size() - 1
+        curLiq = allLiqList.get(i)
+        if not na(curLiq.info.endTime)
+            continue
+        if curLiq.info.grabsFound == grabsPerZone
+            continue
+            
+        bodySize = math.abs(close - open)
+        wickSize = curLiq.info.liqType == "Buyside" ? (high - math.max(close, open)) : (math.min(close, open) - low)
+
+        curWBR = wickSize / bodySize
+        if curLiq.info.liqType == "Buyside"
+            if high >= curLiq.info.price and (bar_index - lastHigh > minDist)
+                lastHigh := bar_index
+                if curWBR >= WBR * 3
+                    renderHighCircle15 := true
+                else if curWBR >= WBR * 2
+                    renderHighCircle10 := true
+                else if curWBR >= WBR
+                    renderHighCircle5 := true
+                highCirclePrice := high + curATR * bubbleOffset / 100.0
+                curLiq.info.grabsFound += 1
+        else
+            if low <= curLiq.info.price and (bar_index - lastLow > minDist)
+                lastLow := bar_index
+                if curWBR >= WBR * 3
+                    renderLowCircle15 := true
+                else if curWBR >= WBR * 2
+                    renderLowCircle10 := true
+                else if curWBR >= WBR
+                    renderLowCircle5 := true
+                lowCirclePrice := low - curATR * bubbleOffset / 100.0
+                curLiq.info.grabsFound += 1
+
+plot(renderHighCircle5 and renderBubbles and barstate.isconfirmed ? highCirclePrice : na, "", buysideColor, bubbleSize, plot.style_circles, false, 0)
+plot(renderHighCircle10 and renderBubbles and barstate.isconfirmed ? highCirclePrice : na, "", buysideColor, int(bubbleSize * 1.5), plot.style_circles, false, 0)
+plot(renderHighCircle15 and renderBubbles and barstate.isconfirmed ? highCirclePrice : na, "", buysideColor, bubbleSize * 2, plot.style_circles, false, 0)
+
+plot(renderLowCircle5 and renderBubbles and barstate.isconfirmed ? lowCirclePrice : na, "", sellsideColor, bubbleSize, plot.style_circles, false, 0)
+plot(renderLowCircle10 and renderBubbles and barstate.isconfirmed ? lowCirclePrice : na, "", sellsideColor, int(bubbleSize * 1.5), plot.style_circles, false, 0)
+plot(renderLowCircle15 and renderBubbles and barstate.isconfirmed ? lowCirclePrice : na, "", sellsideColor, bubbleSize * 2, plot.style_circles, false, 0)
+
+if (renderHighCircle5 or renderHighCircle10 or renderHighCircle15) and barstate.isconfirmed
+    allLiqGrabZones.unshift(liqGrabZone.new(bar_index, na, high, math.max(close, open), "Buyside"))
+    if allLiqGrabZones.size() > MAX_ZONES
+        allLiqGrabZones.pop()
+
+else if (renderLowCircle5 or renderLowCircle10 or renderLowCircle15) and barstate.isconfirmed
+    allLiqGrabZones.unshift(liqGrabZone.new(bar_index, na, math.min(close, open), low, "Sellside"))
+    if allLiqGrabZones.size() > MAX_ZONES
+        allLiqGrabZones.pop()
+
+
+float renderBreakLabelBuyside = na
+float renderBreakLabelSellside = na
+
+if allLiqGrabZones.size() > 0 and renderLiqGrabZones and barstate.isconfirmed
+    for i = 0 to allLiqGrabZones.size() - 1
+        curZone = allLiqGrabZones.get(i)
+        if curZone.disabled
+            continue
+        
+        if na(curZone.endTime) and bar_index > curZone.startTime
+            if curZone.liqType == "Buyside"
+                if (zoneInvalidation == "Close" ? close : high) > curZone.priceHigh
+                    curZone.endTime := bar_index
+                    if curZone.endTime - curZone.startTime > MIN_ZONE_SIZE
+                        renderBreakLabelBuyside := curZone.priceLow
+                        if inverseZones and not curZone.ephemeral
+                            allLiqGrabZones.unshift(liqGrabZone.new(bar_index, na, curZone.priceHigh, curZone.priceLow, "Sellside", false, true))
+            else
+                if (zoneInvalidation == "Close" ? close : low) < curZone.priceLow
+                    curZone.endTime := bar_index
+                    if curZone.endTime - curZone.startTime > MIN_ZONE_SIZE
+                        renderBreakLabelSellside := curZone.priceHigh
+                        if inverseZones and not curZone.ephemeral
+                            allLiqGrabZones.unshift(liqGrabZone.new(bar_index, na, curZone.priceHigh, curZone.priceLow, "Buyside", false, true))
+
+var lastRetestIndex = 0
+float renderRetestLabelBuyside = na
+float renderRetestLabelSellside = na
+
+if allLiqGrabZones.size() > 0 and renderLiqGrabZones and bar_index - lastRetestIndex > RETEST_COOLDOWN and barstate.isconfirmed
+    for i = 0 to allLiqGrabZones.size() - 1
+        curZone = allLiqGrabZones.get(i)
+        if bar_index - curZone.startTime < MIN_ZONE_SIZE
+            continue
+        
+        if curZone.disabled
+            continue
+        
+        if not na(curZone.endTime)
+            continue
+        
+        middleLine = (curZone.priceLow + curZone.priceHigh) / 2.0
+        if curZone.liqType == "Buyside"
+            if high > middleLine
+                renderRetestLabelBuyside := curZone.priceHigh
+                lastRetestIndex := bar_index
+        else
+            if low < middleLine
+                renderRetestLabelSellside := curZone.priceLow
+                lastRetestIndex := bar_index
+
+plotshape(not na(renderRetestLabelBuyside) and retestsEnabled ? renderRetestLabelBuyside : na, "", shape.labeldown, color = buysideColor, text = "R", location = labelsAtSameLevel ? location.absolute : location.abovebar, textcolor = color.white, size = size.small)
+plotshape(not na(renderRetestLabelSellside) and retestsEnabled ? renderRetestLabelSellside : na, "", shape.labelup, color = sellsideColor, text = "R", location = labelsAtSameLevel ? location.absolute : location.belowbar, textcolor = color.white, size = size.small)
+
+plotshape(not na(renderBreakLabelBuyside) and breaksEnabled ? renderBreakLabelBuyside : na, "", shape.labelup, color = color.blue, text = "B", location =  labelsAtSameLevel ? location.absolute : location.belowbar, textcolor = color.white, size = size.small)
+plotshape(not na(renderBreakLabelSellside) and breaksEnabled ? renderBreakLabelSellside : na, "", shape.labeldown, color = color.blue, text = "B", location =  labelsAtSameLevel ? location.absolute : location.abovebar, textcolor = color.white, size = size.small)
+
+alertcondition((renderHighCircle5 or renderHighCircle10 or renderHighCircle15) and barstate.isconfirmed, "Buyside Liquidity Grab @ {{ticker}}", "Buyside Liquidity Grab @ {{ticker}}")
+alertcondition((renderLowCircle5 or renderLowCircle10 or renderLowCircle15) and barstate.isconfirmed, "Sellside Liquidity Grab @ {{ticker}}", "Sellside Liquidity Grab @ {{ticker}}")
+
+alertcondition(not na(renderRetestLabelBuyside) and barstate.isconfirmed, "Buyside Liq Grab Zone Retest @ {{ticker}}", "Buyside Liq Grab Zone Retest @ {{ticker}}")
+alertcondition(not na(renderRetestLabelSellside) and barstate.isconfirmed, "Sellside Liq Grab Zone Retest @ {{ticker}}", "Sellside Liq Grab Zone Retest @ {{ticker}}")
+
+alertcondition(not na(renderBreakLabelBuyside) and barstate.isconfirmed, "Buyside Liq Grab Zone Break @ {{ticker}}", "Buyside Liq Grab Zone Break @ {{ticker}}")
+alertcondition(not na(renderBreakLabelSellside) and barstate.isconfirmed, "Sellside Liq Grab Zone Break @ {{ticker}}", "Sellside Liq Grab Zone Break @ {{ticker}}")
+
+if combineZones
+    combineFunc()
+
+if barstate.islast
+    handleLiqsFinal()
+    for i in box.all
+        box.delete(i)
+    for i in line.all
+        line.delete(i)
+    
+    if allLiqGrabZones.size() > 0 and renderLiqGrabZones
+        for i = 0 to allLiqGrabZones.size() - 1
+            curZone = allLiqGrabZones.get(i)
+
+            if not showInvalidated and not na(curZone.endTime)
+                continue
+            
+            if curZone.disabled
+                continue
+            
+            if not na(curZone.endTime)
+                if curZone.endTime - curZone.startTime <= MIN_ZONE_SIZE
+                    continue
+            
+            if na(curZone.endTime) or (not na(curZone.endTime) and showInvalidated)
+                box.new(curZone.startTime, curZone.priceHigh, nz(curZone.endTime, bar_index + 1) , curZone.priceLow, xloc = xloc.bar_index, extend = na(curZone.endTime) ? extend.right : extend.none, border_width = 0, bgcolor = (curZone.liqType == "Buyside" ? buysideColor : sellsideColor))
+                middlePrice = (curZone.priceHigh + curZone.priceLow) / 2
+                line.new(curZone.startTime, middlePrice, nz(curZone.endTime, bar_index + 1), middlePrice, color = LINE_COLOR, style = LINE_STYLE == "...." ? line.style_dotted : LINE_STYLE == "____" ? line.style_solid : line.style_dashed, extend = na(curZone.endTime) ? extend.right : extend.none)

@@ -11,7 +11,7 @@ scripts/lib/          shared Pyne libraries
 data/                 OHLCV data (*.ohlcv, ignored by git) and symbol info (*.toml)
 config/               plugin and API config (keys are git-ignored)
 output/               backtest results: <script>.csv, <script>_strat.csv, <script>_trade.csv
-assets/               original Pine sources from the Pyne in the Wild corpus, see assets/README.md
+assets/               original Pine sources from the Pyne in the Wild corpus (strategy/, indicator/), see assets/README.md
 ```
 
 ## Setup

@@ -1,0 +1,649 @@
+//@version=6
+// ══════════════════════════════════════════════════════════════════════════════════════════════════ //
+//# * ══════════════════════════════════════════════════════════════════════════════════════════════
+//# *
+//# * Study       : MACD-X, More Than MACD
+//# * Author      : © dgtrd
+//# *
+//# * Revision History
+//# *  Release    : Aug 24, 2020  : Initial Release
+//# *  Update     : Aug 27, 2020  : Squeeze Indicator Add-On
+//# *  Update     : Oct 24, 2020  : Volume Weighted Colored Bars Add-On
+//# *                               Standart Deviation Threshold bands for MACD Histogram
+//# *  Update     : Oct 29, 2020  : TRIX is adapted to MACD-X
+//# *  Update     : Nov 26, 2020  : Backtest Framework added
+//# *  Update     : Apr 09, 2021  : Enchanced Backtest Framework
+//# *                               - long/short/stoploss conditions enchaced
+//# *                               - early warning ability added (label + alert)
+//# *  Update     : Feb 13, 2026 : Pine v6 Upgrade, Improved option names and tooltips
+//# *
+//# * ══════════════════════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════════════════════════ //
+
+indicator('MACD-X, More Than MACD by DGT', 'MACD-X ☼☾')
+
+display = display.all - display.status_line
+
+macdType = input.string('MACD-SOURCE', 'MACD Calculation Mode', display = display,
+     options = ['MACD-TRADITIONAL', 'MACD-HISTOGRAM', 'MACD-LEADER', 'MACD-SOURCE', 'MACD-TRIX'],
+     tooltip =
+         'Select the internal MACD-X calculation engine:\n\n' +
+         '• MACD-TRADITIONAL → Classic fast/slow EMA MACD\n' +
+         '• MACD-HISTOGRAM   → Momentum derived from histogram slope\n' +
+         '• MACD-LEADER      → Early bias detection model\n' +
+         '• MACD-SOURCE      → Source-smoothed adaptive variant\n' +
+         '• MACD-TRIX        → Triple EMA momentum oscillator\n\n' +
+         'Each mode alters signal responsiveness and structure.')
+
+sourceType = input.string('Close', '  Source', display = display,
+     options = ['Close', 'HLC3 (High + Low + Close) / 3', 'On Balance Volume (OBV)', 'Accumulation / Distribution', 'Price Volume Trend (PVT)'],
+     tooltip =
+         'Select the data source used for MACD calculation.\n\n' +
+         '• Close → Standard price-based MACD\n' +
+         '• HLC3 → Smoothed price averaging\n' +
+         '• OBV / AD / PVT → Volume-derived momentum engines\n\n' +
+         'Using volume-based sources transforms MACD into a flow oscillator.')
+
+fast_length = input(12, '  Fast Length', display = display)
+slow_length = input(26, '  Slow Length', display = display)
+signal_length = input.int(9, '  Signal Smoothing', minval = 1, maxval = 50, display = display)
+
+macdTrdDisp = input(false, 'Show Traditional MACD',
+     tooltip =
+         'Displays classic MACD alongside MACD-X.\n\n' +
+         'When enabled, MACD-X will auto-highlight to visually separate the two engines.')
+
+hstThesh = input.bool(false, 'Enable Histogram Threshold Bands',
+     tooltip =
+         'Plots deviation-based bands around the MACD histogram.\n\n' +
+         'Used to identify extreme momentum expansion and statistically stretched conditions.')
+
+stDevL = input.float(1.75, '  Lower Deviation Multiplier', minval = 0.0, maxval = 5.0, step = 0.25, display = display,
+     tooltip =
+         'Lower statistical deviation threshold.\n\n' +
+         'Defines moderate momentum expansion zone.')
+
+stDevH = input.float(2.25, '  Higher Deviation Multiplier', minval = 0.0, maxval = 5.0, step = 0.25, display = display,
+     tooltip =
+         'Higher statistical deviation threshold.\n\n' +
+         'Defines extreme momentum expansion zone.\n\n' +
+         'Values above this level suggest exhaustion risk.')
+
+exponential = input(true, 'Use Exponential Moving Average',
+     tooltip =
+         'Switch between EMA and SMA for internal smoothing.\n\n' +
+         '• ON  → Faster reaction, more responsive signals\n' +
+         '• OFF → Smoother, slower structure')
+
+var highlight = input(false, 'Highlight MACD-X / Signal-X Area',
+     tooltip =
+         'Fills the area between MACD-X and Signal-X.\n' +
+         'Helps visualize momentum expansion and compression phases.')
+
+dispLabel = input(false, 'Display Live Value Label')
+histLabel = input.int(0, '  Historical Label Readings', minval = 0, display = display)
+
+
+sqzGR = 'Add-Ons'
+
+dispSqueeze = input.bool(false, 'Enable Squeeze', group   = sqzGR,
+     tooltip =
+         'Activates volatility compression detection\n' +
+         'based on Bollinger Bands and Keltner Channels.\n\n' +
+         '• Compression → BB inside KC\n' +
+         '• Release     → BB expanding outside KC\n\n' +
+         'MACD-X acts as momentum confirmation.')
+
+bbkcLength = input.int(20, '  Squeeze Length', minval = 1, group = sqzGR, display = display,
+     tooltip =
+         'Lookback period used for both:\n' +
+         '• Bollinger Bands\n' +
+         '• Keltner Channels\n\n' +
+         'Higher values → Broader compression cycles.')
+
+bbMult = input.float(2.0, '  Bollinger Band Multiplier', step = 0.25, group = sqzGR, display = display,
+     tooltip =
+         'Standard deviation multiplier for\n' +
+         'Bollinger Bands width.\n\n' +
+         'Higher → Wider bands\n' +
+         'Lower  → More frequent compression')
+
+kcMult = input.float(1.25, '  Keltner Channel Multiplier', step = 0.25, group = sqzGR, display = display,
+     tooltip =
+         'ATR-based multiplier for Keltner Channel width.\n\n' +
+         'Controls how tight the squeeze detection is.\n\n' +
+         'Lower values → Easier compression trigger.')
+
+colorRsi = input.bool(false, 'Enable RSI-Based MACD Coloring', group = sqzGR,
+     tooltip =
+         'Changes MACD-X color when RSI reaches\n' +
+         'extreme zones.\n\n' +
+         '• Above Overbought → Bearish highlight\n' +
+         '• Below Oversold   → Bullish highlight\n\n' +
+         'Useful for detecting exhaustion conditions.')
+
+rsiLength = input.int(14, '  RSI Length', minval = 1, group = sqzGR, display = display,
+     tooltip =
+         'Lookback period for RSI calculation.\n\n' +
+         'Lower values → More reactive\n' +
+         'Higher values → Smoother structure')
+
+rsiOverBought = input.int(70, '  RSI Overbought Level', minval = 51, maxval = 99, group = sqzGR, display = display,
+     tooltip =
+         'Upper RSI threshold.\n\n' +
+         'When RSI exceeds this level, MACD-X will shift to bearish emphasis.')
+
+rsiOverSold = input.int(30, '  RSI Oversold Level', minval  = 1, maxval  = 49, group   = sqzGR, display = display,
+     tooltip =
+         'Lower RSI threshold.\n\n' +
+         'When RSI drops below this level, MACD-X will shift to bullish emphasis.')
+
+vbcb = input.bool(true, 'Enable Volume-Weighted Price Bars', group = sqzGR)
+vwcbLen = input.int(21, '  Volume MA Length', minval = 1, group = sqzGR, display = display)
+vwcbUpper = input.float(1.618, '  Upper Threshold', minval = 0.1, step = .1, group = sqzGR, display = display)
+vwcbLower = input.float(0.618, '  Lower Threshold', minval = 0.1, step = .1, group = sqzGR, display = display)
+
+
+btGR = '=============   Backtest Framework   ============='
+
+isBackTest = input.bool(false, 'Enable Backtest', group = btGR,
+     tooltip = 'Enable or disable the backtest framework.')
+
+// Functions ════════════════════════════════════════════════════════════════════════════════════ //
+
+ma(s, l) =>
+    exponential ? ta.ema(s, l) : ta.sma(s, l)
+
+// -Calculation ═════════════════════════════════════════════════════════════════════════════════ //
+//------------------------------------------------------------------------------
+// Source Selection
+
+source = switch sourceType
+    'Close'                          => close
+    'HLC3 (High + Low + Close) / 3'  => hlc3
+    'On Balance Volume (OBV)'        => ta.obv
+    'Accumulation / Distribution'    => ta.accdist
+    'Price Volume Trend (PVT)'       => ta.pvt
+
+
+//------------------------------------------------------------------------------
+// MACD Calculations (macd, signal, histogram)
+
+fast_ma = ma(source, fast_length)
+slow_ma = ma(source, slow_length)
+
+macd = fast_ma - slow_ma
+
+macdx = if macdType == 'MACD-TRADITIONAL'
+    macd
+else if macdType == 'MACD-HISTOGRAM'
+    macd - ma(macd, signal_length)
+else if macdType == 'MACD-LEADER'
+    macd + ma(source - fast_ma, fast_length) - ma(source - slow_ma, slow_length)
+else if macdType == 'MACD-SOURCE'
+    ma(source - math.avg(fast_ma, slow_ma), signal_length)
+else if macdType == 'MACD-TRIX'
+    10000 * ta.change(ta.ema(ta.ema(ta.ema(math.log(source), signal_length * 2), signal_length * 2), signal_length * 2))
+
+signal = ma(macd, signal_length)
+signalx = ma(macdx, signal_length)
+histx = macdx - signalx
+
+//------------------------------------------------------------------------------
+// Highlight
+
+highlight := macdTrdDisp or highlight
+
+//------------------------------------------------------------------------------
+// RSI Calculation
+
+rsiValue = colorRsi ? ta.rsi(source, rsiLength) : na
+
+//------------------------------------------------------------------------------
+// TTM Squeeze Indicator Calculation
+
+var bool inSqz = false
+var bool noSqz = false
+var bool unSqz = false
+if dispSqueeze
+    [_, bbUpper, bbLower] = ta.bb(close, bbkcLength, bbMult)
+    [_, kcUpper, kcLower] = ta.kc(close, bbkcLength, kcMult, true)
+
+    inSqz := bbLower > kcLower and bbUpper < kcUpper
+    noSqz := bbLower < kcLower and bbUpper > kcUpper
+    unSqz := inSqz == false and noSqz == false
+    unSqz
+
+//------------------------------------------------------------------------------
+// Theshold Bands Calculation with BB build-in function 
+
+[_, upperL, lowerL] = if hstThesh
+    ta.bb(histx, 233, stDevL)
+[_, upperH, lowerH] = if hstThesh
+    ta.bb(histx, 233, stDevH)
+
+//------------------------------------------------------------------------------
+// Volume Based Colored Bars by KIVANÇ ÖZBİLGİÇ
+mean = ta.sma(volume, vwcbLen)
+
+[vbcbColor, vbcbTxt] = if close < open
+    if volume > mean * vwcbUpper
+        [#910000, 'High Volume']
+    else if volume >= mean * vwcbLower and volume <= mean * vwcbUpper
+        [color.red, 'Average Volume']
+    else
+        [color.orange, 'Low Volume']
+else
+    if volume > mean * vwcbUpper
+        [#006400, 'High Volume']
+    else if volume >= mean * vwcbLower and volume <= mean * vwcbUpper
+        [color.teal, 'Average Volume']
+    else
+        [#7FFFD4, 'Low Volume']
+
+
+// -Color ═══════════════════════════════════════════════════════════════════════════════════════ //
+
+isGrowing = histx > histx[1]
+isBullish = histx >= 0
+
+histColor = isBullish ? (isGrowing ? #006400 : color.green) : (isGrowing ? color.red : #910000)
+
+// -Label ═══════════════════════════════════════════════════════════════════════════════════════ //
+//------------------------------------------------------------------------------
+// Label Text
+
+status = histLabel > 0 ? '\n\nHistorical Bar Readings - ' + str.tostring(histLabel) + ' bar(s) earlier' : '\n\nCurrent Bar Readings'
+
+lastCrossIndex = ta.valuewhen(ta.cross(macdx, signalx), bar_index, 0)
+msCross = na(lastCrossIndex) ? na : bar_index - lastCrossIndex
+
+macdMom = ta.change(histx) <= 0 ? 
+     'Falling - Last Signal Cross ' : 
+     'Growing - Last Signal Cross '
+macdText = 'Method : ' + macdType + '\nSource : ' + sourceType + status + '\nMACD\t: ' + macdMom + str.tostring(msCross) + ' bar(s)'
+
+rsiState =
+     rsiValue >= rsiOverBought ? 'OverBought Zone' :
+     rsiValue <= rsiOverSold  ? 'OverSold Zone' :
+     rsiValue > 60            ? 'Bullish Zone' :
+     rsiValue < 40            ? 'Bearish Zone' :
+                                     'Neutral Zone'
+rsiText = '\nRSI\t: Value ' + str.tostring(rsiValue, '#.#') + ' - ' + rsiState
+
+sqzText = dispSqueeze ?
+         inSqz  ? '\nSQZ  : Compression Phase (No Trade Zone)' :
+         unSqz  ? '\nSQZ  : Release Phase' :
+         histx >= 0 ? '\nSQZ  : Bullish Momentum' :
+                      '\nSQZ  : Bearish Momentum' : na
+
+
+vbcbText = bool(nz(volume)) and vbcb ? '\nVolume : ' + vbcbTxt + ' (' + str.tostring(volume, format.volume) + ')' : na
+
+// -Plot ════════════════════════════════════════════════════════════════════════════════════════ //
+//------------------------------------------------------------------------------
+// MACD - Signal - Histogram
+
+plot(histx, 'Histogram-X', color = histColor, style = plot.style_columns, display = display)
+p1 = plot(macdx, 'MACD-X', color = rsiValue > rsiOverBought ? #910000 : rsiValue < rsiOverSold ? #006400 : #0094ff, editable = false, display = display)
+p2 = plot(signalx, 'Signal-X', color = color.new(#ff6a00, 0), display = display)
+
+plot(macdTrdDisp ? macd : na, 'MACD', color = color.new(#0094ff, 0), display = display)
+plot(macdTrdDisp ? signal : na, 'Signal', color = color.new(#ff6a00, 0), display = display)
+
+fill(p1, p2, color = highlight ? macdx > signalx ? rsiValue > rsiOverBought ? color.new(#910000, 66) : rsiValue < rsiOverSold ? color.new(#006400, 66) : color.new(#0094ff, 66) : rsiValue > rsiOverBought ? color.new(#910000, 66) : rsiValue < rsiOverSold ? color.new(#006400, 66) : color.new(#ff6a00, 66) : na, editable = false)
+
+//------------------------------------------------------------------------------
+// TTM Squeeze Indicator with MACD-X as Momentum Oscillator 
+
+plotshape(dispSqueeze ? unSqz or inSqz ? true : false : false, style = shape.diamond, location = location.top, color = color.new(color.gray, 0), title = 'In Squeeze', display = display)
+plotshape(dispSqueeze ? noSqz and histx >= 0 ? true : false : false, style = shape.triangleup, location = location.top, color = color.new(color.teal, 0), title = 'Squeeze Release', display = display)
+plotshape(dispSqueeze ? noSqz and histx < 0 ? true : false : false, style = shape.triangledown, location = location.top, color = color.new(color.red, 0), title = 'Squeeze Release', display = display)
+
+//------------------------------------------------------------------------------
+// Label
+
+if dispLabel and not isBackTest
+    label macdLabel = label.new(time, 0, text = macdText[histLabel] + rsiText[histLabel] + sqzText[histLabel] + vbcbText[histLabel], tooltip = 'evaluation given herein does not constitute professional and/or financial advice', color = #0094ff, xloc = xloc.bar_time, style = label.style_label_left, textcolor = color.white, textalign = text.align_left)
+
+    label.set_x(macdLabel, label.get_x(macdLabel) + math.round(ta.change(time) * 3))
+
+    label.delete(macdLabel[1])
+
+//------------------------------------------------------------------------------
+// Theshold Bands
+
+bu2 = plot(upperL, 'Overbought Lower Band', display = display.none, editable = false)
+bu3 = plot(upperH, 'Overbought Upper Band', display = display.none, editable = false)
+fill(bu2, bu3, color = color.new(color.red, 75), title = 'Overbought Zone')
+
+bl2 = plot(lowerL, 'Oversold Upper Band', display = display.none, editable = false)
+bl3 = plot(lowerH, 'Oversold Lower Band', display = display.none, editable = false)
+fill(bl2, bl3, color = color.new(color.teal, 75), title = 'Oversold Zone')
+
+//------------------------------------------------------------------------------
+// Volume Based Colored Bars by KIVANÇ ÖZBİLGİÇ
+
+barcolor(bool(nz(volume)) and vbcb ? vbcbColor : na, title = 'Volume-Weighted Price Bars', editable = false)
+
+//------------------------------------------------------------------------------
+// Alert : macdx and signalx crosses
+
+
+alarm = ta.cross(macdx, signalx)
+alertcondition(barstate.islast ? alarm[1] : alarm, title = 'MACD-X : Trading Signal', message = 'MACD-X Trading Signal Detected\n{{exchange}}:{{ticker}}\nPrice: {{close}}\nTime: {{time}}')
+// -Alerts ══════════════════════════════════════════════════════════════════════════════════════ //
+
+longAlertCondition = ta.crossover(macdx, signalx)
+alertcondition(longAlertCondition, 'Long : Early Warning', 'MACD-X - Early Long Signal\n{{exchange}}:{{ticker}}\nPrice = {{close}}\nTime = {{time}}')
+alertcondition(longAlertCondition[1], 'Long : Confirmed', 'MACD-X - Confirmed Long Signal\n{{exchange}}:{{ticker}}\nPrice = {{close}}\nTime = {{time}}')
+
+shortAlertCondition = ta.crossunder(macdx, signalx)
+alertcondition(shortAlertCondition, 'Short : Early Warning', 'MACD-X - Early Short Signal\n{{exchange}}:{{ticker}}\nPrice = {{close}}\nTime = {{time}}')
+alertcondition(shortAlertCondition[1], 'Short : Confirmed', 'MACD-X - Confirmed Short Signal\n{{exchange}}:{{ticker}}\nPrice = {{close}}\nTime = {{time}}')
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════════ //
+//# * ══════════════════════════════════════════════════════════════════════════════════════════════
+//# *
+//# * Study       : Backtest Framework
+//# * Author      : © dgtrd
+//# * Purpose     : Trade simulation with long, short and reverse trade ability
+//# *
+//# * Revision History
+//# *  Release    : Nov 21, 2020 : Initial Release
+//# *  Update     : Mar 13, 2021 : Enhanced framework — long/short/stoploss, early warning
+//# *  Update     : Apr 03, 2026 : Short trade support, trade mode selector (Long / Short / Both),
+//# *                              reverse on signal, intrabar stop loss, redesigned stats label
+//# *
+//# * ══════════════════════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════════════════════════ //
+
+bt_yAnchor = close
+
+// ── Inputs ───────────────────────────────────────────────────────────────────── //
+
+
+
+tradeMode = input.string('Both', 'Trade Mode', options = ['Long Only', 'Short Only', 'Both'], group   = btGR, display = display,
+     tooltip = 'Defines which trade directions are simulated.\n\n' +
+               '• Long Only  — enters on long signal, exits on short signal or stop loss\n' +
+               '• Short Only — enters on short signal, exits on long signal or stop loss\n' +
+               '• Both       — enters on either signal, optionally reverses on the opposite')
+
+reverseOnSignal = input.bool(true, 'Reverse on Opposite Signal', group = btGR,
+     tooltip = 'Only applies when Trade Mode is Both.\n' +
+               'When enabled, an opposite signal immediately closes the current trade\n' +
+               'and opens a new one in the other direction — always in trade once started.\n' +
+               'When disabled, opposite signal exits only — no new trade until next entry signal.')
+
+dasCapital = input.float(1000., 'Initial Capital', group = btGR, display = display,
+     tooltip = 'Starting capital for the simulation.\n' +
+               'Used to calculate compounding PnL and final equity.')
+
+lenBckTst = input.float(1., 'Period (Years)', minval = 0., step = .1, group = btGR, display = display,
+     tooltip = 'Lookback window for the simulation in years.\n' +
+               'Capped automatically if the selected timeframe has insufficient history.')
+
+isStopLoss = input.bool(false, 'Apply Stop Loss', inline = 'sl', group = btGR,
+     tooltip = 'Exits the trade if price moves against the position intrabar.\n' +
+               'Long SL : low  reaches entry × (1 − %)\n' +
+               'Short SL: high reaches entry × (1 + %)')
+
+stopLoss = input.float(1., '  %', step = .1, minval = 0., inline = 'sl', group = btGR, display = display) / 100
+
+useCandleL = input.bool(false, 'Long Candle Confirmation', group = btGR,
+     tooltip = 'Long entries only taken on bullish bars (close > open).')
+useCandleS = input.bool(false, 'Short Candle Confirmation', group = btGR,
+     tooltip = 'Short entries only taken on bearish bars (close < open).')
+
+isSudden = input.bool(true, 'Avoid Same-Bar Conflicts', group = btGR,
+     tooltip = 'Skips entries when both long and short signals fire on the same bar.\n' +
+               'Reduces false entries from volatile spikes.')
+
+isTest = input.bool(false, '❗ Next Bar Mode (Repaints)', group = btGR,
+     tooltip = 'Uses the next bar\'s open for simulation instead of the confirmed bar open.\n' +
+               'Produces earlier entries but signals will repaint.\n' +
+               'For testing and comparison only — do not use for live alerts.')
+
+lblInOutSL = input.bool(true, 'Show Entry / Exit Labels', group = btGR,
+     tooltip = 'Displays L / S / SL / TP labels at entry and exit bars with tooltips showing direction, price, change, and capital.')
+
+lblWarnings = input.bool(true, 'Show Early Warnings', group = btGR,
+     tooltip = 'Shows a ⚠️ label when a signal fires but has not yet been confirmed.\n' +
+               'Label is deleted on the following bar regardless of outcome.')
+
+lblTrdStat = input.bool(true, 'Show Trade Statistics', group = btGR,
+     tooltip = 'Displays a floating label with full trade summary.\n' +
+               'Includes win rate, PnL, long/short breakdown, and current trade status.')
+
+// ── Backtest period ──────────────────────────────────────────────────────────── //
+
+startBckTst = time > timenow - lenBckTst * 31556952000
+
+var _dir    = array.new_int  (1, 0)
+var _entry  = array.new_float(1, 0.)
+var _exit   = array.new_float(1, 0.)
+var _cap    = array.new_float(1, dasCapital)
+var _trades = array.new_int  (1, 0)
+var _winL   = array.new_int  (1, 0)
+var _lossL  = array.new_int  (1, 0)
+var _winS   = array.new_int  (1, 0)
+var _lossS  = array.new_int  (1, 0)
+
+bt_dir    () => array.get(_dir,    0)
+bt_entry  () => array.get(_entry,  0)
+bt_exit   () => array.get(_exit,   0)
+bt_cap    () => array.get(_cap,    0)
+bt_trades () => array.get(_trades, 0)
+bt_winL   () => array.get(_winL,   0)
+bt_lossL  () => array.get(_lossL,  0)
+bt_winS   () => array.get(_winS,   0)
+bt_lossS  () => array.get(_lossS,  0)
+
+f_open(_d, _lbl) =>
+    array.set(_entry,  0, open)
+    array.set(_dir,    0, _d)
+    array.set(_trades, 0, bt_trades() + 1)
+
+    if _lbl
+        label.new(bar_index, _d == 1 ? low : high, text = _d == 1 ? 'L' : 'S',
+             tooltip       = 'Direction .... : ' + (_d == 1 ? 'Long' : 'Short') + '\n' +
+                             'Entry price .. : ' + str.tostring(open) + '\n' +
+                             'Capital ...... : ' + str.tostring(bt_cap(), '#.##'),
+             style = _d == 1 ? label.style_label_up   : label.style_label_down, color = _d == 1 ? color.teal : color.red,
+             textcolor = color.white, size = size.tiny, force_overlay = true)
+
+f_close(_isSL, _lbl) =>
+    _d     = bt_dir()
+    _ep    = bt_entry()
+    _xp    = _isSL ? close : open
+
+    array.set(_exit, 0, _xp)
+
+    _entrySafe = math.max(_ep,  syminfo.mintick)
+    _exitSafe  = math.max(_xp,  syminfo.mintick)
+
+    _pnl    = _d == 1
+             ? _exitSafe / _entrySafe
+             : _entrySafe / _exitSafe
+
+    _newCap = bt_cap() * _pnl
+    _profit = _pnl > 1.
+
+    array.set(_cap, 0, _newCap)
+
+    if _d == 1
+        array.set(_winL,  0, bt_winL()  + (_profit ? 1 : 0))
+        array.set(_lossL, 0, bt_lossL() + (_profit ? 0 : 1))
+    else
+        array.set(_winS,  0, bt_winS()  + (_profit ? 1 : 0))
+        array.set(_lossS, 0, bt_lossS() + (_profit ? 0 : 1))
+
+    if _lbl
+        label.new(bar_index, _d == 1 ? high : low, text = _isSL ? 'SL' : 'TP',
+             tooltip       = 'Exit type .... : ' + (_isSL ? 'Stop Loss' : 'Take Profit') + '\n' +
+                             'Direction .... : ' + (_d == 1 ? 'Long' : 'Short') + '\n' +
+                             'Entry / Exit . : ' + str.tostring(_ep) + ' / ' + str.tostring(_xp) + '\n' +
+                             'Change ....... : ' + str.tostring((_pnl - 1) * 100, '#.##') + '%\n' +
+                             'Capital ...... : ' + str.tostring(_newCap, '#.##'),
+             style = _d == 1 ? label.style_label_down : label.style_label_up, color = _profit ? color.teal : color.red,
+             textcolor = color.white, size = size.tiny, force_overlay = true)
+
+    array.set(_dir, 0, 0)
+
+
+if isBackTest
+    sigL = isTest ? longAlertCondition[1]  : longAlertCondition[2]
+    sigS = isTest ? shortAlertCondition[1] : shortAlertCondition[2]
+
+    candleRef = isTest ? 0 : 1
+    conflict  = longAlertCondition[candleRef] and shortAlertCondition[candleRef]
+
+    okL = (not useCandleL or close[candleRef] > open[candleRef]) and (not isSudden or not conflict)
+    okS = (not useCandleS or close[candleRef] < open[candleRef]) and (not isSudden or not conflict)
+
+    longCond  = sigL and okL
+    shortCond = sigS and okS
+
+    canLong  = tradeMode != 'Short Only'
+    canShort = tradeMode != 'Long Only'
+
+    slL   = isStopLoss and bt_dir() ==  1 and low  <= bt_entry() * (1 - stopLoss)
+    slS   = isStopLoss and bt_dir() == -1 and high >= bt_entry() * (1 + stopLoss)
+    slHit = slL or slS
+
+    if startBckTst
+
+        var bool _reversed = false
+        _reversed := false
+
+        if reverseOnSignal and tradeMode == 'Both'
+            if bt_dir() == 1 and shortCond
+                f_close(false, lblInOutSL)
+                if canShort
+                    f_open(-1, lblInOutSL)
+                _reversed := true
+
+            else if bt_dir() == -1 and longCond
+                f_close(false, lblInOutSL)
+                if canLong
+                    f_open(1, lblInOutSL)
+                _reversed := true
+
+        if not _reversed
+            exitL = bt_dir() ==  1 and (shortCond or slHit)
+            exitS = bt_dir() == -1 and (longCond  or slHit)
+
+            if exitL or exitS
+                f_close(slHit, lblInOutSL)
+
+        if bt_dir() == 0
+            if longCond and canLong
+                f_open(1, lblInOutSL)
+                alert('Long entry — ' + syminfo.tickerid + ' | Price: ' + str.tostring(close), alert.freq_once_per_bar)
+
+            if shortCond and canShort
+                f_open(-1, lblInOutSL)
+                alert('Short entry — ' + syminfo.tickerid + ' | Price: ' + str.tostring(close), alert.freq_once_per_bar)
+
+        if slHit
+            alert('Stop loss — ' + syminfo.tickerid + ' | Price: ' + str.tostring(close), alert.freq_once_per_bar)
+
+    var label wLabel = na
+
+    if lblWarnings
+        if canLong and bt_dir() != 1 and longAlertCondition[1] and not shortAlertCondition
+            wLabel := label.new(bar_index, low, '⚠️',
+                 tooltip       = 'Probable long entry — awaiting confirmation\n' +
+                                 'If confirmed, trade executes at next bar open.',
+                 color = color.teal, style = label.style_none, textcolor = color.white, size = size.large, force_overlay = true)
+            label.delete(wLabel[1])
+            alert('Long early warning — ' + syminfo.tickerid + ' | Price: ' + str.tostring(close), alert.freq_once_per_bar)
+
+        if canShort and bt_dir() != -1 and shortAlertCondition[1] and not longAlertCondition
+            wLabel := label.new(bar_index, high, '⚠️',
+                 tooltip       = 'Probable short entry — awaiting confirmation\n' +
+                                 'If confirmed, trade executes at next bar open.',
+                 color = color.red, style = label.style_none, textcolor = color.white, size = size.large, force_overlay = true)
+            label.delete(wLabel[1])
+            alert('Short early warning — ' + syminfo.tickerid + ' | Price: ' + str.tostring(close), alert.freq_once_per_bar)
+
+        if bool(ta.change(time))
+            label.delete(wLabel[1])
+
+    if lblTrdStat
+        var float  years  = (timenow - time) / 31556952000
+        var string perTxt = ''
+        var label  statLbl = na
+
+        totalTrades = bt_trades()
+        totalWin    = bt_winL() + bt_winS()
+        totalLoss   = bt_lossL() + bt_lossS()
+
+        estimated =
+             bt_dir() ==  1 ? bt_cap() * (close / bt_entry()) :
+             bt_dir() == -1 ? bt_cap() * (bt_entry() / close) :
+             bt_cap()
+
+        winRate     = totalTrades > 0 ? totalWin / totalTrades * 100 : 0.
+        gainPct     = (estimated / dasCapital - 1) * 100
+        tradeDirTxt = bt_dir() ==  1 ? 'Long'  :
+                      bt_dir() == -1 ? 'Short' : 'Flat'
+
+        if years < lenBckTst
+            perTxt := str.tostring(lenBckTst, '#.##') + ' Yrs *** (' + str.tostring(bar_index) + ' bars max)'
+        else
+            perTxt := str.tostring(lenBckTst, '#.##') + ' Year(s)'
+
+        _slTxt = isStopLoss ?
+             str.tostring(stopLoss * 100, '#.#') + '% — level: ' +
+             str.tostring(
+                 bt_dir() ==  1 ? bt_entry() * (1 - stopLoss) :
+                 bt_dir() == -1 ? bt_entry() * (1 + stopLoss) : 0., '#.##')
+             : 'Off'
+
+        _sep = '\n═════════════════════════════════════'
+
+        _txt =
+             '☼☾ Trade Statistics | ' + timeframe.period +
+             ' | ' + perTxt + ' | Trade Mode : ' + tradeMode +
+             _sep +
+             '\nWin Rate : ' + str.tostring(winRate, '#.#') + '%' +
+             ' | Trades : ' + str.tostring(totalTrades) +
+             '\nWin/Loss : ' + str.tostring(totalWin)    + '/' + str.tostring(totalLoss) +
+             ' | Long  W/L : ' + str.tostring(bt_winL())   + '/' + str.tostring(bt_lossL()) +
+             ' | Short W/L : ' + str.tostring(bt_winS())   + '/' + str.tostring(bt_lossS()) +
+             _sep +
+             '\nGain/Loss : ' + str.tostring(gainPct,     '#.##') + '%' +
+             ' | Initial/Final Capital : ' + str.tostring(dasCapital,  '#.##') + '/' + str.tostring(estimated,   '#.##') +
+             _sep +
+             '\nStatus : ' + tradeDirTxt +
+             (bt_dir() != 0 ?
+                 ' | Entry Price : ' + str.tostring(bt_entry()) +
+                 ' | Unrealized : ' + str.tostring((estimated / bt_cap() - 1) * 100, '#.##') + '%' +
+                 '\nStop Loss : ' + _slTxt
+             : '') +
+             (years < lenBckTst ? '\n*** max available history for this timeframe' : '')
+
+        _statCol =
+             gainPct > 0 ? color.teal : gainPct < 0 ? color.red  : color.gray
+
+        label.delete(statLbl)
+        statLbl := label.new(bar_index + 5, bt_yAnchor, _txt, color = _statCol, xloc = xloc.bar_index, style = label.style_label_left,
+             textcolor = color.white, textalign = text.align_left, size = size.small, force_overlay = true)
+
+bgcolor(isBackTest and startBckTst ? startBckTst != startBckTst[1] ? color.new(color.gray, 90) :
+         bt_dir() ==  1 ? color.new(color.teal,  92) : bt_dir() == -1 ? color.new(color.red,   92) : na : na,
+         title = 'Backtest Background', editable = false)
+
+// ── Entry / exit price line ───────────────────────────────────────────────────── //
+
+plot(bt_dir() != 0 ? bt_entry() : bt_exit() > 0 ? bt_exit() : na, 'Entry / Exit Price',
+     color = bt_dir() ==  1 ? color.teal : bt_dir() == -1 ? color.red  : color.gray,
+     style = plot.style_circles, display = display, editable = false, force_overlay = true)
+     
+var table logo = table.new(position.bottom_right, 1, 1)
+var table logo2 = table.new(position.bottom_right, 1, 1, force_overlay = true)
+if barstate.islast
+    table.cell(logo, 0, 0, '☼☾  ', text_size=size.normal, text_color=color.teal, tooltip = 'SoleMare Analytics')
+    table.cell(logo2, 0, 0, '☼☾  ', text_size=size.normal, text_color=color.teal, tooltip = 'SoleMare Analytics')

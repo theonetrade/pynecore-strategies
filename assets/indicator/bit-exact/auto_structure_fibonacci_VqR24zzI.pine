@@ -1,0 +1,518 @@
+//@version=6
+// =============================================================================
+// Automatic Fibonacci from Price Structure
+//
+// Draws Fibonaccis (0, 0.382, 0.5, 0.618, 0.86, 1) over structural legs once price has
+// retraced to a confirmation level. Two methods decide where legs are:
+//   ATR ZigZag        — ATR-confirmed swings classified as HH/HL/LH/LL; a
+//                       Fibonacci over each LL/HL → HH and HH/LH → LL leg.
+//   Retracement Chain — each Fibonacci starts at the pull-back extreme after
+//                       the previous one in the same direction and must extend
+//                       beyond that one's 0; the chain flips direction when
+//                       price breaks the last Fibonacci's 1.
+// Confirmed Fibonaccis are fixed and kept up to a configurable maximum.
+// =============================================================================
+indicator("Auto Structure Fibonacci", shorttitle = "Auto Fib", overlay = true, max_lines_count = 500, max_labels_count = 500)
+
+// =============================================================================
+// CONSTANTS
+// =============================================================================
+// Swings kept in memory, and so also shown by "Show Swing Structure".
+// 50 swings + 50 Fibonaccis (6 lines + 6 labels each) stays within the 500
+// line/label limits.
+int MAX_SWINGS = 50
+
+int DIR_BULL = 1
+int DIR_BEAR = -1
+
+color COL_BULL  = #26a69a
+color COL_BEAR  = #ef5350
+color COL_MUTED = #787b86
+
+// =============================================================================
+// INPUTS
+// =============================================================================
+string GRP_SWING = "Structure Detection"
+string GRP_STYLE = "Fibonacci Appearance"
+string GRP_ZONE  = "Gold Zone (0.5 – 0.618)"
+
+string METHOD_ATR   = "ATR ZigZag"
+string METHOD_CHAIN = "Retracement Chain"
+
+string methodInput       = input.string(METHOD_ATR, "Structure Method", options = [METHOD_ATR, METHOD_CHAIN], group = GRP_SWING, tooltip = "ATR ZigZag: Fibonacci over each HH/LL leg between ATR-confirmed swings.\nRetracement Chain: each Fibonacci is anchored at the pull-back extreme after the previous Fibonacci in the same direction, must extend beyond that Fibonacci's 0, and flips direction when price breaks the last Fibonacci's 1.")
+float  atrConfirmInput   = input.float(0.5, "Confirmation Level (ATR ZigZag)", minval = 0.1, maxval = 1.0, step = 0.001, group = GRP_SWING, tooltip = "Retracement a leg must reach before its Fibonacci is drawn.")
+float  chainConfirmInput = input.float(0.382, "Confirmation Level (Retracement Chain)", minval = 0.1, maxval = 1.0, step = 0.001, group = GRP_SWING, tooltip = "Retracement a move must reach before its Fibonacci is drawn.")
+int    atrLengthInput    = input.int(14, "ATR Length", minval = 1, group = GRP_SWING)
+float  atrMultInput      = input.float(2.6, "ATR Reversal Multiplier", minval = 0.1, step = 0.1, group = GRP_SWING, tooltip = "ATR ZigZag: a swing is confirmed once price reverses from it by ATR × this multiplier. Higher = fewer, larger swings.")
+float  minFibSizeInput   = input.float(0.0, "Minimum Fibonacci Size (× ATR)", minval = 0.0, step = 0.5, group = GRP_SWING, tooltip = "A move must be at least ATR × this value tall (from its 1 to its 0) to be drawn. Filters out Fibonaccis on small moves. Applies to both methods; in Retracement Chain a smaller move still counts as a link in the chain, it just isn't drawn. 0 = off.")
+float  minBreakInput     = input.float(0.0, "Minimum Break (× ATR)", minval = 0.0, step = 0.05, group = GRP_SWING, tooltip = "A new high only counts as a Higher High (and a new low as a Lower Low) if it beats the previous one by at least ATR × this value. Smaller breaks are treated as Equal Highs/Lows, so no leg is created — this filters double tops/bottoms and ranges. In Retracement Chain, a continuation must also beat the previous Fibonacci's 0 by this much. 0 = off.")
+bool   showSwingsInput   = input.bool(false, "Show Swing Structure", group = GRP_SWING, tooltip = "Grey zigzag joining the detected ATR swings, plus a dashed line for the leg still forming. Shows the most recent 50 swings, whichever method is selected.")
+bool   showSwingTagsInput = input.bool(false, "Show Swing Labels", group = GRP_SWING, tooltip = "HH/HL/LH/LL/EQH/EQL labels on the detected ATR swings (hover for price and confirmation delay). Independent of Show Swing Structure.")
+string atrDisplayInput   = input.string("Off", "ATR Display", options = ["Off", "Reversal Level", "ATR Bands"], group = GRP_SWING, tooltip = "Reversal Level: the price the current leg must reverse to for its swing to be confirmed (leg extreme ∓ ATR × multiplier). Below price in a rising leg, above it in a falling leg; it flips side when a swing is confirmed.\nATR Bands: close ± ATR × multiplier, for reference.\nWhen on, the ATR and reversal threshold values are also shown in the Data Window.")
+
+int    maxFibsInput      = input.int(10, "Maximum Historical Fibonacci Structures", minval = 1, maxval = 50, group = GRP_STYLE, tooltip = "Total confirmed Fibonaccis kept on the chart (bullish and bearish combined). When exceeded, the oldest is removed.")
+bool   showBullInput     = input.bool(true, "Show Bullish Structures", group = GRP_STYLE)
+bool   showBearInput     = input.bool(true, "Show Bearish Structures", group = GRP_STYLE)
+bool   showLabelsInput   = input.bool(true, "Show Level Values", group = GRP_STYLE, tooltip = "Level (0, 0.382, 0.5, 0.618, 0.86, 1) at the right-hand end of each line, in the line's colour.")
+bool   showPricesInput   = input.bool(false, "Show Prices in Level Values", group = GRP_STYLE, tooltip = "Adds the price after each level, e.g. 0.618 (1.27450).")
+int    extensionInput    = input.int(30, "Fibonacci Extension Bars", minval = 0, maxval = 400, group = GRP_STYLE, tooltip = "How far the levels extend to the right of the bar where the Fibonacci was confirmed.")
+int    lineWidthInput    = input.int(1, "Line Width", minval = 1, maxval = 4, group = GRP_STYLE)
+string lineStyleInput    = input.string("Solid", "Line Style", options = ["Solid", "Dashed", "Dotted"], group = GRP_STYLE)
+string labelSizeInput    = input.string("Small", "Level Value Size", options = ["Tiny", "Small", "Normal"], group = GRP_STYLE)
+color  colLevel0Input    = input.color(#787b86, "Level 0 Colour", group = GRP_STYLE)
+bool   show0382Input     = input.bool(true, "Show 0.382 Level", group = GRP_STYLE)
+color  colLevel0382Input = input.color(#5b9cf6, "Level 0.382 Colour", group = GRP_STYLE)
+color  colLevel05Input   = input.color(#f5b400, "Level 0.5 Colour", group = GRP_STYLE)
+color  colLevel0618Input = input.color(#f5b400, "Level 0.618 Colour", group = GRP_STYLE)
+bool   show086Input      = input.bool(true, "Show 0.86 Level", group = GRP_STYLE, tooltip = "Reference level only; it does not affect when Fibonaccis are drawn.")
+color  colLevel086Input  = input.color(#f23645, "Level 0.86 Colour", group = GRP_STYLE)
+color  colLevel1Input    = input.color(#787b86, "Level 1 Colour", group = GRP_STYLE)
+
+bool   showGoldZoneInput = input.bool(true, "Show Gold Zone", group = GRP_ZONE)
+color  colGoldZoneInput  = input.color(color.new(#f5b400, 85), "Gold Zone Fill", group = GRP_ZONE)
+
+// =============================================================================
+// TYPES
+// =============================================================================
+// A confirmed structural swing point.
+type Swing
+    bool   isHigh
+    float  price
+    int    bar         // bar where the high/low actually printed
+    int    confirmBar  // bar on whose close the swing became known (no lookahead)
+    string tag         // H / L / HH / HL / LH / LL / EQH / EQL
+    label  tagLabel    // optional structure display
+    line   legLine     // optional zigzag leg from the previous swing to this one
+
+// A Fibonacci over one structural leg. Pending until price retraces to the
+// confirmation level, then drawn once with all levels fixed.
+type Fib
+    int   dir
+    float hiPrice
+    int   hiBar
+    float loPrice
+    int   loBar
+    float level0382
+    float level05
+    float level0618
+    float level086
+    float confirmPrice    // price the retracement must reach to confirm
+    int   createdBar
+    float retraceExtreme  // deepest retracement reached since the leg ended
+    int   confirmBar
+    line  line0
+    line  line0382
+    line  line05
+    line  line0618
+    line  line086
+    line  line1
+    label label0
+    label label0382
+    label label05
+    label label0618
+    label label086
+    label label1
+    linefill goldZone
+
+// Retracement Chain: a move that will become a Fibonacci once price retraces
+// to the confirmation level.
+type ChainMove
+    int   dir         // direction of the Fibonacci it would form
+    float anchor      // start of the move = level 1 (bearish: a high, bullish: a low)
+    int   anchorBar
+    float extreme     // furthest point reached = level 0 (bearish: a low, bullish: a high)
+    int   extremeBar
+    float mustBeat    // previous same-direction Fibonacci's 0; na = no requirement
+
+// =============================================================================
+// STRUCTURE STATE
+// =============================================================================
+// Confirmed swings, strictly alternating high / low / high / ...
+var array<Swing> swings = array.new<Swing>()
+
+// Confirmed (drawn) Fibonaccis, oldest first. Never modified once added.
+var array<Fib> drawnFibs = array.new<Fib>()
+
+float atrValue = ta.atr(atrLengthInput)
+
+bool isAtrMethod = methodInput == METHOD_ATR
+
+// =============================================================================
+// CLASSIFICATION
+// =============================================================================
+// Compares a swing with the previous swing of the same type. A break (HH or
+// LL) must exceed the previous swing by more than `minBreak`; a smaller break,
+// or an exact match, is an equal high/low (EQH / EQL).
+structureTag(bool isHigh, float price, float prevSameTypePrice, float minBreak) =>
+    string tag = isHigh ? "H" : "L"
+    if not na(prevSameTypePrice)
+        if isHigh
+            tag := price > prevSameTypePrice + minBreak ? "HH" : price >= prevSameTypePrice ? "EQH" : "LH"
+        else
+            tag := price < prevSameTypePrice - minBreak ? "LL" : price <= prevSameTypePrice ? "EQL" : "HL"
+    tag
+
+// Optional structure display: the swing's label and the zigzag leg into it.
+method drawStructure(Swing this, Swing prev) =>
+    if showSwingTagsInput
+        color  tagCol = this.tag == "HH" or this.tag == "HL" ? COL_BULL : this.tag == "LH" or this.tag == "LL" ? COL_BEAR : COL_MUTED
+        string tip    = this.tag + "  " + str.tostring(this.price, format.mintick) + "\nconfirmed " + str.tostring(this.confirmBar - this.bar) + " bars later"
+        this.tagLabel := label.new(this.bar, this.price, this.tag, style = this.isHigh ? label.style_label_down : label.style_label_up, color = color.new(tagCol, 20), textcolor = color.white, size = size.small, tooltip = tip)
+    if showSwingsInput and not na(prev)
+        this.legLine := line.new(prev.bar, prev.price, this.bar, this.price, color = color.new(COL_MUTED, 20), width = 1)
+    this
+
+// Records a confirmed swing and classifies it against the previous swing of
+// the same type (two entries back, since swings alternate).
+recordSwing(bool isHigh, float price, int bar) =>
+    int   n        = swings.size()
+    float prevSame = na
+    Swing prevLeg  = na
+    if n >= 2
+        prevSame := swings.get(n - 2).price
+    if n >= 1
+        prevLeg := swings.get(n - 1)
+    Swing s = Swing.new(isHigh, price, bar, bar_index, structureTag(isHigh, price, prevSame, nz(atrValue) * minBreakInput))
+    swings.push(s)
+    s.drawStructure(prevLeg)
+    if swings.size() > MAX_SWINGS
+        Swing oldest = swings.shift()
+        label.delete(oldest.tagLabel)
+        line.delete(oldest.legLine)
+    s
+
+// =============================================================================
+// FIBONACCI
+// =============================================================================
+// Bullish: 0 = high, 1 = low  -> level = high - range × ratio
+// Bearish: 0 = low,  1 = high -> level = low  + range × ratio
+fibLevel(int dir, float hiPrice, float loPrice, float ratio) =>
+    float legRange = hiPrice - loPrice
+    dir == DIR_BULL ? hiPrice - legRange * ratio : loPrice + legRange * ratio
+
+// True if a move from `lo` to `hi` is tall enough for a Fibonacci.
+bigEnough(float hi, float lo) =>
+    hi - lo >= minFibSizeInput * nz(atrValue)
+
+// Bullish structural legs: LL → HH and HL → HH. An equal low (EQL, e.g. a
+// double bottom) is also accepted as the start.
+isBullishLeg(Swing start, Swing end) =>
+    end.tag == "HH" and (start.tag == "LL" or start.tag == "HL" or start.tag == "EQL")
+
+// Bearish structural legs: HH → LL and LH → LL. An equal high (EQH, e.g. a
+// double top) is also accepted as the start.
+isBearishLeg(Swing start, Swing end) =>
+    end.tag == "LL" and (start.tag == "HH" or start.tag == "LH" or start.tag == "EQH")
+
+newFib(int dir, float hi, int hiBar, float lo, int loBar, float confirmRatio, float retraceSoFar) =>
+    Fib.new(dir = dir, hiPrice = hi, hiBar = hiBar, loPrice = lo, loBar = loBar, level0382 = fibLevel(dir, hi, lo, 0.382), level05 = fibLevel(dir, hi, lo, 0.5), level0618 = fibLevel(dir, hi, lo, 0.618), level086 = fibLevel(dir, hi, lo, 0.86), confirmPrice = fibLevel(dir, hi, lo, confirmRatio), createdBar = bar_index, retraceExtreme = retraceSoFar)
+
+createFib(int dir, Swing start, Swing end, float retraceSoFar) =>
+    float hi    = dir == DIR_BULL ? end.price : start.price
+    float lo    = dir == DIR_BULL ? start.price : end.price
+    int   hiBar = dir == DIR_BULL ? end.bar : start.bar
+    int   loBar = dir == DIR_BULL ? start.bar : end.bar
+    newFib(dir, hi, hiBar, lo, loBar, atrConfirmInput, retraceSoFar)
+
+// ATR ZigZag: advances a pending Fibonacci by one closed bar.
+// Returns  1 = confirmed (price has retraced to the confirmation level),
+//         -1 = cancelled (price went beyond the leg's end before confirming),
+//          0 = still waiting.
+method step(Fib this) =>
+    bool bull   = this.dir == DIR_BULL
+    int  status = 0
+    // The creation bar's retracement is already included via retraceSoFar.
+    if bar_index > this.createdBar
+        if bull ? high > this.hiPrice : low < this.loPrice
+            status := -1
+        else
+            this.retraceExtreme := bull ? math.min(this.retraceExtreme, low) : math.max(this.retraceExtreme, high)
+    if status == 0 and (bull ? this.retraceExtreme <= this.confirmPrice : this.retraceExtreme >= this.confirmPrice)
+        status := 1
+    status
+
+// Level value at the right-hand end of a line: "0.618", or "0.618 (1.27450)"
+// when prices are shown.
+levelLabel(int x, float price, string levelText, color textCol) =>
+    string labelSize = labelSizeInput == "Tiny" ? size.tiny : labelSizeInput == "Normal" ? size.normal : size.small
+    string labelText = showPricesInput ? levelText + " (" + str.tostring(price, format.mintick) + ")" : levelText
+    label.new(x, price, labelText, style = label.style_label_left, color = color(na), textcolor = textCol, size = labelSize)
+
+levelLine(int x1, int x2, float price, color lineCol) =>
+    string style = lineStyleInput == "Dashed" ? line.style_dashed : lineStyleInput == "Dotted" ? line.style_dotted : line.style_solid
+    line.new(x1, price, x2, price, color = lineCol, style = style, width = lineWidthInput)
+
+method drawFib(Fib this) =>
+    bool  bull  = this.dir == DIR_BULL
+    float level0 = bull ? this.hiPrice : this.loPrice
+    float level1 = bull ? this.loPrice : this.hiPrice
+    int   x1    = math.min(this.hiBar, this.loBar)
+    int   x2    = this.confirmBar + extensionInput
+    this.line0    := levelLine(x1, x2, level0, colLevel0Input)
+    if show0382Input
+        this.line0382 := levelLine(x1, x2, this.level0382, colLevel0382Input)
+    this.line05   := levelLine(x1, x2, this.level05, colLevel05Input)
+    this.line0618 := levelLine(x1, x2, this.level0618, colLevel0618Input)
+    if show086Input
+        this.line086 := levelLine(x1, x2, this.level086, colLevel086Input)
+    this.line1    := levelLine(x1, x2, level1, colLevel1Input)
+    if showGoldZoneInput
+        this.goldZone := linefill.new(this.line05, this.line0618, colGoldZoneInput)
+    if showLabelsInput
+        this.label0    := levelLabel(x2, level0, "0", colLevel0Input)
+        if show0382Input
+            this.label0382 := levelLabel(x2, this.level0382, "0.382", colLevel0382Input)
+        this.label05   := levelLabel(x2, this.level05, "0.5", colLevel05Input)
+        this.label0618 := levelLabel(x2, this.level0618, "0.618", colLevel0618Input)
+        if show086Input
+            this.label086 := levelLabel(x2, this.level086, "0.86", colLevel086Input)
+        this.label1    := levelLabel(x2, level1, "1", colLevel1Input)
+    this
+
+method deleteDrawing(Fib this) =>
+    linefill.delete(this.goldZone)
+    line.delete(this.line0)
+    line.delete(this.line0382)
+    line.delete(this.line05)
+    line.delete(this.line0618)
+    line.delete(this.line086)
+    line.delete(this.line1)
+    label.delete(this.label0)
+    label.delete(this.label0382)
+    label.delete(this.label05)
+    label.delete(this.label0618)
+    label.delete(this.label086)
+    label.delete(this.label1)
+    this
+
+// Adds a newly confirmed Fibonacci to the history, removing the oldest ones
+// beyond the configured maximum.
+storeFib(Fib confirmed) =>
+    drawnFibs.push(confirmed)
+    while drawnFibs.size() > maxFibsInput
+        drawnFibs.shift().deleteDrawing()
+
+// Bar on which the most recent Fibonacci finished. Held in an array because
+// functions cannot reassign global variables.
+var array<int> lastFibEndBar = array.new<int>(1, na)
+
+// Draws a newly confirmed Fibonacci and adds it to the history, unless it is
+// not `visible` (hidden direction or too small) or it would start before the
+// previous Fibonacci finished (starting on that same candle is allowed).
+// A Fibonacci finishes on its 0 candle in ATR ZigZag (consecutive legs share
+// swing points) and on its confirmation candle in Retracement Chain.
+publishFib(Fib confirmed, bool visible) =>
+    confirmed.confirmBar := bar_index
+    int  startBar  = math.min(confirmed.hiBar, confirmed.loBar)
+    int  endBar    = isAtrMethod ? math.max(confirmed.hiBar, confirmed.loBar) : bar_index
+    int  prevEnd   = lastFibEndBar.get(0)
+    bool noOverlap = na(prevEnd) or startBar >= prevEnd
+    if noOverlap
+        lastFibEndBar.set(0, endBar)
+        if visible and (confirmed.dir == DIR_BULL ? showBullInput : showBearInput)
+            confirmed.drawFib()
+            storeFib(confirmed)
+    confirmed
+
+// Advances a pending Fibonacci one bar: draws it once confirmed and returns na
+// once it is resolved (drawn or cancelled), otherwise returns it unchanged.
+resolvePending(Fib pending) =>
+    Fib result = pending
+    if not na(pending)
+        int status = pending.step()
+        if status == 1
+            publishFib(pending, true)
+            result := na
+        else if status == -1
+            result := na
+    result
+
+// =============================================================================
+// SWING DETECTION — ATR ZIGZAG
+// =============================================================================
+// Tracks the extreme of the current leg. A swing is confirmed only when price
+// has since moved against it by ATR × multiplier, measured on CLOSED bars.
+// The swing is placed on the bar that made the extreme, but is only known from
+// the confirming bar onward — nothing uses it before then.
+var int   zzDir        = 0     // +1 rising leg (tracking a high), -1 falling leg (tracking a low)
+var float zzExtreme    = na    // extreme of the current leg
+var int   zzExtremeBar = na
+var float zzCounter    = na    // furthest pull-back against the leg since that extreme
+var int   zzCounterBar = na
+
+var Fib pendingBull = na
+var Fib pendingBear = na
+
+if barstate.isconfirmed
+    if zzDir == 0
+        zzDir        := 1
+        zzExtreme    := high
+        zzExtremeBar := bar_index
+    else
+        bool  up      = zzDir == 1
+        float pushSrc = up ? high : low   // extends the current leg
+        float pullSrc = up ? low : high   // moves against it
+        if up ? pushSrc > zzExtreme : pushSrc < zzExtreme
+            // Leg extends: new extreme, pull-back measurement restarts.
+            zzExtreme    := pushSrc
+            zzExtremeBar := bar_index
+            zzCounter    := na
+            zzCounterBar := na
+        else
+            if na(zzCounter) or (up ? pullSrc < zzCounter : pullSrc > zzCounter)
+                zzCounter    := pullSrc
+                zzCounterBar := bar_index
+            if math.abs(zzExtreme - zzCounter) >= atrValue * atrMultInput
+                // Reversal large enough: the extreme is a confirmed swing and
+                // the pull-back extreme becomes the start of the new leg.
+                Swing newSwing     = recordSwing(up, zzExtreme, zzExtremeBar)
+                float retraceSoFar = zzCounter
+                zzDir        := -zzDir
+                zzExtreme    := zzCounter
+                zzExtremeBar := zzCounterBar
+                zzCounter    := na
+                zzCounterBar := na
+
+                // A newly confirmed HH (LL) completes a bullish (bearish) leg
+                // from the opposite swing just before it.
+                int n = swings.size()
+                if isAtrMethod and n >= 2
+                    Swing legStart = swings.get(n - 2)
+                    bool  legSized = bigEnough(math.max(legStart.price, newSwing.price), math.min(legStart.price, newSwing.price))
+                    if legSized and showBullInput and newSwing.isHigh and isBullishLeg(legStart, newSwing)
+                        pendingBull := createFib(DIR_BULL, legStart, newSwing, retraceSoFar)
+                    else if legSized and showBearInput and not newSwing.isHigh and isBearishLeg(legStart, newSwing)
+                        pendingBear := createFib(DIR_BEAR, legStart, newSwing, retraceSoFar)
+
+    // Pending legs: drawn once price has retraced to the confirmation level, dropped if price goes
+    // beyond the leg's end (new high / new low) first.
+    pendingBull := resolvePending(pendingBull)
+    pendingBear := resolvePending(pendingBear)
+
+// =============================================================================
+// RETRACEMENT CHAIN
+// =============================================================================
+// Advances a move by one closed bar. Returns true when a bar that did not
+// extend the move has retraced it to the confirmation level (and, if required,
+// the move has gone beyond the previous same-direction Fibonacci's 0).
+// Otherwise the move is updated: a new extreme extends it, and price beyond its
+// anchor restarts it from there.
+method advance(ChainMove this) =>
+    bool  bull    = this.dir == DIR_BULL
+    float pushSrc = bull ? high : low   // extends the move
+    float pullSrc = bull ? low : high   // retraces it
+    bool  formed  = false
+    if not na(this.extreme) and (bull ? pushSrc <= this.extreme : pushSrc >= this.extreme)
+        float minBreak     = nz(atrValue) * minBreakInput
+        bool  beyondPrev   = na(this.mustBeat) or (bull ? this.extreme > this.mustBeat + minBreak : this.extreme < this.mustBeat - minBreak)
+        float hi           = bull ? this.extreme : this.anchor
+        float lo           = bull ? this.anchor : this.extreme
+        float confirmPrice = fibLevel(this.dir, hi, lo, chainConfirmInput)
+        formed := beyondPrev and (bull ? pullSrc <= confirmPrice : pullSrc >= confirmPrice)
+    if not formed
+        if bull ? pullSrc < this.anchor : pullSrc > this.anchor
+            this.anchor     := pullSrc
+            this.anchorBar  := bar_index
+            this.extreme    := na
+            this.extremeBar := na
+        else if na(this.extreme) or (bull ? pushSrc > this.extreme : pushSrc < this.extreme)
+            this.extreme    := pushSrc
+            this.extremeBar := bar_index
+    formed
+
+method toFib(ChainMove this) =>
+    bool bull = this.dir == DIR_BULL
+    newFib(this.dir, bull ? this.extreme : this.anchor, bull ? this.extremeBar : this.anchorBar, bull ? this.anchor : this.extreme, bull ? this.anchorBar : this.extremeBar, chainConfirmInput, na)
+
+// chainDir 0 = undecided: a bullish and a bearish move are both tracked and
+// whichever confirms first sets the direction. This is the state at the start
+// of the chart and after the chain breaks.
+var int       chainDir             = 0
+var ChainMove chainBull            = na
+var ChainMove chainBear            = na
+var Fib       chainLastFib         = na
+var float     chainSinceExtreme    = na   // furthest point since the last Fibonacci was confirmed (low in a bearish chain, high in a bullish one)
+var int       chainSinceExtremeBar = na
+
+if barstate.isconfirmed and not isAtrMethod
+    if na(chainBull)
+        chainBull := ChainMove.new(DIR_BULL, low, bar_index, na, na, na)
+        chainBear := ChainMove.new(DIR_BEAR, high, bar_index, na, na, na)
+    else
+        bool bullFormed = chainDir != DIR_BEAR and chainBull.advance()
+        bool bearFormed = chainDir != DIR_BULL and chainBear.advance()
+        // Both can only confirm together while undecided: keep the more recent move.
+        if bullFormed and bearFormed
+            if chainBull.extremeBar >= chainBear.extremeBar
+                bearFormed := false
+            else
+                bullFormed := false
+
+        if bullFormed or bearFormed
+            ChainMove move = bullFormed ? chainBull : chainBear
+            bool      bull = move.dir == DIR_BULL
+            Fib       f    = move.toFib()
+            // A move below Minimum Fibonacci Size still links the chain; it is
+            // just not drawn.
+            publishFib(f, bigEnough(f.hiPrice, f.loPrice))
+            chainLastFib := f
+            chainDir     := move.dir
+            // Tracked from this (confirmation) candle, so a move started after a
+            // chain break never begins before this Fibonacci finished.
+            chainSinceExtreme    := bull ? high : low
+            chainSinceExtremeBar := bar_index
+            // The next move in this direction is anchored at the pull-back
+            // extreme from here on, and must go beyond this Fibonacci's 0.
+            ChainMove next = ChainMove.new(move.dir, bull ? low : high, bar_index, na, na, bull ? f.hiPrice : f.loPrice)
+            if bull
+                chainBull := next
+            else
+                chainBear := next
+        else if chainDir != 0
+            bool bull = chainDir == DIR_BULL
+            if bull ? high > chainSinceExtreme : low < chainSinceExtreme
+                chainSinceExtreme    := bull ? high : low
+                chainSinceExtremeBar := bar_index
+            // Price beyond the last Fibonacci's 1 breaks the chain. Both
+            // directions are tracked again: the opposite move starts from the
+            // furthest point since that Fibonacci was confirmed and has reached
+            // this bar.
+            float lastFib1 = bull ? chainLastFib.loPrice : chainLastFib.hiPrice
+            if bull ? low < lastFib1 : high > lastFib1
+                chainDir := 0
+                if bull
+                    chainBear := ChainMove.new(DIR_BEAR, chainSinceExtreme, chainSinceExtremeBar, low, bar_index, na)
+                    chainBull := ChainMove.new(DIR_BULL, low, bar_index, na, na, na)
+                else
+                    chainBull := ChainMove.new(DIR_BULL, chainSinceExtreme, chainSinceExtremeBar, high, bar_index, na)
+                    chainBear := ChainMove.new(DIR_BEAR, high, bar_index, na, na, na)
+
+// Optional structure display: dashed line for the leg still forming (not yet a
+// confirmed swing).
+var line formingLegLine = na
+if barstate.islast and showSwingsInput
+    line.delete(formingLegLine)
+    int n = swings.size()
+    if n > 0 and not na(zzExtremeBar)
+        Swing lastSwing = swings.get(n - 1)
+        formingLegLine := line.new(lastSwing.bar, lastSwing.price, zzExtremeBar, zzExtreme, color = COL_MUTED, style = line.style_dashed, width = 1)
+
+// =============================================================================
+// OPTIONAL ATR DISPLAY
+// =============================================================================
+float reversalThreshold = atrValue * atrMultInput
+
+// Price the current leg must reverse to for its extreme to become a confirmed
+// swing. Broken on the bar where the leg direction flips so the line does not
+// draw a vertical jump across price.
+float reversalLevel = zzDir == 1 ? zzExtreme - reversalThreshold : zzDir == -1 ? zzExtreme + reversalThreshold : na
+bool  legFlipped    = zzDir != zzDir[1]
+
+bool showReversal = atrDisplayInput == "Reversal Level"
+bool showBands    = atrDisplayInput == "ATR Bands"
+
+plot(legFlipped ? na : reversalLevel, "Reversal Level", color = zzDir == 1 ? COL_BULL : COL_BEAR, style = plot.style_linebr, display = showReversal ? display.all : display.none)
+plot(close + reversalThreshold, "Upper ATR Band", color = COL_MUTED, display = showBands ? display.all : display.none)
+plot(close - reversalThreshold, "Lower ATR Band", color = COL_MUTED, display = showBands ? display.all : display.none)
+plot(atrValue, "ATR", color = COL_MUTED, display = atrDisplayInput != "Off" ? display.data_window : display.none)
+plot(reversalThreshold, "Reversal Threshold", color = COL_MUTED, display = atrDisplayInput != "Off" ? display.data_window : display.none)

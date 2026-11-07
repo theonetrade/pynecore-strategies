@@ -1,0 +1,81 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © HasanRifat
+
+//@version=5
+indicator("Reversal", overlay = true)
+
+lookback = input.int(defval = 20, title = "Candle Lookback")
+confirmation = input.int(defval = 3, title = "Confirm Within")
+nonRepaint = input.bool(defval = false, title = "Non-Repainting Mode")
+
+bullCandle = 0
+bearCandle = 0
+
+vup = false
+vdn = false
+
+var bullActiveCandle = false
+var bullActiveCandleLow = 0.0
+var bullActiveCandleHigh = 0.0
+var bullSignalActive = false
+var bullCandleCount = 0
+
+var bearActiveCandle = false
+var bearActiveCandleLow = 0.0
+var bearActiveCandleHigh = 0.0
+var bearSignalActive = false
+var bearCandleCount = 0
+
+for i = 0 to (lookback - 1)
+    if close < low[i]
+        bullCandle += 1
+    if close > high[i]
+        bearCandle += 1
+
+if bullCandle == (lookback - 1)
+    bullActiveCandle := true
+    bullActiveCandleLow := low
+    bullActiveCandleHigh := high
+    bullSignalActive := false
+    bullCandleCount := 0
+
+if bullActiveCandle
+    bullCandleCount += 1
+
+if bearCandle == (lookback - 1)
+    bearActiveCandle := true
+    bearActiveCandleLow := low
+    bearActiveCandleHigh := high
+    bearSignalActive := false
+    bearCandleCount := 0
+
+if bearActiveCandle
+    bearCandleCount += 1
+
+if close < bullActiveCandleLow
+    bullActiveCandle := false
+
+if close > bearActiveCandleHigh
+    bearActiveCandle := false
+
+if nonRepaint
+    if bullActiveCandle[1] == true and close[1] > bullActiveCandleHigh[1] and bullSignalActive[1] == false and bullCandleCount[1] <= (confirmation+1)
+        bullSignalActive := true
+        vup := true
+else if bullActiveCandle == true and close > bullActiveCandleHigh and bullSignalActive == false and bullCandleCount <= (confirmation+1)
+    bullSignalActive := true
+    vup := true
+
+if nonRepaint
+    if bearActiveCandle[1] == true and close[1] < bearActiveCandleLow[1] and bearSignalActive[1] == false and bearCandleCount[1] <= (confirmation+1)
+        bearSignalActive := true
+        vdn := true
+else if bearActiveCandle  == true and close < bearActiveCandleLow and bearSignalActive == false and bearCandleCount <= (confirmation+1)
+    bearSignalActive := true
+    vdn := true
+
+plotshape(vup, title = "V Up", style = shape.triangleup, location = location.belowbar, color = color.lime, size = size.small)
+plotshape(vdn, title = "V Dn", style = shape.triangledown, location = location.abovebar, color = color.red, size = size.small)
+
+alertcondition(vup, "Bullish Revarsal", "Bullish Revarsal")
+alertcondition(vdn, "Bearish Revarsal", "Bearish Revarsal")

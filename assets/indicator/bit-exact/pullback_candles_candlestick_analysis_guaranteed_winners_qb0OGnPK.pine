@@ -1,0 +1,31 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © MINTYFRESH97
+
+//@version=5
+//@version=5
+indicator("Pullback Candle  " ,overlay=true )
+
+//swing high/low filter
+swingHigh = high == ta.highest(high,10) or high[1] == ta.highest(high,10)
+swingLow = low == ta.lowest(low,6) or low[1] ==ta.lowest(low,6)
+
+//user input
+var g_ema    = "EMA Filter"
+emaLength    = input.int(title="EMA Length", defval=50, tooltip="Length of the EMA filter", group=g_ema)
+useEmaFilter = input.bool(title="Use EMA Filter?", defval=false, tooltip="Turns on/off the EMA filter", group=g_ema)
+
+// Get EMA filter
+ema = ta.ema(close, emaLength)
+emaFilterLong = not useEmaFilter or close > ema
+emaFilterShort = not useEmaFilter or close < ema
+
+
+//DETECT MARUBUZO
+
+pullBack =  (close[2] < close[3]) and (close[2] < close[3])
+     and (close[1] < close[2]) and (close > close[1]) and emaFilterLong and swingLow
+     
+// Plot our candle patterns
+plotshape(pullBack, style=shape.xcross,size=size.tiny, color=color.green, text="PB",location=location.belowbar)
+alertcondition(pullBack, "Pullback Candle ", "Pullback Candle  detected for {{ticker}}")
+barcolor(pullBack ? color.green :na)

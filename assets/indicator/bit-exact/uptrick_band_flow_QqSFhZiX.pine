@@ -1,0 +1,1038 @@
+// This work is licensed under an Attribution-ShareAlike 4.0 International License (CC BY-SA 4.0)
+// https://creativecommons.org/licenses/by-sa/4.0/
+// © Uptrick
+
+//@version=6
+
+//    ██╗   ██╗██████╗ ████████╗██████╗ ██╗ ██████╗██╗  ██╗
+//    ██║   ██║██╔══██╗╚══██╔══╝██╔══██╗██║██╔════╝██║ ██╔╝
+//    ██║   ██║██████╔╝   ██║   ██████╔╝██║██║     █████╔╝
+//    ██║   ██║██╔═══╝    ██║   ██╔══██╗██║██║     ██╔═██╗
+//    ╚██████╔╝██║        ██║   ██║  ██║██║╚██████╗██║  ██╗
+//     ╚═════╝ ╚═╝        ╚═╝   ╚═╝  ╚═╝╚═╝ ╚═════╝╚═╝  ╚═╝
+
+indicator(
+     "Uptrick: Band Flow",
+     shorttitle="Band Flow",
+     overlay=true,
+     max_labels_count=500
+)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 01. TREND ENGINE
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+gTrend = "01. Trend Engine"
+
+length = input.int(
+     30,
+     "Trend Length",
+     minval=2,
+     group=gTrend
+)
+
+smooth = input.int(
+     4,
+     "Trend Smoothing",
+     minval=1,
+     group=gTrend
+)
+
+atrLength = input.int(
+     14,
+     "Band ATR Length",
+     minval=1,
+     group=gTrend
+)
+
+upperMult = input.float(
+     1.50,
+     "Upper Band Multiplier",
+     minval=0.10,
+     step=0.05,
+     group=gTrend
+)
+
+lowerMult = input.float(
+     1.50,
+     "Lower Band Multiplier",
+     minval=0.10,
+     step=0.05,
+     group=gTrend
+)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 02. OVERLAY
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+gOverlay = "02. Overlay"
+
+overlayMode = input.string(
+     "Bands",
+     "Overlay Mode",
+     options=["Center", "Trail", "Bands"],
+     group=gOverlay
+)
+
+trailOuterATR = input.float(
+     0.85,
+     "Trail Outer Expansion",
+     minval=0.10,
+     step=0.05,
+     group=gOverlay
+)
+
+trailSmooth = input.int(
+     5,
+     "Trail Smoothing",
+     minval=1,
+     group=gOverlay
+)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 03. SIGNAL ANCHOR
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+gSignals = "03. Signal Anchor"
+
+signalAnchorMode = input.string(
+     "Bands",
+     "Signal Anchor",
+     options=["Bands", "ATR"],
+     group=gSignals,
+     tooltip="Bands anchors signals to the outer trend band. ATR anchors them beyond the candle high/low."
+)
+
+signalATRLength = input.int(
+     14,
+     "Signal ATR Length",
+     minval=1,
+     group=gSignals
+)
+
+signalATRMult = input.float(
+     0.80,
+     "Signal ATR Distance",
+     minval=0.05,
+     step=0.05,
+     group=gSignals
+)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 04. ATR TAKE PROFITS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+gTP = "04. ATR Take Profits"
+
+showATRTP = input.bool(
+     true,
+     "Show ATR Take Profits",
+     group=gTP
+)
+
+tp1Mult = input.float(
+     1.0,
+     "TP1 ATR",
+     minval=0.1,
+     step=0.25,
+     group=gTP
+)
+
+tp2Mult = input.float(
+     2.0,
+     "TP2 ATR",
+     minval=0.1,
+     step=0.25,
+     group=gTP
+)
+
+tp3Mult = input.float(
+     3.0,
+     "TP3 ATR",
+     minval=0.1,
+     step=0.25,
+     group=gTP
+)
+
+tp4Mult = input.float(
+     4.0,
+     "TP4 ATR",
+     minval=0.1,
+     step=0.25,
+     group=gTP
+)
+
+tp5Mult = input.float(
+     5.0,
+     "TP5 ATR",
+     minval=0.1,
+     step=0.25,
+     group=gTP
+)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 05. DISPLAY
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+gDisplay = "05. Display"
+
+showSignals = input.bool(
+     true,
+     "Show Signals",
+     group=gDisplay
+)
+
+showCandles = input.bool(
+     true,
+     "Trend Candles",
+     group=gDisplay
+)
+
+showTable = input.bool(
+     true,
+     "Dashboard",
+     group=gDisplay
+)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// COLORS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+bullColor = #00FFE5
+bearColor = #FF00B5
+
+black = #000000
+white = #FFFFFF
+
+dimWhite = color.new(white, 45)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TREND BASELINE
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+baseWMA = ta.wma(
+     close,
+     length
+)
+
+basis =
+     smooth > 1 ?
+     ta.ema(
+          baseWMA,
+          smooth
+     ) :
+     baseWMA
+
+bandATR = ta.atr(
+     atrLength
+)
+
+safeATR = math.max(
+     bandATR,
+     syminfo.mintick
+)
+
+upperBand =
+     basis +
+     safeATR * upperMult
+
+lowerBand =
+     basis -
+     safeATR * lowerMult
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TREND STATE
+//
+// Above upper band = bullish
+// Below lower band = bearish
+// Inside bands = retain previous trend
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+var int trend = 0
+
+bullBreak =
+     barstate.isconfirmed and
+     close > upperBand and
+     close[1] <= upperBand[1]
+
+bearBreak =
+     barstate.isconfirmed and
+     close < lowerBand and
+     close[1] >= lowerBand[1]
+
+if bullBreak
+    trend := 1
+
+else if bearBreak
+    trend := -1
+
+if trend == 0
+    trend :=
+         close >= basis ?
+         1 :
+         -1
+
+bullish =
+     trend == 1
+
+bearish =
+     trend == -1
+
+trendColor =
+     bullish ?
+     bullColor :
+     bearColor
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TRAIL GEOMETRY
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+smoothTrailBasis =
+     trailSmooth > 1 ?
+     ta.ema(
+          basis,
+          trailSmooth
+     ) :
+     basis
+
+smoothTrailATR =
+     trailSmooth > 1 ?
+     ta.ema(
+          safeATR,
+          trailSmooth
+     ) :
+     safeATR
+
+trailInner =
+     bullish ?
+     basis - safeATR * lowerMult :
+     basis + safeATR * upperMult
+
+trailOuter =
+     bullish ?
+     smoothTrailBasis -
+     smoothTrailATR *
+     (lowerMult + trailOuterATR) :
+     smoothTrailBasis +
+     smoothTrailATR *
+     (upperMult + trailOuterATR)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SIGNAL ANCHOR ENGINE
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// Separate ATR purely for signal positioning.
+
+signalATR = ta.atr(
+     signalATRLength
+)
+
+safeSignalATR = math.max(
+     signalATR,
+     syminfo.mintick
+)
+
+// Band anchors.
+
+bullBandAnchor =
+     smoothTrailBasis -
+     smoothTrailATR *
+     (lowerMult + trailOuterATR)
+
+bearBandAnchor =
+     smoothTrailBasis +
+     smoothTrailATR *
+     (upperMult + trailOuterATR)
+
+// ATR anchors based on candle low/high.
+
+bullATRAnchor =
+     low -
+     safeSignalATR *
+     signalATRMult
+
+bearATRAnchor =
+     high +
+     safeSignalATR *
+     signalATRMult
+
+// Select anchor mode.
+
+bullSignalAnchor =
+     signalAnchorMode == "Bands" ?
+     bullBandAnchor :
+     bullATRAnchor
+
+bearSignalAnchor =
+     signalAnchorMode == "Bands" ?
+     bearBandAnchor :
+     bearATRAnchor
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SINGLE TRADE ENGINE
+// NO PYRAMIDING
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+var int tradeSide = 0
+
+var float entryPrice = na
+var float entryATR = na
+
+newLong =
+     bullBreak and
+     tradeSide != 1
+
+newShort =
+     bearBreak and
+     tradeSide != -1
+
+if newLong
+    tradeSide := 1
+    entryPrice := close
+    entryATR := safeATR
+
+if newShort
+    tradeSide := -1
+    entryPrice := close
+    entryATR := safeATR
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ATR TAKE PROFIT LEVELS
+// INTERNAL ONLY
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+direction =
+     tradeSide == 1 ?
+     1.0 :
+     -1.0
+
+tp1 =
+     not na(entryPrice) ?
+     entryPrice +
+     entryATR *
+     tp1Mult *
+     direction :
+     na
+
+tp2 =
+     not na(entryPrice) ?
+     entryPrice +
+     entryATR *
+     tp2Mult *
+     direction :
+     na
+
+tp3 =
+     not na(entryPrice) ?
+     entryPrice +
+     entryATR *
+     tp3Mult *
+     direction :
+     na
+
+tp4 =
+     not na(entryPrice) ?
+     entryPrice +
+     entryATR *
+     tp4Mult *
+     direction :
+     na
+
+tp5 =
+     not na(entryPrice) ?
+     entryPrice +
+     entryATR *
+     tp5Mult *
+     direction :
+     na
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TP STATE
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+var bool tp1Hit = false
+var bool tp2Hit = false
+var bool tp3Hit = false
+var bool tp4Hit = false
+var bool tp5Hit = false
+
+if newLong or newShort
+    tp1Hit := false
+    tp2Hit := false
+    tp3Hit := false
+    tp4Hit := false
+    tp5Hit := false
+
+f_targetHit(_level) =>
+    tradeSide == 1 ?
+     high >= _level :
+     low <= _level
+
+newTP1 =
+     showATRTP and
+     not tp1Hit and
+     not na(tp1) and
+     f_targetHit(tp1)
+
+newTP2 =
+     showATRTP and
+     not tp2Hit and
+     not na(tp2) and
+     f_targetHit(tp2)
+
+newTP3 =
+     showATRTP and
+     not tp3Hit and
+     not na(tp3) and
+     f_targetHit(tp3)
+
+newTP4 =
+     showATRTP and
+     not tp4Hit and
+     not na(tp4) and
+     f_targetHit(tp4)
+
+newTP5 =
+     showATRTP and
+     not tp5Hit and
+     not na(tp5) and
+     f_targetHit(tp5)
+
+if newTP1
+    tp1Hit := true
+
+if newTP2
+    tp2Hit := true
+
+if newTP3
+    tp3Hit := true
+
+if newTP4
+    tp4Hit := true
+
+if newTP5
+    tp5Hit := true
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// OVERLAY 1
+// CENTER
+//
+// Gradient only between center line and price.
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+showCenter =
+     overlayMode == "Center"
+
+pCenter = plot(
+     showCenter ?
+     basis :
+     na,
+     "Center Line",
+     color=trendColor,
+     linewidth=3
+)
+
+pCenterPrice = plot(
+     showCenter ?
+     close :
+     na,
+     "Center Price",
+     color=color.new(
+          trendColor,
+          100
+     ),
+     display=display.none
+)
+
+fill(
+     pCenter,
+     pCenterPrice,
+     basis,
+     close,
+     color.new(
+          trendColor,
+          58
+     ),
+     color.new(
+          trendColor,
+          95
+     ),
+     title="Center Gradient"
+)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// OVERLAY 2
+// TRAIL
+//
+// Bull = lower trail only
+// Bear = upper trail only
+//
+// Outer edge = stronger
+// Inner edge = softer
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+showTrail =
+     overlayMode == "Trail"
+
+pTrailInner = plot(
+     showTrail ?
+     trailInner :
+     na,
+     "Trail Inner",
+     color=color.new(
+          trendColor,
+          100
+     ),
+     linewidth=1
+)
+
+pTrailOuter = plot(
+     showTrail ?
+     trailOuter :
+     na,
+     "Trail Outer",
+     color=color.new(
+          trendColor,
+          28
+     ),
+     linewidth=2
+)
+
+trailTop =
+     bullish ?
+     trailInner :
+     trailOuter
+
+trailBottom =
+     bullish ?
+     trailOuter :
+     trailInner
+
+trailTopColor =
+     bullish ?
+     color.new(
+          trendColor,
+          100
+     ) :
+     color.new(
+          trendColor,
+          80
+     )
+
+trailBottomColor =
+     bullish ?
+     color.new(
+          trendColor,
+          80
+     ) :
+     color.new(
+          trendColor,
+          100
+     )
+
+fill(
+     pTrailInner,
+     pTrailOuter,
+     trailTop,
+     trailBottom,
+     trailTopColor,
+     trailBottomColor,
+     title="Trail Gradient"
+)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// OVERLAY 3
+// BANDS
+//
+// Full upper/lower envelope
+// Gradient strongest near center
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+showBands =
+     overlayMode == "Bands"
+
+pBandBasis = plot(
+     showBands ?
+     basis :
+     na,
+     "Band Center",
+     color=trendColor,
+     linewidth=3
+)
+
+pUpper = plot(
+     showBands ?
+     upperBand :
+     na,
+     "Upper Band",
+     color=color.new(
+          trendColor,
+          40
+     ),
+     linewidth=1
+)
+
+pLower = plot(
+     showBands ?
+     lowerBand :
+     na,
+     "Lower Band",
+     color=color.new(
+          trendColor,
+          40
+     ),
+     linewidth=1
+)
+
+fill(
+     pUpper,
+     pBandBasis,
+     upperBand,
+     basis,
+     color.new(
+          trendColor,
+          94
+     ),
+     color.new(
+          trendColor,
+          62
+     ),
+     title="Upper Band Gradient"
+)
+
+fill(
+     pBandBasis,
+     pLower,
+     basis,
+     lowerBand,
+     color.new(
+          trendColor,
+          62
+     ),
+     color.new(
+          trendColor,
+          94
+     ),
+     title="Lower Band Gradient"
+)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TREND CANDLES
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+plotcandle(
+     showCandles ?
+     open :
+     na,
+     showCandles ?
+     high :
+     na,
+     showCandles ?
+     low :
+     na,
+     showCandles ?
+     close :
+     na,
+     "Trend Candles",
+     color=trendColor,
+     wickcolor=trendColor,
+     bordercolor=trendColor
+)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ENTRY SIGNALS
+// SELECTABLE ANCHOR
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+if showSignals and newLong
+    label.new(
+         bar_index,
+         bullSignalAnchor,
+         "𝓤𝓹",
+         style=label.style_label_up,
+         color=bullColor,
+         textcolor=black,
+         size=size.normal
+    )
+
+if showSignals and newShort
+    label.new(
+         bar_index,
+         bearSignalAnchor,
+         "𝓓𝓸𝔀𝓷",
+         style=label.style_label_down,
+         color=bearColor,
+         textcolor=white,
+         size=size.normal
+    )
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ATR TAKE PROFIT MARKERS
+// TINY CROSSES ONLY
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+plotshape(
+     newTP1 ?
+     tp1 :
+     na,
+     title="TP1",
+     style=shape.xcross,
+     location=location.absolute,
+     color=white,
+     size=size.tiny
+)
+
+plotshape(
+     newTP2 ?
+     tp2 :
+     na,
+     title="TP2",
+     style=shape.xcross,
+     location=location.absolute,
+     color=white,
+     size=size.tiny
+)
+
+plotshape(
+     newTP3 ?
+     tp3 :
+     na,
+     title="TP3",
+     style=shape.xcross,
+     location=location.absolute,
+     color=white,
+     size=size.tiny
+)
+
+plotshape(
+     newTP4 ?
+     tp4 :
+     na,
+     title="TP4",
+     style=shape.xcross,
+     location=location.absolute,
+     color=white,
+     size=size.tiny
+)
+
+plotshape(
+     newTP5 ?
+     tp5 :
+     na,
+     title="TP5",
+     style=shape.xcross,
+     location=location.absolute,
+     color=white,
+     size=size.tiny
+)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TP PROGRESS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+int tpCount =
+     (tp1Hit ? 1 : 0) +
+     (tp2Hit ? 1 : 0) +
+     (tp3Hit ? 1 : 0) +
+     (tp4Hit ? 1 : 0) +
+     (tp5Hit ? 1 : 0)
+
+progress =
+     tpCount == 0 ? "○ ○ ○ ○ ○" :
+     tpCount == 1 ? "● ○ ○ ○ ○" :
+     tpCount == 2 ? "● ● ○ ○ ○" :
+     tpCount == 3 ? "● ● ● ○ ○" :
+     tpCount == 4 ? "● ● ● ● ○" :
+                     "● ● ● ● ●"
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// DASHBOARD
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+var table dashboard = table.new(
+     position.top_right,
+     2,
+     6,
+     bgcolor=black,
+     frame_color=color.new(
+          white,
+          75
+     ),
+     frame_width=1,
+     border_width=0
+)
+
+if barstate.islast
+
+    table.clear(
+         dashboard,
+         0,
+         0,
+         1,
+         5
+    )
+
+    if showTable
+
+        table.cell(
+             dashboard,
+             0,
+             0,
+             "𝓑𝓪𝓷𝓭 𝓕𝓵𝓸𝔀",
+             text_color=white,
+             bgcolor=black
+        )
+
+        table.cell(
+             dashboard,
+             1,
+             0,
+             bullish ?
+             "𝓑𝓾𝓵𝓵" :
+             "𝓑𝓮𝓪𝓻",
+             text_color=trendColor,
+             bgcolor=black
+        )
+
+        table.cell(
+             dashboard,
+             0,
+             1,
+             "Trend",
+             text_color=dimWhite,
+             bgcolor=black
+        )
+
+        table.cell(
+             dashboard,
+             1,
+             1,
+             bullish ?
+             "UP" :
+             "DOWN",
+             text_color=trendColor,
+             bgcolor=black
+        )
+
+        table.cell(
+             dashboard,
+             0,
+             2,
+             "Overlay",
+             text_color=dimWhite,
+             bgcolor=black
+        )
+
+        table.cell(
+             dashboard,
+             1,
+             2,
+             overlayMode,
+             text_color=white,
+             bgcolor=black
+        )
+
+        table.cell(
+             dashboard,
+             0,
+             3,
+             "Signal Anchor",
+             text_color=dimWhite,
+             bgcolor=black
+        )
+
+        table.cell(
+             dashboard,
+             1,
+             3,
+             signalAnchorMode,
+             text_color=white,
+             bgcolor=black
+        )
+
+        table.cell(
+             dashboard,
+             0,
+             4,
+             "Entry",
+             text_color=dimWhite,
+             bgcolor=black
+        )
+
+        table.cell(
+             dashboard,
+             1,
+             4,
+             na(entryPrice) ?
+             "—" :
+             str.tostring(
+                  entryPrice,
+                  format.mintick
+             ),
+             text_color=white,
+             bgcolor=black
+        )
+
+        table.cell(
+             dashboard,
+             0,
+             5,
+             "ATR Targets",
+             text_color=dimWhite,
+             bgcolor=black
+        )
+
+        table.cell(
+             dashboard,
+             1,
+             5,
+             progress,
+             text_color=trendColor,
+             bgcolor=black
+        )
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ALERTS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+alertcondition(
+     newLong,
+     "Band Flow Up",
+     "Uptrick Band Flow turned bullish on {{ticker}}"
+)
+
+alertcondition(
+     newShort,
+     "Band Flow Down",
+     "Uptrick Band Flow turned bearish on {{ticker}}"
+)
+
+alertcondition(
+     newTP1,
+     "TP1",
+     "Band Flow TP1 hit on {{ticker}}"
+)
+
+alertcondition(
+     newTP2,
+     "TP2",
+     "Band Flow TP2 hit on {{ticker}}"
+)
+
+alertcondition(
+     newTP3,
+     "TP3",
+     "Band Flow TP3 hit on {{ticker}}"
+)
+
+alertcondition(
+     newTP4,
+     "TP4",
+     "Band Flow TP4 hit on {{ticker}}"
+)
+
+alertcondition(
+     newTP5,
+     "TP5",
+     "Band Flow TP5 hit on {{ticker}}"
+)

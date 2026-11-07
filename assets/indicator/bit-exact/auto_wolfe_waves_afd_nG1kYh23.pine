@@ -1,0 +1,1242 @@
+// This Source Code Form is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Auction Foundry
+//@version=6
+
+indicator("Auto Wolfe Waves [AFD]", "AWW [AFD]", overlay = true, behind_chart = false, max_lines_count = 190, max_labels_count = 130, max_boxes_count = 60, max_bars_back = 5000)
+
+// Finds five-point Wolfe Waves on confirmed pivots, draws the 1-4 line as a reference, and adds an Entry/Stop layer.
+// Pivot chain, span enumerator, identity key and draw-reach rule adapted from Auction Foundry Auto Harmonic Patterns;
+// tick rounding, alert batching and the panel shape from Auto Pitchfork + Trade Levels; the stop floor from
+// Classical Auto Chart Patterns. Wolfe geometry uses the filters and ATR bound stated here.
+// Point 5 requires Swing strength further bars to confirm before detection.
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Constants
+// ─────────────────────────────────────────────────────────────────────────────
+
+const string G_DETECT    = "Detection"
+const string G_LEVELS    = "Trade levels"
+const string G_LIFECYCLE = "Waves"
+const string G_STYLE     = "Lines and fill"
+const string G_DISPLAY   = "Display"
+const string G_ALERTS    = "Alerts"
+
+const string PRESET_SCALP  = "Scalp"
+const string PRESET_DAY    = "Day"
+const string PRESET_SWING  = "Swing"
+const string PRESET_CUSTOM = "Custom"
+
+const string DIR_BOTH = "Both"
+const string DIR_BULL = "Bullish only"
+const string DIR_BEAR = "Bearish only"
+
+const string STYLE_SOLID  = "Solid"
+const string STYLE_DASHED = "Dashed"
+const string STYLE_DOTTED = "Dotted"
+
+const string POS_AUTO         = "Auto"
+const string POS_TOP_RIGHT    = "Top right"
+const string POS_TOP_LEFT     = "Top left"
+const string POS_BOTTOM_RIGHT = "Bottom right"
+const string POS_BOTTOM_LEFT  = "Bottom left"
+
+const string SIZE_TINY   = "Tiny"
+const string SIZE_SMALL  = "Small"
+const string SIZE_NORMAL = "Normal"
+
+const string EVENTS_ALL     = "All events"
+const string EVENTS_FORMED  = "Formed and Entry"
+const string EVENTS_ENDINGS = "Endings"
+const string EVENTS_OFF     = "Off"
+
+const string DETAIL_BRIEF = "Brief"
+const string DETAIL_FULL  = "Full"
+const string DETAIL_JSON  = "JSON"
+
+// Internal calibration: fixed, and stated in the user guide.
+const int PIVOT_HORIZON     = 500
+const int VOLATILITY_LENGTH = 14
+const float OVERSHOOT_ATR   = 1.0
+const float STOP_BEYOND_ATR = 0.10
+const float MIN_STOP_ATR    = 0.50
+const float MINOR_FRAC      = 0.382
+const float LINE_EPS        = 1e-10
+const int ACTIVE_MAX        = 4
+const int SEEN_MAX          = 64
+const int CHAIN_MAX         = 13
+const int DRAW_MAX_BACK     = 4500
+const int POINTS            = 5
+const int LEGS              = 4
+const int MASKS             = 16
+
+// State codes are the Data Window values.
+const int ST_WAITING = 1
+const int ST_ENTERED = 2
+const int ST_ENDED   = 3
+
+const int END_BEYOND_FIVE = 1
+const int END_NO_ENTRY    = 2
+const int END_STOP        = 3
+const int END_FINAL       = 4
+const int END_SAME_BAR    = 5
+const int END_AGED        = 6
+const int END_PAST_24     = 7
+
+const int EV_FORMED = 0
+const int EV_ENTRY  = 1
+const int EV_LEVEL  = 2
+const int EV_ENDED  = 3
+
+const int LINE_L13      = 4
+const int LINE_L24      = 5
+const int LINE_L14      = 6
+const int PANEL_ROWS    = 12
+const int PANEL_WAVES   = 3
+const int ENDED_FADE    = 40
+const int GUIDE_FADE    = 25
+const int REACHED_TRANSP = 25
+const int FORMING_FADE  = 40
+
+// Level look, as Auto Harmonic Patterns draws its ladder: dotted lines, stacked
+// zones; Clear hides reached targets and Keep draws them stronger.
+const int ENTRY_LINE_TRANSP  = 30
+const int LEVEL_LINE_TRANSP  = 35
+const int TAG_TRANSP         = 85
+const int TAG_REACHED_TRANSP = 60
+const int ZONE_TRANSP        = 92
+const int ZONE_REACHED_TRANSP = 80
+const int FORMING_ZONE_TRANSP = 85
+
+const string BUILD_ID   = "AWW-PREPUB-20260930N"
+const string DISCLOSURE = "T1–T3 are user-set multiples of R, this wave's own Entry-to-Stop distance; Entry and Stop come from its own bars and ATR. They describe chart geometry, not a measured outcome."
+
+const color GUIDE_DARK        = #7D8896
+const color GUIDE_LIGHT       = #55606E
+const color LEVEL_TEXT        = #FFFFFF
+const color INK_DARK          = #C7CFD9
+const color INK_LIGHT         = #1A212B
+const color FILL_DARK         = #0E1218
+const color FILL_LIGHT        = #FFFFFF
+const color PLOT_TINT         = #26A69A
+const color CLEAR             = #00000000
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Inputs
+// ─────────────────────────────────────────────────────────────────────────────
+
+string presetInput      = input.string(PRESET_DAY, "Preset", options = [PRESET_SCALP, PRESET_DAY, PRESET_SWING, PRESET_CUSTOM], group = G_DETECT, tooltip = "• Scalp: swing 3, Entry window 5.\n• Day: swing 5, Entry window 10.\n• Swing: swing 8, Entry window 15.\n• Custom: set both below.", display = display.none)
+string directionInput   = input.string(DIR_BOTH, "Direction", options = [DIR_BOTH, DIR_BULL, DIR_BEAR], group = G_DETECT, tooltip = "• Which waves are found and drawn, developing ones included.", display = display.none)
+int swingCustomInput    = input.int(5, "Swing strength", minval = 2, maxval = 30, group = G_DETECT, active = presetInput == PRESET_CUSTOM, tooltip = "• Bars on each side of a pivot.\n• Point 5 is confirmed after this many further bars; detection then checks the count.\n• Custom preset only.", display = display.none)
+int windowCustomInput   = input.int(10, "Entry window (bars)", minval = 1, maxval = 50, group = G_DETECT, active = presetInput == PRESET_CUSTOM, tooltip = "• Bars, from the one a wave appears on, for a close back inside the 1–3 line.\n• None: the wave ends without levels.\n• Custom preset only.", display = display.none)
+bool skipInput          = input.bool(true, "Allow one skipped swing per leg", group = G_DETECT, tooltip = "• A leg may step over one smaller swing inside it.\n• Counts with the fewest skips are tried first.")
+bool longerInput        = input.bool(false, "Longer swing waves", group = G_DETECT, tooltip = "Adds an independent Wolfe layer on this timeframe using Swing strength times Longer swing multiple. It is separate from skipped legs; four live waves per layer and one shared ended-wave allowance. Longer counts can be excluded by the fixed 500-bar pivot horizon.")
+int multipleInput       = input.int(3, "Longer swing multiple", minval = 2, maxval = 4, group = G_DETECT, active = longerInput, display = display.none, tooltip = "Multiplies the preset or Custom Swing strength; Day with 3 uses 15 bars on each side. Confirmation waits that many bars after point 5. Entry window and the 14-bar volatility window remain the same for both layers.")
+bool levelsInput        = input.bool(true, "Show Entry, Stop and levels", group = G_LEVELS, tooltip = "• Entry, Stop and T1–T3 with zones and tags.\n• Entry: the first close back inside the 1–3 line from the bar the wave appears, not already past the 2–4 line.\n• Off hides them on the chart; the panel and alerts still list them.")
+string onCloseInput     = input.string("Clear", "Once reached", options = ["Clear", "Keep"], group = G_LEVELS, active = levelsInput, display = display.none, tooltip = "Clear: a definitively reached T target loses its line, zone and name; the tag lists the remaining targets. Keep: all targets stay, with reached marks. Order unknown stays visible in either mode. Entry, Stop and the panel record remain.")
+float t1Input           = input.float(0.5, "T1 (R)", minval = 0.1, maxval = 10.0, step = 0.05, group = G_LEVELS, inline = "tiers", display = display.none)
+float t2Input           = input.float(0.75, "T2 (R)", minval = 0.1, maxval = 10.0, step = 0.05, group = G_LEVELS, inline = "tiers", display = display.none)
+float t3Input           = input.float(1.0, "T3 (R)", minval = 0.1, maxval = 10.0, step = 0.05, group = G_LEVELS, inline = "tiers", tooltip = "• Multiples of R, the Entry-to-Stop distance.\n• Must rise from T1 to T3; otherwise only Entry and Stop are built.", display = display.none)
+color targetColorInput  = input.color(#8C66FF, "T level colour", group = G_LEVELS, inline = "levelColours", active = levelsInput)
+color stopColorInput    = input.color(#D9453D, "Stop colour", group = G_LEVELS, inline = "levelColours", active = levelsInput, tooltip = "• Colours of the T1–T3 and Stop lines, zones and tags.")
+bool formingInput       = input.bool(true, "Show developing waves", group = G_LIFECYCLE, tooltip = "• Points 1–4 confirmed, no point 5 yet: drawn dashed.\n• The band is the 1–3 line to 1 ATR beyond it, using volatility frozen when this candidate is selected.\n• ATR is a 14-bar simple mean of true range; admission uses its then-current value.\n• Hidden intrabar beyond the band or at the apex; confirmed invalidation clears it.")
+int keptInput           = input.int(2, "Ended waves kept", minval = 0, maxval = 5, group = G_LIFECYCLE, tooltip = "• Ended waves left on the chart, newest first.\n• Removed whole, and once point 1 is over 4,500 bars back.", display = display.none)
+color bullInput         = input.color(#26A69A, "Bullish", group = G_STYLE, inline = "colours")
+color bearInput         = input.color(#EF5350, "Bearish", group = G_STYLE, inline = "colours")
+color brokenInput       = input.color(#787B86, "Beyond point 5", group = G_STYLE, inline = "colours", tooltip = "• Bullish and Bearish: colours of each wave.\n• Beyond point 5: a wave whose ending bar traded beyond point 5, a Stop included.")
+int widthInput          = input.int(2, "Zigzag", minval = 1, maxval = 4, group = G_STYLE, inline = "zigzag", display = display.none)
+string zigzagStyleInput = input.string(STYLE_SOLID, "", options = [STYLE_SOLID, STYLE_DASHED, STYLE_DOTTED], group = G_STYLE, inline = "zigzag", tooltip = "• Width and style of the 1-2-3-4-5 zigzag.", display = display.none)
+int guideWidthInput     = input.int(1, "1–3 and 2–4 lines", minval = 1, maxval = 4, group = G_STYLE, inline = "guides", display = display.none)
+string guideStyleInput  = input.string(STYLE_SOLID, "", options = [STYLE_SOLID, STYLE_DASHED, STYLE_DOTTED], group = G_STYLE, inline = "guides", tooltip = "• Width and style of the 1–3 and 2–4 lines.", display = display.none)
+int l14WidthInput       = input.int(1, "1–4 line", minval = 1, maxval = 4, group = G_STYLE, inline = "l14", display = display.none)
+string l14StyleInput    = input.string(STYLE_DOTTED, "", options = [STYLE_SOLID, STYLE_DASHED, STYLE_DOTTED], group = G_STYLE, inline = "l14", tooltip = "• Width and style of the 1–4 line, drawn as a reference only.", display = display.none)
+bool fillInput          = input.bool(true, "Wedge fill", group = G_STYLE, inline = "fill")
+int fillTranspInput     = input.int(88, "Transparency", minval = 50, maxval = 100, group = G_STYLE, inline = "fill", active = fillInput, tooltip = "• Shades the wedge between the 1–3 and 2–4 lines in the wave's colour.\n• 100 is fully clear.", display = display.none)
+bool pointsInput        = input.bool(true, "Point labels", group = G_DISPLAY, tooltip = "• Labels 1–5 on each wave.\n• Point 5's hover lists all five prices.")
+bool panelInput         = input.bool(true, "Panel", group = G_DISPLAY, tooltip = "• The newest three waves, newest first: direction, state, Entry, Stop and T1–T3.\n• Notices stay visible when it is off.")
+string positionInput    = input.string(POS_AUTO, "Panel position", options = [POS_AUTO, POS_TOP_RIGHT, POS_TOP_LEFT, POS_BOTTOM_RIGHT, POS_BOTTOM_LEFT], group = G_DISPLAY, tooltip = "• Auto: bottom left after a Conventionally Bullish wave; top right otherwise.\n• A bottom panel ends in a blank row, so TradingView's logo or badge covers that row, not a level.", display = display.none)
+string textSizeInput    = input.string(SIZE_SMALL, "Text size", options = [SIZE_TINY, SIZE_SMALL, SIZE_NORMAL], group = G_DISPLAY, tooltip = "• Point labels, level tags and the panel.", display = display.none)
+string eventsInput      = input.string(EVENTS_ALL, "Alert events", options = [EVENTS_ALL, EVENTS_FORMED, EVENTS_ENDINGS, EVENTS_OFF], group = G_ALERTS, tooltip = "• All events: formed, Entry, each level reached, each ending.\n• Formed and Entry: those two only.\n• Endings: each ending with its reason.\n• The four alert conditions are set separately.", display = display.none)
+string detailInput      = input.string(DETAIL_BRIEF, "Detail", options = [DETAIL_BRIEF, DETAIL_FULL, DETAIL_JSON], group = G_ALERTS, tooltip = "• Brief: event, direction, times of points 2–4.\n• Full: adds prices, multiples and the level note.\n• JSON: the same fields as structured records.\n• One message per bar carries all its events.", display = display.none)
+
+// The preset decides the two detection settings; Custom hands them to the inputs.
+int swingInput  = presetInput == PRESET_SCALP ? 3 : presetInput == PRESET_DAY ? 5 : presetInput == PRESET_SWING ? 8 : swingCustomInput
+int longerStrengthInput = swingInput * multipleInput
+int windowInput = presetInput == PRESET_SCALP ? 5 : presetInput == PRESET_DAY ? 10 : presetInput == PRESET_SWING ? 15 : windowCustomInput
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+type Pivot
+    int bar
+    int stamp
+    float price
+    int side
+
+type Wave
+    bool longer = false
+    array<Pivot> points
+    int side
+    string key
+    int admitBar
+    int admitTime
+    float atr
+    int ageBars
+    float apexBar
+    int state
+    int reason
+    int endBar
+    float entry
+    int entryBar
+    float stop
+    float unit
+    array<float> tiers
+    array<int> reachedBars
+    int stopBar
+    bool dirty
+    array<line> geometry
+    array<label> pointLabels
+    array<line> levelLines
+    array<label> levelTags
+    array<box> levelZones
+    linefill wedge
+
+// Points 1–4 of a wave still waiting for its point 5.
+type Forming
+    array<Pivot> points
+    int side
+    float atr
+    float apexBar
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Functions
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Chain
+acceptPivot(array<Pivot> chain, Pivot pivot) =>
+    int n = array.size(chain)
+    bool changed = true
+    if n > 0 and array.get(chain, n - 1).side == pivot.side
+        float lastPrice = array.get(chain, n - 1).price
+        changed := pivot.side == 1 ? pivot.price >= lastPrice : pivot.price <= lastPrice
+        if changed
+            array.set(chain, n - 1, pivot)
+    else
+        array.push(chain, pivot)
+        while array.size(chain) > CHAIN_MAX
+            array.shift(chain)
+    changed
+
+trimAge(array<Pivot> chain, int barNow) =>
+    while array.size(chain) > 0 and barNow - array.first(chain).bar > PIVOT_HORIZON
+        array.shift(chain)
+    0
+
+// ── Enumeration
+spanOf(int mask, int leg) =>
+    // Leg 0 is the oldest and reads the mask's highest bit, so masks with an
+    // equal number of skipped pivots rise in the lexicographic order of spans.
+    math.floor(mask / math.pow(2, LEGS - 1 - leg)) % 2 == 1 ? 3 : 1
+
+skippedOf(int mask) =>
+    int skipped = 0
+    for leg = 0 to LEGS - 1
+        skipped += spanOf(mask, leg) == 3 ? 1 : 0
+    skipped
+
+directedLeg(array<Pivot> chain, int iOld, int iNew) =>
+    Pivot older = array.get(chain, iOld)
+    Pivot newer = array.get(chain, iNew)
+    newer.bar > older.bar and newer.side * (newer.price - older.price) > 0
+
+dominant(array<Pivot> chain, int iOld, int iNew) =>
+    float pOld = array.get(chain, iOld).price
+    float pNew = array.get(chain, iNew).price
+    float lo = math.min(pOld, pNew)
+    float hi = math.max(pOld, pNew)
+    bool ok = true
+    if iNew - iOld > 1
+        for k = iOld + 1 to iNew - 1
+            float pk = array.get(chain, k).price
+            if pk <= lo or pk >= hi
+                ok := false
+        if ok and iNew - iOld > 2
+            float cap = MINOR_FRAC * (hi - lo)
+            for k = iOld + 1 to iNew - 2
+                if math.abs(array.get(chain, k + 1).price - array.get(chain, k).price) > cap
+                    ok := false
+    ok
+
+candidateIdx(array<Pivot> chain, int mask) =>
+    array<int> idx = array.new<int>(POINTS, 0)
+    int at = array.size(chain) - 1
+    bool ok = at >= 0
+    array.set(idx, LEGS, at)
+    for leg = LEGS - 1 to 0
+        at -= spanOf(mask, leg)
+        ok := ok and at >= 0
+        if at >= 0
+            array.set(idx, leg, at)
+    if ok
+        for leg = 0 to LEGS - 1
+            if not directedLeg(chain, array.get(idx, leg), array.get(idx, leg + 1)) or not dominant(chain, array.get(idx, leg), array.get(idx, leg + 1))
+                ok := false
+    [ok, idx]
+
+// ── Geometry and rules
+lineAt(Pivot p, Pivot q, int x) =>
+    p.price + (q.price - p.price) * (x - p.bar) / (q.bar - p.bar)
+
+// A price exactly on a line can compute a hair to either side of it; a gap
+// within LINE_EPS of the price is read as zero, subject to a quarter of the
+// smallest tick-derived change in the comparison's own units.
+onLine(float gap, float price, float step) =>
+    math.abs(gap) <= math.min(LINE_EPS * math.abs(price), 0.25 * step) ? 0.0 : gap
+
+lineStep(Pivot p, Pivot q) =>
+    syminfo.mintick / (q.bar - p.bar)
+
+directionOf(array<Pivot> pts) =>
+    array.get(pts, 4).side == -1 ? 1 : -1
+
+wolfeRulesPass(array<Pivot> pts, float atr) =>
+    Pivot p1 = array.get(pts, 0)
+    Pivot p2 = array.get(pts, 1)
+    Pivot p3 = array.get(pts, 2)
+    Pivot p4 = array.get(pts, 3)
+    Pivot p5 = array.get(pts, 4)
+    int s = directionOf(pts)
+    float gapStep = lineStep(p1, p3) / (p4.bar - p2.bar)
+    float widthAt5 = onLine(s * (lineAt(p2, p4, p5.bar) - lineAt(p1, p3, p5.bar)), p5.price, gapStep)
+    float widthAt4 = s * (p4.price - lineAt(p1, p3, p4.bar))
+    float overshoot = onLine(s * (lineAt(p1, p3, p5.bar) - p5.price), p5.price, lineStep(p1, p3))
+    bool w1 = s * (p1.price - p3.price) > 0
+    bool w2 = s * (p4.price - p1.price) > 0
+    bool w3 = widthAt5 > 0 and onLine(widthAt4 - widthAt5, p5.price, gapStep) > 0
+    bool w4 = overshoot >= 0
+    bool w5 = overshoot <= OVERSHOOT_ATR * atr
+    w1 and w2 and w3 and w4 and w5
+
+keyOf(array<Pivot> pts) =>
+    // Points 1 and 5 are left out: one wave per 2-3-4 core.
+    str.tostring(directionOf(pts)) + ":" + str.tostring(array.get(pts, 1).bar) + "," + str.tostring(array.get(pts, 2).bar) + "," + str.tostring(array.get(pts, 3).bar)
+
+sideAllowed(int side) =>
+    directionInput == DIR_BOTH or (directionInput == DIR_BULL and side == 1) or (directionInput == DIR_BEAR and side == -1)
+
+selectWave(array<Pivot> chain, float atr, array<string> seenKeys) =>
+    array<Pivot> chosen = na
+    // Point 5 is the newest pivot: a low for a Conventionally Bullish wave.
+    bool allowed = array.size(chain) > 0 and sideAllowed(-array.last(chain).side)
+    int maxSkipped = skipInput ? LEGS : 0
+    for skipped = 0 to maxSkipped
+        for mask = 0 to MASKS - 1
+            if allowed and na(chosen) and skippedOf(mask) == skipped
+                [ok, idx] = candidateIdx(chain, mask)
+                if ok
+                    array<Pivot> pts = array.new<Pivot>()
+                    for i in idx
+                        array.push(pts, array.get(chain, i))
+                    if wolfeRulesPass(pts, atr) and not array.includes(seenKeys, keyOf(pts))
+                        chosen := pts
+    chosen
+
+// ── Developing waves
+formingSpanOf(int mask, int leg) =>
+    math.floor(mask / math.pow(2, LEGS - 2 - leg)) % 2 == 1 ? 3 : 1
+
+formingIdx(array<Pivot> chain, int mask) =>
+    array<int> idx = array.new<int>(LEGS, 0)
+    int at = array.size(chain) - 1
+    bool ok = at >= 0
+    array.set(idx, LEGS - 1, at)
+    for leg = LEGS - 2 to 0
+        at -= formingSpanOf(mask, leg)
+        ok := ok and at >= 0
+        if at >= 0
+            array.set(idx, leg, at)
+    if ok
+        for leg = 0 to LEGS - 2
+            if not directedLeg(chain, array.get(idx, leg), array.get(idx, leg + 1)) or not dominant(chain, array.get(idx, leg), array.get(idx, leg + 1))
+                ok := false
+    [ok, idx]
+
+// Points 3 and 4 lie beyond point 1, and the 1–3 and 2–4 lines narrow toward an apex
+// still ahead: the rules a point 5 cannot change. Returns the apex bar, or na.
+formingApex(array<Pivot> pts) =>
+    Pivot p1 = array.get(pts, 0)
+    Pivot p2 = array.get(pts, 1)
+    Pivot p3 = array.get(pts, 2)
+    Pivot p4 = array.get(pts, 3)
+    int s = p4.side
+    float slope13 = (p3.price - p1.price) / (p3.bar - p1.bar)
+    float slope24 = (p4.price - p2.price) / (p4.bar - p2.bar)
+    float widthAt4 = s * (p4.price - lineAt(p1, p3, p4.bar))
+    float narrowing = onLine(s * (slope13 - slope24), p4.price, lineStep(p1, p3) / (p4.bar - p2.bar))
+    bool rules = s * (p1.price - p3.price) > 0 and s * (p4.price - p1.price) > 0 and widthAt4 > 0 and narrowing > 0
+    rules ? p4.bar + widthAt4 / narrowing : na
+
+formingLineAt(Forming f, int x) => lineAt(array.get(f.points, 0), array.get(f.points, 2), x)
+
+formingFarAt(Forming f, int x) => formingLineAt(f, x) - f.side * OVERSHOOT_ATR * f.atr
+
+// Cleared once a bar from fromBar to barNow trades past the band's far edge, at
+// the apex, or when point 1 leaves the pivot horizon. fromBar is at most
+// Swing strength bars back, so the offsets read stay short.
+formingHolds(Forming f, int barNow, int fromBar) =>
+    bool holds = barNow < f.apexBar and barNow - array.get(f.points, 0).bar <= PIVOT_HORIZON
+    if holds and fromBar <= barNow
+        for x = fromBar to barNow
+            int back = barNow - x
+            float against = f.side > 0 ? low[back] : high[back]
+            if not na(against) and f.side * (against - formingFarAt(f, x)) < 0
+                holds := false
+    holds
+
+selectForming(array<Pivot> chain, float atr, array<string> seenKeys, int barNow) =>
+    Forming chosen = na
+    // Point 4 is the newest pivot: a high for a Conventionally Bullish wave.
+    if not na(atr) and atr > 0 and array.size(chain) > 0 and sideAllowed(array.last(chain).side)
+        int maxSkipped = skipInput ? LEGS - 1 : 0
+        for skipped = 0 to maxSkipped
+            for mask = 0 to MASKS / 2 - 1
+                if na(chosen) and skippedOf(mask) == skipped
+                    [ok, idx] = formingIdx(chain, mask)
+                    if ok
+                        array<Pivot> pts = array.new<Pivot>()
+                        for i in idx
+                            array.push(pts, array.get(chain, i))
+                        float apex = formingApex(pts)
+                        string key = str.tostring(array.get(pts, 3).side) + ":" + str.tostring(array.get(pts, 1).bar) + "," + str.tostring(array.get(pts, 2).bar) + "," + str.tostring(array.get(pts, 3).bar)
+                        if not na(apex) and not array.includes(seenKeys, key)
+                            Forming candidate = Forming.new(pts, array.get(pts, 3).side, atr, apex)
+                            if formingHolds(candidate, barNow, array.get(pts, 3).bar + 1)
+                                chosen := candidate
+    chosen
+
+
+remember(array<string> seenKeys, string key) =>
+    array.push(seenKeys, key)
+    while array.size(seenKeys) > SEEN_MAX
+        array.shift(seenKeys)
+    0
+
+// Where the 1–3 and 2–4 lines meet; a wave's apex lies after point 5.
+apexOf(array<Pivot> pts) =>
+    Pivot p4 = array.get(pts, 3)
+    Pivot p5 = array.get(pts, 4)
+    float widthAt4 = p4.price - lineAt(array.get(pts, 0), array.get(pts, 2), p4.bar)
+    float widthAt5 = lineAt(array.get(pts, 1), p4, p5.bar) - lineAt(array.get(pts, 0), array.get(pts, 2), p5.bar)
+    p4.bar + widthAt4 * (p5.bar - p4.bar) / (widthAt4 - widthAt5)
+
+// The 1–3 and 2–4 lines stop at their apex, so they never cross.
+guideRight(Wave w, int x) =>
+    int(math.min(x, math.floor(w.apexBar)))
+
+line13At(Wave w, int x) => lineAt(array.get(w.points, 0), array.get(w.points, 2), x)
+line24At(Wave w, int x) => lineAt(array.get(w.points, 1), array.get(w.points, 3), x)
+line14At(Wave w, int x) => lineAt(array.get(w.points, 0), array.get(w.points, 3), x)
+
+// ── Levels
+tickValid() =>
+    not na(syminfo.mintick) and syminfo.mintick > 0
+
+// `format.mintick` prints at the price scale's decimals, which a symbol quoted in
+// fractions of a point does not have: ZN's 1/64 tick printed 104.859375 as 104.9.
+// Prices are printed with the tick's own decimal count instead. The tolerance is
+// relative to the tick, so a tick of 1e-9 or finer still counts its decimals.
+priceFormatOf() =>
+    string out = format.mintick
+    if tickValid()
+        float step = syminfo.mintick
+        int places = 0
+        while places < 15 and math.abs(step - math.round(step)) > step * 1e-6
+            step *= 10
+            places += 1
+        out := "0"
+        if places > 0
+            out += "."
+            for k = 1 to places
+                out += "0"
+    out
+
+var string priceFormat = priceFormatOf()
+
+gridPrice(float price) =>
+    tickValid() ? math.round(price / syminfo.mintick) * syminfo.mintick : price
+
+outwardTick(float value, bool upward, float reference) =>
+    float out = value
+    if tickValid()
+        float mt = syminfo.mintick
+        float units = value / mt
+        int nearest = math.round(units)
+        if math.abs(units - nearest) <= math.max(1e-9, math.abs(units) * 2e-15, math.abs(reference / mt) * 2e-15)
+            units := nearest
+        out := (upward ? math.ceil(units) : math.floor(units)) * mt
+    out
+
+multsValid() =>
+    t1Input > 0 and t2Input > 0 and t3Input > 0 and t1Input < t2Input and t2Input < t3Input
+
+multOf(int tier) =>
+    tier == 0 ? t1Input : tier == 1 ? t2Input : t3Input
+
+setLevels(Wave w) =>
+    float rawStop = array.get(w.points, 4).price - w.side * STOP_BEYOND_ATR * w.atr
+    float dist = math.max(w.side * (w.entry - rawStop), MIN_STOP_ATR * w.atr)
+    float stopPrice = w.entry - w.side * dist
+    if tickValid()
+        stopPrice := w.side > 0 ? outwardTick(math.min(stopPrice, w.entry - syminfo.mintick), false, w.entry) : outwardTick(math.max(stopPrice, w.entry + syminfo.mintick), true, w.entry)
+    w.stop := stopPrice
+    w.unit := math.abs(w.entry - stopPrice)
+    // A positive multiple of an R of at least one tick, rounded away from Entry,
+    // is already a tick beyond it. Rising multiples can still round onto one
+    // tick when R is a few ticks, so each tier sits a tick beyond the one before.
+    if multsValid()
+        for tier = 0 to 2
+            float price = outwardTick(w.entry + w.side * multOf(tier) * w.unit, w.side > 0, w.entry)
+            if tier > 0 and tickValid()
+                float before = array.get(w.tiers, tier - 1)
+                if w.side * (price - before) < syminfo.mintick / 2
+                    price := before + w.side * syminfo.mintick
+            array.push(w.tiers, price)
+            array.push(w.reachedBars, na)
+    0
+
+// ── Words
+layerPrefix(bool longer) =>
+    longer ? "Longer " : ""
+
+strokeOf(int base, bool longer) =>
+    longer ? math.min(base + 1, 4) : base
+
+directionWord(int side) =>
+    side == 1 ? "Conventionally Bullish" : "Conventionally Bearish"
+
+reasonWord(int reason) =>
+    switch reason
+        END_BEYOND_FIVE => "traded beyond point 5"
+        END_NO_ENTRY    => "no close inside the 1–3 line"
+        END_STOP        => "Stop reached"
+        END_FINAL       => "T3 reached"
+        END_SAME_BAR    => "order unknown"
+        END_AGED        => "aged out"
+        END_PAST_24     => "closed past the 2–4 line"
+        => ""
+
+multText(float mult) =>
+    str.tostring(mult, "0.0##") + "R"
+
+tierName(int tier) =>
+    "T" + str.tostring(tier + 1) + " " + multText(multOf(tier))
+
+priceText(float price) =>
+    str.tostring(price, priceFormat)
+
+// Seconds charts print seconds, so two points a few seconds apart never read alike.
+stampText(int stamp) =>
+    str.format_time(stamp, timeframe.isseconds ? "yyyy-MM-dd HH:mm:ss" : "yyyy-MM-dd HH:mm", syminfo.timezone)
+
+keyText(Wave w) =>
+    "points 2–4 opened " + stampText(array.get(w.points, 1).stamp) + ", " + stampText(array.get(w.points, 2).stamp) + ", " + stampText(array.get(w.points, 3).stamp)
+
+eventWord(int kind, Wave w, array<int> fresh) =>
+    string word = kind == EV_FORMED ? "Formed" : kind == EV_ENTRY ? "Entry" : "Ended: " + reasonWord(w.reason)
+    if kind == EV_LEVEL
+        array<string> names = array.new<string>()
+        for tier in fresh
+            array.push(names, "T" + str.tostring(tier + 1) + " reached")
+        word := array.join(names, ", ")
+    word
+
+pointsText(Wave w) =>
+    array<string> parts = array.new<string>()
+    for [k, p] in w.points
+        array.push(parts, str.tostring(k + 1) + " " + priceText(p.price))
+    array.join(parts, " · ")
+
+levelsText(Wave w) =>
+    string out = "no Entry"
+    if not na(w.entry)
+        out := "Entry " + priceText(w.entry) + " · Stop " + multText(1.0) + " " + priceText(w.stop) + " · R " + priceText(w.unit)
+        for [tier, price] in w.tiers
+            out += " · " + tierName(tier) + " " + priceText(price)
+    out
+
+jsonNumber(float value) =>
+    na(value) ? "null" : str.tostring(value, "0.###############")
+
+jsonString(string value) =>
+    string escaped = str.replace_all(value, "\\", "\\\\")
+    escaped := str.replace_all(escaped, "\"", "\\\"")
+    escaped := str.replace_all(escaped, "\n", "\\n")
+    "\"" + escaped + "\""
+
+// A price prints at the tick's decimals, so R, a difference of two ticked
+// prices, carries no float noise.
+jsonPrice(float value) =>
+    na(value) ? "null" : tickValid() ? str.tostring(value, priceFormat) : jsonNumber(value)
+
+configurationJson() =>
+    "{\"swing\":" + str.tostring(swingInput) + ",\"skip\":" + str.tostring(skipInput) + ",\"window\":" + str.tostring(windowInput) + ",\"t1\":" + jsonNumber(t1Input) + ",\"t2\":" + jsonNumber(t2Input) + ",\"t3\":" + jsonNumber(t3Input) + ",\"direction\":" + jsonString(directionInput) + ",\"kept\":" + str.tostring(keptInput) + ",\"events\":" + jsonString(eventsInput) + ",\"detail\":" + jsonString(detailInput) + (longerInput ? ",\"longer\":true,\"multiple\":" + str.tostring(multipleInput) : "") + "}"
+
+eventJson(int kind, Wave w, array<int> fresh) =>
+    array<string> prices = array.new<string>()
+    for p in w.points
+        array.push(prices, jsonPrice(p.price))
+    array<string> tierPrices = array.new<string>()
+    for price in w.tiers
+        array.push(tierPrices, jsonPrice(price))
+    array<string> freshText = array.new<string>()
+    for tier in fresh
+        array.push(freshText, str.tostring(tier + 1))
+    "{\"event\":" + jsonString(eventWord(kind, w, fresh)) + (longerInput ? ",\"layer\":" + jsonString(w.longer ? "Longer" : "Main") : "") + ",\"direction\":" + jsonString(directionWord(w.side)) + ",\"side\":" + str.tostring(w.side) + ",\"key\":[" + str.tostring(array.get(w.points, 1).stamp) + "," + str.tostring(array.get(w.points, 2).stamp) + "," + str.tostring(array.get(w.points, 3).stamp) + "],\"time\":" + str.tostring(time) + ",\"points\":[" + array.join(prices, ",") + "],\"entry\":" + jsonPrice(w.entry) + ",\"stop\":" + jsonPrice(w.stop) + ",\"r\":" + jsonPrice(w.unit) + ",\"tiers\":[" + array.join(tierPrices, ",") + "],\"multiples\":[" + jsonNumber(t1Input) + "," + jsonNumber(t2Input) + "," + jsonNumber(t3Input) + "],\"reached\":[" + array.join(freshText, ",") + "],\"note\":" + jsonString(DISCLOSURE) + "}"
+
+eventMessage(int kind, Wave w, array<int> fresh) =>
+    string out = layerPrefix(w.longer) + eventWord(kind, w, fresh) + " | " + directionWord(w.side) + " | " + keyText(w)
+    if detailInput == DETAIL_FULL
+        out += " | points " + pointsText(w) + " | " + levelsText(w) + " | multiples " + multText(t1Input) + ", " + multText(t2Input) + ", " + multText(t3Input) + " | " + DISCLOSURE
+    else if detailInput == DETAIL_JSON
+        out := eventJson(kind, w, fresh)
+    out
+
+eventEnabled(int kind) =>
+    eventsInput == EVENTS_ALL or (eventsInput == EVENTS_FORMED and (kind == EV_FORMED or kind == EV_ENTRY)) or (eventsInput == EVENTS_ENDINGS and kind == EV_ENDED)
+
+recordEvent(int kind, Wave w, array<int> fresh, array<int> flags, array<string> messages) =>
+    array.set(flags, kind, 1)
+    w.dirty := true
+    // Messages are built only where alert() can deliver them.
+    if barstate.isrealtime and eventEnabled(kind)
+        array.push(messages, eventMessage(kind, w, fresh))
+    0
+
+// ── Lifecycle
+newWave(array<Pivot> pts, int barNow, float atr, bool longer = false) =>
+    Wave.new(longer = longer, points = pts, side = directionOf(pts), key = keyOf(pts), admitBar = barNow, admitTime = time, atr = atr, ageBars = array.get(pts, 4).bar - array.get(pts, 0).bar, apexBar = apexOf(pts), state = ST_WAITING, reason = 0, tiers = array.new<float>(), reachedBars = array.new<int>(), dirty = true, geometry = array.new<line>(), pointLabels = array.new<label>(), levelLines = array.new<line>(), levelTags = array.new<label>(), levelZones = array.new<box>())
+
+endWave(Wave w, int barNow, int why, array<int> flags, array<string> messages) =>
+    w.state := ST_ENDED
+    w.reason := why
+    w.endBar := barNow
+    recordEvent(EV_ENDED, w, array.new<int>(), flags, messages)
+
+stepWaiting(Wave w, int barNow, array<int> flags, array<string> messages) =>
+    float against = w.side > 0 ? low : high
+    float inside13 = onLine(w.side * (close - line13At(w, barNow)), close, lineStep(array.get(w.points, 0), array.get(w.points, 2)))
+    float past24 = onLine(w.side * (close - line24At(w, barNow)), close, lineStep(array.get(w.points, 1), array.get(w.points, 3)))
+    if w.side * (array.get(w.points, 4).price - against) > 0
+        endWave(w, barNow, END_BEYOND_FIVE, flags, messages)
+    else if inside13 > 0 and past24 > 0
+        // Back inside the 1–3 line but already through the 2–4 line: the wedge
+        // is crossed, so no Entry is set.
+        endWave(w, barNow, END_PAST_24, flags, messages)
+    else if inside13 > 0
+        w.entry := gridPrice(close)
+        w.entryBar := barNow
+        setLevels(w)
+        w.state := ST_ENTERED
+        recordEvent(EV_ENTRY, w, array.new<int>(), flags, messages)
+    else if barNow - w.admitBar + 1 >= windowInput
+        endWave(w, barNow, END_NO_ENTRY, flags, messages)
+    else
+        0
+
+stepEntered(Wave w, int barNow, array<int> flags, array<string> messages) =>
+    // A level counts as traded within half a tick: one built as ticks x mintick
+    // need not equal the price it prints at.
+    float tolerance = tickValid() ? syminfo.mintick / 2 : 0.0
+    float favour = w.side > 0 ? high : low
+    float against = w.side > 0 ? low : high
+    bool stopHit = w.side * (w.stop - against) >= -tolerance
+    array<int> fresh = array.new<int>()
+    for [tier, price] in w.tiers
+        if na(array.get(w.reachedBars, tier)) and w.side * (favour - price) >= -tolerance
+            array.set(w.reachedBars, tier, barNow)
+            array.push(fresh, tier)
+    if stopHit
+        w.stopBar := barNow
+        // A tier traded on the Stop's bar is marked order unknown, never
+        // reached, so it raises no level event; the ending names the order.
+        if array.size(fresh) > 0
+            endWave(w, barNow, END_SAME_BAR, flags, messages)
+        else
+            endWave(w, barNow, END_STOP, flags, messages)
+    else
+        if array.size(fresh) > 0
+            recordEvent(EV_LEVEL, w, fresh, flags, messages)
+        if array.size(fresh) > 0 and not na(array.get(w.reachedBars, array.size(w.tiers) - 1))
+            endWave(w, barNow, END_FINAL, flags, messages)
+        else if barNow - w.entryBar >= w.ageBars
+            endWave(w, barNow, END_AGED, flags, messages)
+        else
+            0
+
+liveCount(array<Wave> live, bool longer = false) =>
+    int n = 0
+    for w in live
+        n += w.state != ST_ENDED and w.longer == longer ? 1 : 0
+    n
+
+// Returns 1 admitted, 2 skipped at capacity, 3 skipped beyond the draw reach, 0 none.
+// A core already skipped returns 0: a later point 5 can re-complete it, and it
+// is counted once. It stays admissible, since only admitted keys are seen.
+tryAdmit(array<Pivot> chain, array<string> seenKeys, array<string> refusedKeys, array<Wave> live, int barNow, float atr, array<int> flags, array<string> messages, bool longer = false) =>
+    int status = 0
+    Wave admitted = na
+    if not na(atr) and atr > 0
+        array<Pivot> pts = selectWave(chain, atr, seenKeys)
+        if not na(pts)
+            string key = keyOf(pts)
+            bool beyond = barNow - array.get(pts, 0).bar > DRAW_MAX_BACK
+            bool refused = beyond or liveCount(live, longer) >= ACTIVE_MAX
+            if refused and not array.includes(refusedKeys, key)
+                remember(refusedKeys, key)
+                status := beyond ? 3 : 2
+            else if not refused
+                admitted := newWave(pts, barNow, atr, longer)
+                remember(seenKeys, admitted.key)
+                array.push(live, admitted)
+                recordEvent(EV_FORMED, admitted, array.new<int>(), flags, messages)
+                stepWaiting(admitted, barNow, flags, messages)
+                status := 1
+    [status, admitted]
+
+// ── Colours
+addTransparency(color selected, float extra) =>
+    color.new(selected, 100.0 - (100.0 - color.t(selected)) * (100.0 - math.min(100.0, math.max(0.0, extra))) / 100.0)
+
+lightChart() =>
+    color bg = chart.bg_color
+    (color.r(bg) * 0.299 + color.g(bg) * 0.587 + color.b(bg) * 0.114) > 140
+
+// A wave whose ending bar traded beyond point 5 takes the Beyond point 5 colour:
+// the Stop sits beyond point 5, so a Stop ending is one too.
+brokenOf(Wave w) =>
+    w.reason == END_BEYOND_FIVE or w.reason == END_STOP or w.reason == END_SAME_BAR
+
+waveBase(Wave w) =>
+    brokenOf(w) ? brokenInput : w.side == 1 ? bullInput : bearInput
+
+waveColor(Wave w) =>
+    color base = waveBase(w)
+    w.state == ST_ENDED ? addTransparency(base, ENDED_FADE) : base
+
+guideColor() =>
+    lightChart() ? GUIDE_LIGHT : GUIDE_DARK
+
+inkColor() =>
+    lightChart() ? INK_LIGHT : INK_DARK
+
+lineStyleOf(string chosen) =>
+    switch chosen
+        STYLE_DASHED => line.style_dashed
+        STYLE_DOTTED => line.style_dotted
+        => line.style_solid
+
+// An ended wave's transparency: the ended fade laid over the level's own.
+levelTint(Wave w, color base, int transp) =>
+    float used = w.state == ST_ENDED ? 100.0 - (100.0 - transp) * (100.0 - ENDED_FADE) / 100.0 : transp
+    addTransparency(base, used)
+
+textSizeOf(string chosen) =>
+    switch chosen
+        SIZE_NORMAL => size.normal
+        SIZE_SMALL  => size.small
+        => size.tiny
+
+// ── Drawing: no line past the latest bar, and a kept set is never re-set
+levelPriceOf(Wave w, int role) =>
+    role == 0 ? w.entry : role == 1 ? w.stop : array.get(w.tiers, role - 2)
+
+levelColorOf(int role) =>
+    role == 0 ? chart.fg_color : role == 1 ? stopColorInput : targetColorInput
+
+levelMarkOf(Wave w, int role) =>
+    // On a Stop-and-tier bar only the Stop and the tiers traded on that bar are
+    // order unknown; a tier traded earlier stays reached.
+    int markBar = role == 1 ? w.stopBar : role >= 2 ? array.get(w.reachedBars, role - 2) : na
+    na(markBar) ? "" : w.reason == END_SAME_BAR and markBar == w.stopBar ? " order unknown" : " reached"
+
+levelNameOf(int role) =>
+    role == 0 ? "Entry" : role == 1 ? "Stop " + multText(1.0) : tierName(role - 2)
+
+levelHoverOf(Wave w, int role) =>
+    string rText = "R = Entry to Stop = " + priceText(w.unit) + "."
+    string formula = role == 0 ? "The first close back inside the 1–3 line from the bar the wave appears, not already past the 2–4 line, rounded to the tick." : role == 1 ? "Point 5 beyond by " + str.tostring(STOP_BEYOND_ATR, "0.##########") + " × ATR, at least " + str.tostring(MIN_STOP_ATR, "0.##########") + " × ATR from Entry, rounded outward to the tick; ATR is the " + str.tostring(VOLATILITY_LENGTH) + "-bar simple mean of true range when the wave formed. " + rText : (w.side > 0 ? "Entry plus " : "Entry minus ") + multText(multOf(role - 2)) + ", rounded outward to the tick and at least one tick beyond the level before it. " + rText
+    layerPrefix(w.longer) + levelNameOf(role) + ": " + priceText(levelPriceOf(w, role)) + "\n" + formula + "\n" + DISCLOSURE
+
+tiersHoverOf(Wave w) =>
+    string out = ""
+    for [tier, price] in w.tiers
+        out += tierName(tier) + ": " + priceText(price) + levelMarkOf(w, tier + 2) + "\n"
+    layerPrefix(w.longer) + out + (w.side > 0 ? "Entry plus" : "Entry minus") + " each multiple of R, rounded outward to the tick and at least one tick beyond the level before it. R = Entry to Stop = " + priceText(w.unit) + ".\n" + DISCLOSURE
+
+targetCleared(Wave w, int role) =>
+    role >= 2 and onCloseInput == "Clear" and levelMarkOf(w, role) == " reached"
+
+firstRemaining(Wave w) =>
+    int found = -1
+    for [tier, price] in w.tiers
+        if found == -1 and not targetCleared(w, tier + 2)
+            found := tier
+    found
+
+// Opaque backing keeps the surface tint while masking candles behind the text.
+opaqueTag(color tint) =>
+    float weight = 1.0 - color.t(tint) / 100.0
+    color bg = chart.bg_color
+    color.rgb(math.round(color.r(tint) * weight + color.r(bg) * (1.0 - weight)), math.round(color.g(tint) * weight + color.g(bg) * (1.0 - weight)), math.round(color.b(tint) * weight + color.b(bg) * (1.0 - weight)), 0)
+
+tagTextOf(Wave w, int k) =>
+    // One compact tag lists the targets still displayed.
+    string out = k <= 1 ? levelNameOf(k) + levelMarkOf(w, k) : ""
+    if k == 2
+        for [tier, price] in w.tiers
+            if not targetCleared(w, tier + 2)
+                string mark = levelMarkOf(w, tier + 2)
+                out += (out != "" ? " · " : "") + "T" + str.tostring(tier + 1) + (mark == " reached" ? " ✓" : mark)
+    out == "" ? "" : layerPrefix(w.longer) + out
+
+tagReachedOf(Wave w, int k) =>
+    bool reached = k <= 1 and levelMarkOf(w, k) != ""
+    if k == 2
+        for tier = 0 to array.size(w.tiers) - 1
+            reached := reached or levelMarkOf(w, tier + 2) != ""
+    reached
+
+pointHoverOf(Wave w, int k) =>
+    Pivot p = array.get(w.points, k)
+    k == 4 ? layerPrefix(w.longer) + directionWord(w.side) + " Wolfe Wave\n" + pointsText(w) : "Point " + str.tostring(k + 1) + ": " + priceText(p.price)
+
+drawGeometry(Wave w, int barNow) =>
+    color tint = waveColor(w)
+    color guide = addTransparency(tint, GUIDE_FADE)
+    for k = 0 to LEGS - 1
+        Pivot a = array.get(w.points, k)
+        Pivot b = array.get(w.points, k + 1)
+        array.push(w.geometry, line.new(a.bar, a.price, b.bar, b.price, xloc = xloc.bar_index, extend = extend.none, color = tint, style = lineStyleOf(zigzagStyleInput), width = strokeOf(widthInput, w.longer)))
+    Pivot p1 = array.get(w.points, 0)
+    Pivot p2 = array.get(w.points, 1)
+    int guideX = guideRight(w, barNow)
+    array.push(w.geometry, line.new(p1.bar, p1.price, guideX, line13At(w, guideX), xloc = xloc.bar_index, extend = extend.none, color = guide, style = lineStyleOf(guideStyleInput), width = strokeOf(guideWidthInput, w.longer)))
+    array.push(w.geometry, line.new(p2.bar, p2.price, guideX, line24At(w, guideX), xloc = xloc.bar_index, extend = extend.none, color = guide, style = lineStyleOf(guideStyleInput), width = strokeOf(guideWidthInput, w.longer)))
+    array.push(w.geometry, line.new(p1.bar, p1.price, barNow, line14At(w, barNow), xloc = xloc.bar_index, extend = extend.none, color = guide, style = lineStyleOf(l14StyleInput), width = strokeOf(l14WidthInput, w.longer)))
+    if fillInput
+        // Bound to the two lines, so it follows their right edges without a setter.
+        w.wedge := linefill.new(array.get(w.geometry, LINE_L13), array.get(w.geometry, LINE_L24), levelTint(w, waveBase(w), fillTranspInput))
+    if pointsInput
+        for [k, p] in w.points
+            array.push(w.pointLabels, label.new(p.bar, p.price, (k == 4 ? layerPrefix(w.longer) : "") + str.tostring(k + 1), xloc = xloc.bar_index, yloc = yloc.price, color = CLEAR, style = (p.side == 1) != w.longer ? label.style_label_down : label.style_label_up, textcolor = tint, size = textSizeOf(textSizeInput), tooltip = pointHoverOf(w, k)))
+    0
+
+zoneFromOf(Wave w, int role) =>
+    // The Stop zone and T1's start at Entry; each later zone starts where the one before it ends.
+    role <= 2 ? w.entry : array.get(w.tiers, role - 3)
+
+styleLevels(Wave w) =>
+    for [role, id] in w.levelLines
+        bool reached = levelMarkOf(w, role) != ""
+        bool cleared = targetCleared(w, role)
+        color base = levelColorOf(role)
+        line.set_color(id, levelTint(w, base, cleared ? 100 : role == 0 ? ENTRY_LINE_TRANSP : reached ? 0 : LEVEL_LINE_TRANSP))
+        if role >= 1
+            box.set_bgcolor(array.get(w.levelZones, role - 1), levelTint(w, base, cleared ? 100 : reached ? ZONE_REACHED_TRANSP : ZONE_TRANSP))
+    for [k, tag] in w.levelTags
+        string tagCopy = tagTextOf(w, k)
+        label.set_text(tag, tagCopy)
+        bool reached = tagReachedOf(w, k) and (k != 2 or onCloseInput == "Keep")
+        label.set_color(tag, tagCopy == "" ? CLEAR : opaqueTag(levelTint(w, levelColorOf(k), reached ? TAG_REACHED_TRANSP : TAG_TRANSP)))
+        label.set_textcolor(tag, chart.fg_color)
+        if k == 2
+            int remaining = onCloseInput == "Clear" ? firstRemaining(w) : 0
+            if remaining >= 0
+                label.set_y(tag, array.get(w.tiers, remaining))
+            label.set_tooltip(tag, tagCopy == "" ? "" : tiersHoverOf(w))
+    0
+
+drawLevels(Wave w, int barNow) =>
+    for role = 0 to 1 + array.size(w.tiers)
+        float price = levelPriceOf(w, role)
+        array.push(w.levelLines, line.new(w.entryBar, price, barNow, price, xloc = xloc.bar_index, extend = extend.none, color = CLEAR, style = line.style_dotted, width = 1))
+        if role <= 2
+            // Left pointer places the body to the right of the printed-bar edge.
+            array.push(w.levelTags, label.new(barNow, price, "", xloc = xloc.bar_index, yloc = yloc.price, color = CLEAR, style = label.style_label_left, textcolor = chart.fg_color, size = textSizeOf(textSizeInput), tooltip = role <= 1 ? levelHoverOf(w, role) : ""))
+        if role >= 1
+            float zoneStart = zoneFromOf(w, role)
+            array.push(w.levelZones, box.new(w.entryBar, math.max(zoneStart, price), barNow, math.min(zoneStart, price), border_color = CLEAR, border_width = 0, xloc = xloc.bar_index, bgcolor = CLEAR))
+    styleLevels(w)
+
+syncDrawings(Wave w, int barNow) =>
+    if array.size(w.geometry) == 0
+        drawGeometry(w, barNow)
+    if levelsInput and not na(w.entry) and array.size(w.levelLines) == 0
+        drawLevels(w, barNow)
+    if w.dirty
+        styleLevels(w)
+        w.dirty := false
+    0
+
+extendTo(Wave w, int x) =>
+    // Only the right edge moves, to a bar that has printed; x1 is never re-sent.
+    int guideX = guideRight(w, x)
+    line.set_xy2(array.get(w.geometry, LINE_L13), guideX, line13At(w, guideX))
+    line.set_xy2(array.get(w.geometry, LINE_L24), guideX, line24At(w, guideX))
+    line.set_xy2(array.get(w.geometry, LINE_L14), x, line14At(w, x))
+    for id in w.levelLines
+        line.set_x2(id, x)
+    for id in w.levelTags
+        label.set_x(id, x)
+    for id in w.levelZones
+        box.set_right(id, x)
+    0
+
+cutWave(Wave w) =>
+    // The last touch a kept set gets, on its ending bar: cut there and faded.
+    extendTo(w, w.endBar)
+    color tint = waveColor(w)
+    for [k, id] in w.geometry
+        line.set_color(id, k < LEGS ? tint : addTransparency(tint, GUIDE_FADE))
+    for id in w.pointLabels
+        label.set_textcolor(id, tint)
+    if not na(w.wedge)
+        linefill.set_color(w.wedge, levelTint(w, waveBase(w), fillTranspInput))
+    styleLevels(w)
+
+deleteDrawings(Wave w) =>
+    if not na(w.wedge)
+        linefill.delete(w.wedge)
+        w.wedge := na
+    for id in w.geometry
+        line.delete(id)
+    for id in w.levelLines
+        line.delete(id)
+    for id in w.pointLabels
+        label.delete(id)
+    for id in w.levelTags
+        label.delete(id)
+    for id in w.levelZones
+        box.delete(id)
+    array.clear(w.geometry)
+    array.clear(w.levelLines)
+    array.clear(w.pointLabels)
+    array.clear(w.levelTags)
+    array.clear(w.levelZones)
+    0
+
+formingHoverOf(Forming f, bool longer = false) =>
+    layerPrefix(longer) + "Developing " + directionWord(f.side) + " Wolfe Wave: points 1–4 confirmed, no point 5 yet.\nThe band runs from the 1–3 line to " + str.tostring(OVERSHOOT_ATR, "0.0##") + " × ATR beyond it at candidate selection; ATR is a 14-bar simple mean of true range. A pivot " + (f.side > 0 ? "low" : "high") + " would sit on or beyond the 1–3 line, no more than that far past it at this frozen volatility. Admission uses its then-current volatility.\nDrawn to the latest bar only; hidden intrabar beyond the band or at the apex, and cleared on confirmed invalidation.\nIt says nothing about what price will do there."
+
+sameForming(Forming a, Forming b) =>
+    bool same = not na(a) and not na(b)
+    if same
+        same := a.side == b.side and a.atr == b.atr
+        for k = 0 to LEGS - 1
+            Pivot p = array.get(a.points, k)
+            Pivot q = array.get(b.points, k)
+            same := same and p.bar == q.bar and p.price == q.price
+    same
+
+clearForming(array<line> lines, array<label> labels, array<linefill> fills) =>
+    for id in fills
+        linefill.delete(id)
+    for id in lines
+        line.delete(id)
+    for id in labels
+        label.delete(id)
+    array.clear(fills)
+    array.clear(lines)
+    array.clear(labels)
+    0
+
+drawForming(Forming f, int x, array<line> lines, array<label> labels, array<linefill> fills, bool longer = false, bool bandFill = true) =>
+    color tint = addTransparency(f.side == 1 ? bullInput : bearInput, FORMING_FADE)
+    color guide = addTransparency(tint, GUIDE_FADE)
+    for k = 0 to LEGS - 2
+        Pivot a = array.get(f.points, k)
+        Pivot b = array.get(f.points, k + 1)
+        array.push(lines, line.new(a.bar, a.price, b.bar, b.price, xloc = xloc.bar_index, extend = extend.none, color = tint, style = line.style_dashed, width = strokeOf(widthInput, longer)))
+    Pivot p1 = array.get(f.points, 0)
+    Pivot p2 = array.get(f.points, 1)
+    Pivot p4 = array.get(f.points, 3)
+    float slope24 = (p4.price - p2.price) / (p4.bar - p2.bar)
+    array.push(lines, line.new(p1.bar, p1.price, x, formingLineAt(f, x), xloc = xloc.bar_index, extend = extend.none, color = guide, style = line.style_dashed, width = strokeOf(guideWidthInput, longer)))
+    array.push(lines, line.new(p2.bar, p2.price, x, p2.price + slope24 * (x - p2.bar), xloc = xloc.bar_index, extend = extend.none, color = guide, style = line.style_dashed, width = strokeOf(guideWidthInput, longer)))
+    line nearEdge = line.new(p4.bar, formingLineAt(f, p4.bar), x, formingLineAt(f, x), xloc = xloc.bar_index, extend = extend.none, color = CLEAR, width = 1)
+    line farEdge = line.new(p4.bar, formingFarAt(f, p4.bar), x, formingFarAt(f, x), xloc = xloc.bar_index, extend = extend.none, color = guide, style = line.style_dotted, width = 1)
+    array.push(lines, nearEdge)
+    array.push(lines, farEdge)
+    if bandFill
+        array.push(fills, linefill.new(nearEdge, farEdge, addTransparency(f.side == 1 ? bullInput : bearInput, FORMING_ZONE_TRANSP)))
+    if pointsInput
+        for [k, p] in f.points
+            array.push(labels, label.new(p.bar, p.price, str.tostring(k + 1), xloc = xloc.bar_index, yloc = yloc.price, color = CLEAR, style = (p.side == 1) != longer ? label.style_label_down : label.style_label_up, textcolor = tint, size = textSizeOf(textSizeInput)))
+    float mid = (formingLineAt(f, x) + formingFarAt(f, x)) / 2
+    array.push(labels, label.new(x, mid, layerPrefix(longer) + "Developing · point 5 band", xloc = xloc.bar_index, yloc = yloc.price, color = addTransparency(f.side == 1 ? bullInput : bearInput, TAG_TRANSP), style = longer ? label.style_label_right : label.style_label_left, textcolor = chart.fg_color, size = textSizeOf(textSizeInput), tooltip = formingHoverOf(f, longer)))
+    0
+
+retireEnded(array<Wave> live, array<Wave> kept) =>
+    // Ended waves go to the front of the kept list, the latest admitted first.
+    int n = array.size(live)
+    if n > 0
+        array<Wave> ended = array.new<Wave>()
+        for idx = n - 1 to 0
+            if array.get(live, idx).state == ST_ENDED
+                array.unshift(ended, array.remove(live, idx))
+        for w in ended
+            array.unshift(kept, w)
+    0
+
+evictKept(array<Wave> kept, int barNow) =>
+    // Evicted by count and by distance: a count alone lets a kept set drift past
+    // the drawing reach.
+    int n = array.size(kept)
+    if n > 0
+        for idx = n - 1 to 0
+            Wave w = array.get(kept, idx)
+            if idx >= keptInput or barNow - array.get(w.points, 0).bar > DRAW_MAX_BACK
+                deleteDrawings(w)
+                array.remove(kept, idx)
+    0
+
+// ── Panel
+panelPosition(Wave newest) =>
+    string chosen = positionInput
+    if chosen == POS_AUTO
+        chosen := not na(newest) and newest.side == 1 ? POS_BOTTOM_LEFT : POS_TOP_RIGHT
+    switch chosen
+        POS_TOP_LEFT     => position.top_left
+        POS_BOTTOM_RIGHT => position.bottom_right
+        POS_BOTTOM_LEFT  => position.bottom_left
+        => position.top_right
+
+panelCell(table panel, int column, int row, string body, color tint, string hover, color back) =>
+    table.cell(panel, column, row, body, text_color = tint, text_size = textSizeOf(textSizeInput), text_halign = text.align_left, tooltip = hover, bgcolor = back)
+    0
+
+panelNote(table panel, int row, string body) =>
+    color back = lightChart() ? FILL_LIGHT : FILL_DARK
+    panelCell(panel, 0, row, body, guideColor(), "", back)
+    for column = 1 to PANEL_WAVES
+        panelCell(panel, column, row, "", guideColor(), "", back)
+    table.merge_cells(panel, 0, row, PANEL_WAVES, row)
+    row + 1
+
+// TradingView's logo (bottom left) and badge (bottom right) sit over a bottom
+// panel's last row, so that row is left blank.
+panelSpacer(table panel, int row) =>
+    for column = 0 to PANEL_WAVES
+        table.cell(panel, column, row, " ", text_size = textSizeOf(textSizeInput))
+    row + 1
+
+// The panel's short ending word; the hover keeps reasonWord's full text.
+reasonShort(int reason) =>
+    switch reason
+        END_BEYOND_FIVE => "beyond point 5"
+        END_NO_ENTRY    => "no Entry"
+        END_PAST_24     => "past 2–4 line"
+        => reasonWord(reason)
+
+stateText(Wave w) =>
+    w.state == ST_WAITING ? "Waiting" : w.state == ST_ENTERED ? "Entry set" : "Ended · " + reasonShort(w.reason)
+
+stateHoverOf(Wave w) =>
+    string now = w.state == ST_WAITING ? "No close back inside the 1–3 line yet." : w.state == ST_ENTERED ? "Entry set; levels tracked." : "Ended: " + reasonWord(w.reason) + (w.reason == END_AGED ? ", as many bars after Entry as the wave took to form" : "") + "."
+    layerPrefix(w.longer) + now + (w.longer ? "\nPoint 5 confirmed " + str.tostring(w.admitBar - array.get(w.points, 4).bar) + " bars after its bar." : "") + "\nFormed " + stampText(w.admitTime) + " · " + keyText(w)
+
+// The newest waves, newest first, one column each: each column carries
+// only its own wave's marks, never a count across them.
+panelWaves(table panel, array<Wave> waves) =>
+    color back = lightChart() ? FILL_LIGHT : FILL_DARK
+    int rows = 2 + (multsValid() ? 5 : 2)
+    for role = -2 to rows - 3
+        string name = role == -2 ? "Wolfe Wave" : role == -1 ? "State" : levelNameOf(role)
+        panelCell(panel, 0, role + 2, name, guideColor(), role == -2 ? "Newest first." : "", back)
+    for [column, w] in waves
+        int x = column + 1
+        panelCell(panel, x, 0, layerPrefix(w.longer) + directionWord(w.side), waveColor(w), pointsText(w), back)
+        panelCell(panel, x, 1, stateText(w), inkColor(), stateHoverOf(w), back)
+        for role = 0 to rows - 3
+            bool has = not na(w.entry) and role <= 1 + array.size(w.tiers)
+            string mark = has ? levelMarkOf(w, role) : ""
+            bool marked = mark != ""
+            panelCell(panel, x, role + 2, has ? priceText(levelPriceOf(w, role)) + mark : "—", marked ? LEVEL_TEXT : inkColor(), has ? levelHoverOf(w, role) : w.state == ST_WAITING ? "No Entry yet." : "No Entry was set.", marked ? addTransparency(levelColorOf(role), REACHED_TRANSP) : back)
+    rows
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Calculation
+// ─────────────────────────────────────────────────────────────────────────────
+
+var array<Pivot> chain = array.new<Pivot>()
+var array<string> seenKeys = array.new<string>()
+var array<string> refusedKeys = array.new<string>()
+var array<Wave> liveWaves = array.new<Wave>()
+var array<Wave> keptWaves = array.new<Wave>()
+var Wave newestWave = na
+var int capacitySkipped = 0
+var int reachSkipped = 0
+var Forming forming = na
+var array<line> formingLines = array.new<line>()
+var array<label> formingLabels = array.new<label>()
+var array<linefill> formingFills = array.new<linefill>()
+var array<Pivot> longerChain = array.new<Pivot>()
+var array<string> longerSeenKeys = array.new<string>()
+var array<string> longerRefusedKeys = array.new<string>()
+var int longerCapacitySkipped = 0
+var int longerReachSkipped = 0
+var Forming longerForming = na
+var array<line> longerFormingLines = array.new<line>()
+var array<label> longerFormingLabels = array.new<label>()
+var array<linefill> longerFormingFills = array.new<linefill>()
+var array<Wave> recentWaves = array.new<Wave>()
+var table panel = table.new(position.top_right, PANEL_WAVES + 1, PANEL_ROWS, border_width = 0)
+
+array<int> flags = array.new<int>(4, 0)
+array<string> messages = array.new<string>()
+
+bool supported = chart.is_standard and not timeframe.isticks
+bool pricesValid = not na(high) and not na(low) and not na(close)
+
+// Built-ins that keep history run on every bar, at global scope.
+float pivotHigh = ta.pivothigh(high, swingInput, swingInput)
+float pivotLow = ta.pivotlow(low, swingInput, swingInput)
+int pivotStamp = time[swingInput]
+float longerPivotHigh = ta.pivothigh(high, longerStrengthInput, longerStrengthInput)
+float longerPivotLow = ta.pivotlow(low, longerStrengthInput, longerStrengthInput)
+int longerPivotStamp = time[longerStrengthInput]
+float trueRange = ta.tr(true)
+float volatility = ta.sma(trueRange, VOLATILITY_LENGTH)
+
+if barstate.isconfirmed and supported and pricesValid
+    // Waves step before the bar's pivots are offered.
+    for w in liveWaves
+        if w.state == ST_WAITING
+            stepWaiting(w, bar_index, flags, messages)
+        else if w.state == ST_ENTERED and bar_index > w.entryBar
+            stepEntered(w, bar_index, flags, messages)
+    trimAge(chain, bar_index)
+    // A bar confirming both offers its high first.
+    array<Pivot> offered = array.new<Pivot>()
+    if not na(pivotHigh)
+        array.push(offered, Pivot.new(bar_index - swingInput, pivotStamp, pivotHigh, 1))
+    if not na(pivotLow)
+        array.push(offered, Pivot.new(bar_index - swingInput, pivotStamp, pivotLow, -1))
+    bool chainChanged = false
+    for pivot in offered
+        if acceptPivot(chain, pivot)
+            chainChanged := true
+            [status, admitted] = tryAdmit(chain, seenKeys, refusedKeys, liveWaves, bar_index, volatility, flags, messages)
+            if status == 1
+                newestWave := admitted
+                array.unshift(recentWaves, admitted)
+                if array.size(recentWaves) > PANEL_WAVES
+                    array.pop(recentWaves)
+            else if status == 2
+                capacitySkipped += 1
+            else if status == 3
+                reachSkipped += 1
+    // A developing wave is chosen again on each chain change, after any admission,
+    // so it is never the 2-3-4 core of a wave already drawn.
+    if chainChanged
+        forming := selectForming(chain, volatility, seenKeys, bar_index)
+    else if not na(forming)
+        forming := formingHolds(forming, bar_index, bar_index) ? forming : na
+    if longerInput
+        trimAge(longerChain, bar_index)
+        // A bar confirming both offers its high first.
+        array<Pivot> longerOffered = array.new<Pivot>()
+        if not na(longerPivotHigh)
+            array.push(longerOffered, Pivot.new(bar_index - longerStrengthInput, longerPivotStamp, longerPivotHigh, 1))
+        if not na(longerPivotLow)
+            array.push(longerOffered, Pivot.new(bar_index - longerStrengthInput, longerPivotStamp, longerPivotLow, -1))
+        bool longerChainChanged = false
+        for longerPivot in longerOffered
+            if acceptPivot(longerChain, longerPivot)
+                longerChainChanged := true
+                [longerStatus, longerAdmitted] = tryAdmit(longerChain, longerSeenKeys, longerRefusedKeys, liveWaves, bar_index, volatility, flags, messages, true)
+                if longerStatus == 1
+                    newestWave := longerAdmitted
+                    array.unshift(recentWaves, longerAdmitted)
+                    if array.size(recentWaves) > PANEL_WAVES
+                        array.pop(recentWaves)
+                else if longerStatus == 2
+                    longerCapacitySkipped += 1
+                else if longerStatus == 3
+                    longerReachSkipped += 1
+        // A developing wave is chosen again on each longer chain change, after any admission,
+        // so it is never the 2-3-4 core of a wave already drawn.
+        if longerChainChanged
+            longerForming := selectForming(longerChain, volatility, longerSeenKeys, bar_index)
+        else if not na(longerForming)
+            longerForming := formingHolds(longerForming, bar_index, bar_index) ? longerForming : na
+    // Evicted sets are deleted before any set is drawn, so the peak object count
+    // stays within the drawing caps: four live per layer plus shared kept waves.
+    retireEnded(liveWaves, keptWaves)
+    evictKept(keptWaves, bar_index)
+    for w in liveWaves
+        syncDrawings(w, bar_index)
+    for w in keptWaves
+        if w.endBar == bar_index
+            syncDrawings(w, bar_index)
+            cutWave(w)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Rendering
+// ─────────────────────────────────────────────────────────────────────────────
+
+if barstate.islast
+    if supported
+        for w in liveWaves
+            extendTo(w, bar_index)
+    clearForming(formingLines, formingLabels, formingFills)
+    clearForming(longerFormingLines, longerFormingLabels, longerFormingFills)
+    if supported and formingInput and not na(forming) and formingHolds(forming, bar_index, bar_index)
+        drawForming(forming, bar_index, formingLines, formingLabels, formingFills)
+    if supported and longerInput and formingInput and not na(longerForming) and formingHolds(longerForming, bar_index, bar_index)
+        drawForming(longerForming, bar_index, longerFormingLines, longerFormingLabels, longerFormingFills, true, not sameForming(forming, longerForming))
+    array<string> notes = array.new<string>()
+    if not supported
+        array.push(notes, "This chart type is not supported: Auto Wolfe Waves reads standard bars on a time-based timeframe, so nothing is drawn.")
+    else
+        if not multsValid()
+            array.push(notes, "T1 (R), T2 (R) and T3 (R) do not increase, so no T levels are built; Entry and Stop still are.")
+        if not tickValid()
+            array.push(notes, "Tick size unavailable: levels are not rounded to the tick.")
+        if capacitySkipped > 0 or longerCapacitySkipped > 0
+            array.push(notes, "Waves skipped while four were live: " + (longerInput ? "Main: " : "") + str.tostring(capacitySkipped) + (longerInput ? " · Longer: " + str.tostring(longerCapacitySkipped) : ""))
+        if reachSkipped > 0 or longerReachSkipped > 0
+            array.push(notes, "Waves not drawn on the loaded bars because point 1 was over 4,500 bars back: " + (longerInput ? "Main: " : "") + str.tostring(reachSkipped) + (longerInput ? " · Longer: " + str.tostring(longerReachSkipped) : ""))
+    table.clear(panel, 0, 0, PANEL_WAVES, PANEL_ROWS - 1)
+    string where = panelPosition(newestWave)
+    table.set_position(panel, where)
+    int row = 0
+    if panelInput and supported and array.size(recentWaves) > 0
+        row := panelWaves(panel, recentWaves)
+    for note in notes
+        row := panelNote(panel, row, note)
+    if row > 0 and (where == position.bottom_left or where == position.bottom_right)
+        row := panelSpacer(panel, row)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Data Window outputs
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Direction and state only: a price here would have no hover to carry the disclosure.
+plot(na(newestWave) ? na : newestWave.side, "Direction", color = PLOT_TINT, display = display.data_window)
+plot(na(newestWave) ? na : newestWave.state, "State", color = PLOT_TINT, display = display.data_window)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Alerts
+// ─────────────────────────────────────────────────────────────────────────────
+
+alertcondition(array.get(flags, EV_FORMED) == 1, "Wolfe Wave formed", "Auto Wolfe Waves [AFD]: a Wolfe Wave formed on this confirmed bar.")
+alertcondition(array.get(flags, EV_ENTRY) == 1, "Wolfe Wave Entry", "Auto Wolfe Waves [AFD]: a Wolfe Wave's Entry was set on this confirmed bar.")
+alertcondition(array.get(flags, EV_LEVEL) == 1, "Wolfe Wave level reached", "Auto Wolfe Waves [AFD]: a bar traded to a Wolfe Wave's T level on this confirmed bar.")
+alertcondition(array.get(flags, EV_ENDED) == 1, "Wolfe Wave ended", "Auto Wolfe Waves [AFD]: a Wolfe Wave ended on this confirmed bar.")
+
+if array.size(messages) > 0
+    string batch = "Auto Wolfe Waves [AFD] | " + syminfo.tickerid + " | " + timeframe.period + "\n" + array.join(messages, "\n")
+    if detailInput == DETAIL_JSON
+        batch := "{\"schema\":1,\"build\":" + jsonString(BUILD_ID) + ",\"product\":\"Auto Wolfe Waves [AFD]\",\"ticker\":" + jsonString(syminfo.tickerid) + ",\"timeframe\":" + jsonString(timeframe.period) + ",\"config\":" + configurationJson() + ",\"events\":[" + array.join(messages, ",") + "]}"
+    alert(batch, alert.freq_once_per_bar_close)

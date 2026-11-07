@@ -1,0 +1,271 @@
+// This Pine Script® code is subject to the Mozilla Public License 2.0
+// © Auto Trend Lines + Signals + Supertrend
+//@version=6
+indicator("Auto Trend Lines + Signals", overlay=true, max_lines_count=500)
+
+// ═══════════════════════════════════════════════════════════════
+//  MACRO TREND
+// ═══════════════════════════════════════════════════════════════
+g1 = "Macro Trend"
+macro_on    = input.bool  (true,  "═══════════ Macro Trend ═══════════", group=g1)
+macro_lft   = input.int   (10,    "Length: Left",  minval=1, group=g1, inline="ml")
+macro_rgt   = input.int   (5,     "Right",          minval=1, group=g1, inline="ml")
+macro_ext   = input.int   (10,    "Extension",      minval=0, group=g1)
+macro_wick  = input.bool  (true,  "Draw lines from wicks (uncheck for bodies)", group=g1)
+macro_filt  = input.bool  (true,  "Display only falling High and rising Low trendlines", group=g1)
+macro_log   = input.bool  (true,  "Log scale?", group=g1)
+macro_cbull = input.color (color.new(color.green, 0), "Colors", group=g1, inline="mc")
+macro_cbear = input.color (color.new(color.red,   0), "",       group=g1, inline="mc")
+macro_sty   = input.string("Solid",   "Style", options=["Solid","Dashed","Dotted"], group=g1, inline="ms")
+macro_wid   = input.int   (1,    "Width", minval=1, maxval=4, group=g1, inline="ms")
+
+// ═══════════════════════════════════════════════════════════════
+//  MICRO TREND
+// ═══════════════════════════════════════════════════════════════
+g2 = "Micro Trend"
+micro_on    = input.bool  (true,  "═══════════ Micro Trend ═══════════", group=g2)
+micro_lft   = input.int   (4,     "Length: Left",  minval=1, group=g2, inline="ul")
+micro_rgt   = input.int   (2,     "Right",          minval=1, group=g2, inline="ul")
+micro_ext   = input.int   (4,     "Extension",      minval=0, group=g2)
+micro_wick  = input.bool  (true,  "Draw lines from wicks (uncheck for bodies)", group=g2)
+micro_filt  = input.bool  (true,  "Display only falling High and rising Low trendlines", group=g2)
+micro_log   = input.bool  (true,  "Log scale?", group=g2)
+micro_cbull = input.color (color.new(color.green, 0), "Colors", group=g2, inline="uc")
+micro_cbear = input.color (color.new(color.red,   0), "",       group=g2, inline="uc")
+micro_sty   = input.string("Dotted","Style", options=["Solid","Dashed","Dotted"], group=g2, inline="us")
+micro_wid   = input.int   (1,    "Width", minval=1, maxval=4, group=g2, inline="us")
+
+// ═══════════════════════════════════════════════════════════════
+//  SIGNALS
+// ═══════════════════════════════════════════════════════════════
+g3 = "Signals"
+sig_on        = input.bool  (true,  "Show Signals", group=g3)
+sig_sbuy_col  = input.color (color.new(#00E5FF, 0), "Strong Buy",  group=g3, inline="ss")
+sig_ssell_col = input.color (color.new(#FF1744, 0), "Strong Sell", group=g3, inline="ss")
+sig_wbuy_col  = input.color (color.new(#69F0AE, 0), "Weak Buy",   group=g3, inline="sw")
+sig_wsell_col = input.color (color.new(#FF6D00, 0), "Weak Sell",  group=g3, inline="sw")
+
+// ═══════════════════════════════════════════════════════════════
+//  SUPERTREND
+// ═══════════════════════════════════════════════════════════════
+g4 = "Supertrend"
+st_on       = input.bool  (true,  "═══════════ Supertrend ═══════════", group=g4)
+st_atr      = input.int   (10,    "ATR Period", minval=1, group=g4, inline="st")
+st_mult     = input.float (3.0,   "Multiplier", minval=0.1, step=0.1, group=g4, inline="st")
+st_bull_col = input.color (color.new(#00E5FF, 0), "Bull / Bear", group=g4, inline="stc")
+st_bear_col = input.color (color.new(#FF1744, 0), "",            group=g4, inline="stc")
+st_wid      = input.int   (2,    "Width", minval=1, maxval=4, group=g4, inline="stw")
+st_signals  = input.bool  (true,  "Show Supertrend flip signals", group=g4)
+st_buy_col  = input.color (color.new(#00E5FF, 0), "ST Buy",  group=g4, inline="stsc")
+st_sell_col = input.color (color.new(#FF1744, 0), "ST Sell", group=g4, inline="stsc")
+
+// ═══════════════════════════════════════════════════════════════
+//  HELPERS
+// ═══════════════════════════════════════════════════════════════
+to_style(s) =>
+    s == "Dashed" ? line.style_dashed : s == "Dotted" ? line.style_dotted : line.style_solid
+
+project(p1, p2, b1, b2, b_end, use_log) =>
+    lp1   = use_log ? math.log(p1) : p1
+    lp2   = use_log ? math.log(p2) : p2
+    slope = (b2 - b1) != 0 ? (lp2 - lp1) / (b2 - b1) : 0
+    lp_end = lp2 + slope * (b_end - b2)
+    use_log ? math.exp(lp_end) : lp_end
+
+draw_tl(b1, p1, b2, p2, ext, use_log, col, sty, wid) =>
+    b_end = b2 + ext
+    p_end = project(p1, p2, b1, b2, b_end, use_log)
+    line.new(b1, p1, b_end, p_end, xloc=xloc.bar_index,
+             extend=extend.none, color=col, style=sty, width=wid)
+
+body_high = math.max(open, close)
+body_low  = math.min(open, close)
+
+// ═══════════════════════════════════════════════════════════════
+//  PIVOT SOURCES
+// ═══════════════════════════════════════════════════════════════
+mh_src = macro_wick ? high : body_high
+ml_src = macro_wick ? low  : body_low
+uh_src = micro_wick ? high : body_high
+ul_src = micro_wick ? low  : body_low
+
+macro_ph = ta.pivothigh(mh_src, macro_lft, macro_rgt)
+macro_pl = ta.pivotlow (ml_src, macro_lft, macro_rgt)
+micro_ph = ta.pivothigh(uh_src, micro_lft, micro_rgt)
+micro_pl = ta.pivotlow (ul_src, micro_lft, micro_rgt)
+
+// ═══════════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════════
+var float mh_p = na,  var int mh_b = na
+var float ml_p = na,  var int ml_b = na
+var float uh_p = na,  var int uh_b = na
+var float ul_p = na,  var int ul_b = na
+
+var float mh_sp = na, var int mh_sb = na, var float mh_ssl = na, var bool mh_slog = false
+var float ml_sp = na, var int ml_sb = na, var float ml_ssl = na, var bool ml_slog = false
+var float uh_sp = na, var int uh_sb = na, var float uh_ssl = na, var bool uh_slog = false
+var float ul_sp = na, var int ul_sb = na, var float ul_ssl = na, var bool ul_slog = false
+
+// ═══════════════════════════════════════════════════════════════
+//  РИСОВАНИЕ ЛИНИЙ (без line.delete, накапливаются)
+// ═══════════════════════════════════════════════════════════════
+
+// MACRO HIGH
+if macro_on and not na(macro_ph)
+    cur_b = bar_index - macro_rgt
+    if not na(mh_b)
+        if not macro_filt or (macro_ph < mh_p)
+            draw_tl(mh_b, mh_p, cur_b, macro_ph, macro_ext, macro_log,
+                    macro_cbear, to_style(macro_sty), macro_wid)
+            lp1 = macro_log ? math.log(mh_p)    : mh_p
+            lp2 = macro_log ? math.log(macro_ph) : macro_ph
+            db  = cur_b - mh_b
+            mh_sp   := macro_ph
+            mh_sb   := cur_b
+            mh_ssl  := db != 0 ? (lp2 - lp1) / db : 0.0
+            mh_slog := macro_log
+    mh_p := macro_ph
+    mh_b := bar_index - macro_rgt
+
+// MACRO LOW
+if macro_on and not na(macro_pl)
+    cur_b = bar_index - macro_rgt
+    if not na(ml_b)
+        if not macro_filt or (macro_pl > ml_p)
+            draw_tl(ml_b, ml_p, cur_b, macro_pl, macro_ext, macro_log,
+                    macro_cbull, to_style(macro_sty), macro_wid)
+            lp1 = macro_log ? math.log(ml_p)    : ml_p
+            lp2 = macro_log ? math.log(macro_pl) : macro_pl
+            db  = cur_b - ml_b
+            ml_sp   := macro_pl
+            ml_sb   := cur_b
+            ml_ssl  := db != 0 ? (lp2 - lp1) / db : 0.0
+            ml_slog := macro_log
+    ml_p := macro_pl
+    ml_b := bar_index - macro_rgt
+
+// MICRO HIGH
+if micro_on and not na(micro_ph)
+    cur_b = bar_index - micro_rgt
+    if not na(uh_b)
+        if not micro_filt or (micro_ph < uh_p)
+            draw_tl(uh_b, uh_p, cur_b, micro_ph, micro_ext, micro_log,
+                    micro_cbear, to_style(micro_sty), micro_wid)
+            lp1 = micro_log ? math.log(uh_p)    : uh_p
+            lp2 = micro_log ? math.log(micro_ph) : micro_ph
+            db  = cur_b - uh_b
+            uh_sp   := micro_ph
+            uh_sb   := cur_b
+            uh_ssl  := db != 0 ? (lp2 - lp1) / db : 0.0
+            uh_slog := micro_log
+    uh_p := micro_ph
+    uh_b := bar_index - micro_rgt
+
+// MICRO LOW
+if micro_on and not na(micro_pl)
+    cur_b = bar_index - micro_rgt
+    if not na(ul_b)
+        if not micro_filt or (micro_pl > ul_p)
+            draw_tl(ul_b, ul_p, cur_b, micro_pl, micro_ext, micro_log,
+                    micro_cbull, to_style(micro_sty), micro_wid)
+            lp1 = micro_log ? math.log(ul_p)    : ul_p
+            lp2 = micro_log ? math.log(micro_pl) : micro_pl
+            db  = cur_b - ul_b
+            ul_sp   := micro_pl
+            ul_sb   := cur_b
+            ul_ssl  := db != 0 ? (lp2 - lp1) / db : 0.0
+            ul_slog := micro_log
+    ul_p := micro_pl
+    ul_b := bar_index - micro_rgt
+
+// ═══════════════════════════════════════════════════════════════
+//  ЗНАЧЕНИЕ ЛИНИИ НА ТЕКУЩЕМ БАРЕ
+// ═══════════════════════════════════════════════════════════════
+line_val(ap, ab, sl, ul) =>
+    if na(ap) or na(ab)
+        float(na)
+    else
+        lp = ul ? math.log(ap) : ap
+        v  = lp + sl * (bar_index - ab)
+        ul ? math.exp(v) : v
+
+mh_val = line_val(mh_sp, mh_sb, mh_ssl, mh_slog)
+ml_val = line_val(ml_sp, ml_sb, ml_ssl, ml_slog)
+uh_val = line_val(uh_sp, uh_sb, uh_ssl, uh_slog)
+ul_val = line_val(ul_sp, ul_sb, ul_ssl, ul_slog)
+
+// ═══════════════════════════════════════════════════════════════
+//  СИГНАЛЫ ТРЕНДЛИНИЙ
+// ═══════════════════════════════════════════════════════════════
+strong_buy  = sig_on and macro_on and not na(mh_val) and ta.crossover (close, mh_val)
+strong_sell = sig_on and macro_on and not na(ml_val) and ta.crossunder(close, ml_val)
+weak_buy    = sig_on and micro_on and not na(uh_val) and ta.crossover (close, uh_val)
+weak_sell   = sig_on and micro_on and not na(ul_val) and ta.crossunder(close, ul_val)
+
+plotshape(strong_buy,  title="Strong Buy",
+     style=shape.triangleup,   location=location.belowbar,
+     color=sig_sbuy_col,  textcolor=sig_sbuy_col,  text="B", size=size.normal)
+plotshape(strong_sell, title="Strong Sell",
+     style=shape.triangledown, location=location.abovebar,
+     color=sig_ssell_col, textcolor=sig_ssell_col, text="S", size=size.normal)
+plotshape(weak_buy,    title="Weak Buy",
+     style=shape.triangleup,   location=location.belowbar,
+     color=sig_wbuy_col,  textcolor=sig_wbuy_col,  text="b", size=size.small)
+plotshape(weak_sell,   title="Weak Sell",
+     style=shape.triangledown, location=location.abovebar,
+     color=sig_wsell_col, textcolor=sig_wsell_col, text="s", size=size.small)
+
+// ═══════════════════════════════════════════════════════════════
+//  SUPERTREND — РАСЧЁТ
+// ═══════════════════════════════════════════════════════════════
+st_atr_val     = ta.atr(st_atr)
+st_upper_basic = hl2 + st_mult * st_atr_val
+st_lower_basic = hl2 - st_mult * st_atr_val
+
+var float st_upper = na
+var float st_lower = na
+var int   st_dir   = 1
+
+st_upper := na(st_upper[1]) ? st_upper_basic :
+     st_upper_basic < st_upper[1] or close[1] > st_upper[1] ? st_upper_basic : st_upper[1]
+
+st_lower := na(st_lower[1]) ? st_lower_basic :
+     st_lower_basic > st_lower[1] or close[1] < st_lower[1] ? st_lower_basic : st_lower[1]
+
+st_dir := na(st_dir[1]) ? 1 :
+     st_dir[1] == -1 ?
+         (close > st_upper[1] ? 1 : -1) :
+         (close < st_lower[1] ? -1 : 1)
+
+st_line = st_dir == 1 ? st_lower : st_upper
+
+plot(st_on ? st_line : na,
+     title     = "Supertrend",
+     color     = st_dir == 1 ? st_bull_col : st_bear_col,
+     linewidth = st_wid)
+
+// Маркеры смены направления Supertrend
+st_flip_buy  = st_on and st_signals and st_dir == 1  and st_dir[1] == -1
+st_flip_sell = st_on and st_signals and st_dir == -1 and st_dir[1] == 1
+
+plotshape(st_flip_buy,  title="ST Buy",
+     style=shape.circle, location=location.belowbar,
+     color=st_buy_col,  size=size.small)
+plotshape(st_flip_sell, title="ST Sell",
+     style=shape.circle, location=location.abovebar,
+     color=st_sell_col, size=size.small)
+
+// ═══════════════════════════════════════════════════════════════
+//  АЛЕРТЫ
+// ═══════════════════════════════════════════════════════════════
+alertcondition(strong_buy,  title="Strong Buy",  message="Auto TL — Strong Buy")
+alertcondition(strong_sell, title="Strong Sell", message="Auto TL — Strong Sell")
+alertcondition(weak_buy,    title="Weak Buy",    message="Auto TL — Weak Buy")
+alertcondition(weak_sell,   title="Weak Sell",   message="Auto TL — Weak Sell")
+alertcondition(strong_buy or strong_sell or weak_buy or weak_sell,
+     title="Any TL Signal", message="Auto TL — сигнал пересечения линии тренда")
+alertcondition(st_flip_buy,  title="ST Buy",  message="Auto TL — Supertrend Buy")
+alertcondition(st_flip_sell, title="ST Sell", message="Auto TL — Supertrend Sell")
+alertcondition(st_flip_buy or st_flip_sell,
+     title="Any ST Signal", message="Auto TL — Supertrend смена тренда")

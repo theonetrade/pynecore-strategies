@@ -1,0 +1,175 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © TradingFinder
+//@version=6
+
+indicator("SSL Channel Pro [TradingFinder] Semaphore Signal Level Indicator", shorttitle="SSL Pro", overlay=true, max_labels_count=500)
+
+
+maType = input.string("EMA", "MA Type", options=["SMA", "EMA", "WMA", "HMA", "RMA", "VWMA"], group= "SSL Setting")
+sslLength = input.int(10, "SSL Length", minval=1, group="SSL Setting")
+
+signalProfile = input.string("Balanced", "Signal Quality", options=["Responsive", "Balanced", "Selective"], group= "Signal Setting", tooltip="Responsive shows more signals. Balanced is recommended. Selective keeps only stronger setups.")
+useHTF = input.bool(false, "Enable HTF Confirmation", group= "Signal Setting", inline="htf")
+htfTimeframe = input.timeframe("60", "Higher Timeframe", group= "Signal Setting", inline="htf")
+showSignals = input.bool(true, "Show Signals", group= "Signal Setting")
+
+
+MA(float source, int length, string type) =>
+    switch type
+        "SMA"  => ta.sma(source, length)
+        "EMA"  => ta.ema(source, length)
+        "WMA"  => ta.wma(source, length)
+        "HMA"  => ta.hma(source, length)
+        "RMA"  => ta.rma(source, length)
+        "VWMA" => ta.vwma(source, length)
+        => ta.ema(source, length)
+
+
+highMA = MA(high, sslLength, maType)
+lowMA = MA(low, sslLength, maType)
+
+var int sslState = 1
+sslState := close > highMA ? 1 : close < lowMA ? -1 : nz(sslState[1], 1)
+
+sslLine = sslState == 1 ? lowMA : highMA
+flipUp = barstate.isconfirmed and sslState == 1 and sslState[1] == -1
+flipDown = barstate.isconfirmed and sslState == -1 and sslState[1] == 1
+
+rsiValue = ta.rsi(close, 14)
+[plusDI, minusDI, adxValue] = ta.dmi(14, 14)
+volumeMA = ta.sma(volume, 20)
+atrValue = ta.atr(14)
+channelWidth = math.abs(highMA - lowMA)
+normalizedWidth = atrValue > 0.0 ? channelWidth / atrValue : 0.0
+
+buyRSI = rsiValue > 50
+sellRSI = rsiValue < 50
+buyADX = adxValue > (signalProfile == "Responsive" ? 18.0 : signalProfile == "Selective" ? 25.0 : 20.0) and plusDI > minusDI
+sellADX = adxValue > (signalProfile == "Responsive" ? 18.0 : signalProfile == "Selective" ? 25.0 : 20.0) and minusDI > plusDI
+channelStrong = normalizedWidth >= (signalProfile == "Responsive" ? 0.14 : signalProfile == "Selective" ? 0.28 : 0.20)
+
+buyConfirmations = buyRSI and buyADX and channelStrong
+sellConfirmations = sellRSI and sellADX and channelStrong
+
+clamp(float value, float minimum, float maximum) =>
+    math.min(math.max(value, minimum), maximum)
+
+scale01(float value, float minimum, float maximum) =>
+    maximum > minimum ? clamp((value - minimum) / (maximum - minimum), 0.0, 1.0) : 0.0
+
+grade(int score) =>
+    score >= 90 ? "A+" : score >= 80 ? "A" : score >= 70 ? "B" : score >= 60 ? "C" : "D"
+
+
+
+candleRange = math.max(high - low, syminfo.mintick)
+bodyRatio = math.abs(close - open) / candleRange
+buyCloseLocation = clamp((close - low) / candleRange, 0.0, 1.0)
+sellCloseLocation = clamp((high - close) / candleRange, 0.0, 1.0)
+buyBreakoutDistance = atrValue > 0.0 ? math.max(close - highMA, 0.0) / atrValue : 0.0
+sellBreakoutDistance = atrValue > 0.0 ? math.max(lowMA - close, 0.0) / atrValue : 0.0
+
+buyTransitionScore = flipUp ? 12.0 + scale01(buyBreakoutDistance, 0.0, 0.40) * 6.0 + bodyRatio * 4.0 + buyCloseLocation * 3.0 : 0.0
+sellTransitionScore = flipDown ? 12.0 + scale01(sellBreakoutDistance, 0.0, 0.40) * 6.0 + bodyRatio * 4.0 + sellCloseLocation * 3.0 : 0.0
+
+buyRsiDelta = rsiValue - 50
+sellRsiDelta = 50 - rsiValue
+buyMomentumScore = scale01(buyRsiDelta, -10.0, 15.0) * 16.0 + (rsiValue > rsiValue[1] ? 4.0 : 0.0)
+sellMomentumScore = scale01(sellRsiDelta, -10.0, 15.0) * 16.0 + (rsiValue < rsiValue[1] ? 4.0 : 0.0)
+
+diTotal = math.max(plusDI + minusDI, 0.0001)
+buyDiDominance = clamp((plusDI - minusDI) / diTotal, 0.0, 1.0)
+sellDiDominance = clamp((minusDI - plusDI) / diTotal, 0.0, 1.0)
+buyTrendScore = plusDI > minusDI ? 6.0 + scale01(adxValue, signalProfile == "Responsive" ? 18.0 : signalProfile == "Selective" ? 25.0 : 20.0, signalProfile == "Responsive" ? 18.0 : signalProfile == "Selective" ? 25.0 : 20.0 + 25.0) * 8.0 + buyDiDominance * 4.0 + (adxValue > adxValue[1] ? 2.0 : 0.0) : 0.0
+sellTrendScore = minusDI > plusDI ? 6.0 + scale01(adxValue, signalProfile == "Responsive" ? 18.0 : signalProfile == "Selective" ? 25.0 : 20.0, signalProfile == "Responsive" ? 18.0 : signalProfile == "Selective" ? 25.0 : 20.0 + 25.0) * 8.0 + sellDiDominance * 4.0 + (adxValue > adxValue[1] ? 2.0 : 0.0) : 0.0
+
+weakRegimeScore = signalProfile == "Responsive" ? 0.14 : signalProfile == "Selective" ? 0.28 : 0.20 > 0.0 ? scale01(normalizedWidth, 0.0, signalProfile == "Responsive" ? 0.14 : signalProfile == "Selective" ? 0.28 : 0.20) * 8.0 : 8.0
+strongRegimeScore = 8.0 + scale01(normalizedWidth, signalProfile == "Responsive" ? 0.14 : signalProfile == "Selective" ? 0.28 : 0.20, signalProfile == "Responsive" ? 0.14 : signalProfile == "Selective" ? 0.28 : 0.20 + math.max(signalProfile == "Responsive" ? 0.14 : signalProfile == "Selective" ? 0.28 : 0.20 * 1.5, 0.25)) * 4.0 + (normalizedWidth > normalizedWidth[1] ? 3.0 : 0.0)
+regimeScore = channelStrong ? strongRegimeScore : weakRegimeScore
+
+relativeVolume = not na(volume) and not na(volumeMA) and volumeMA > 0.0 ? volume / volumeMA : na
+participationScore = na(relativeVolume) ? 5.0 : scale01(relativeVolume, 0.70, 1.70) * 10.0
+
+buyOpposingWick = (high - math.max(open, close)) / candleRange
+sellOpposingWick = (math.min(open, close) - low) / candleRange
+sslExtension = atrValue > 0.0 ? math.abs(close - sslLine) / atrValue : 0.0
+buyRiskPenalty = buyOpposingWick * 4.0 + scale01(sslExtension, 1.75, 3.50) * 6.0
+sellRiskPenalty = sellOpposingWick * 4.0 + scale01(sslExtension, 1.75, 3.50) * 6.0
+
+
+sslState(int length, string type) =>
+    highMA = MA(high, length, type)
+    lowMA = MA(low, length, type)
+    var int state = 1
+    state := close > highMA ? 1 : close < lowMA ? -1 : nz(state[1], 1)
+    state
+
+htfValid = timeframe.in_seconds(htfTimeframe) > timeframe.in_seconds()
+
+int htfState = request.security(syminfo.tickerid, htfTimeframe, sslState(sslLength, maType)[1], gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+buyHTFConfirmed = not useHTF or (htfValid and htfState == 1)
+sellHTFConfirmed = not useHTF or (htfValid and htfState == -1)
+
+buyLocalContext = (sslLine > sslLine[1] ? 5.0 : 0.0) + scale01(atrValue > 0.0 ? math.max(close - sslLine, 0.0) / atrValue : 0.0, 0.0, 1.0) * 5.0
+sellLocalContext = (sslLine < sslLine[1] ? 5.0 : 0.0) + scale01(atrValue > 0.0 ? math.max(sslLine - close, 0.0) / atrValue : 0.0, 0.0, 1.0) * 5.0
+buyContextScore = useHTF ? (htfValid and htfState == 1 ? 10.0 : 0.0) : buyLocalContext
+sellContextScore = useHTF ? (htfValid and htfState == -1 ? 10.0 : 0.0) : sellLocalContext
+
+buyRawScore = buyTransitionScore + buyMomentumScore + buyTrendScore + regimeScore + participationScore + buyContextScore - buyRiskPenalty
+sellRawScore = sellTransitionScore + sellMomentumScore + sellTrendScore + regimeScore + participationScore + sellContextScore - sellRiskPenalty
+buyScore = int(math.round(clamp(buyRawScore, 0.0, 100.0)))
+sellScore = int(math.round(clamp(sellRawScore, 0.0, 100.0)))
+bullishLiveRaw = buyMomentumScore + buyTrendScore + regimeScore + participationScore + buyContextScore - buyRiskPenalty
+bearishLiveRaw = sellMomentumScore + sellTrendScore + regimeScore + participationScore + sellContextScore - sellRiskPenalty
+currentQuality = int(math.round(clamp((sslState == 1 ? bullishLiveRaw : bearishLiveRaw) / 75.0 * 100.0, 0.0, 100.0)))
+
+
+buySignal = flipUp and buyConfirmations and buyHTFConfirmed and buyScore >= (signalProfile == "Responsive" ? 65 : signalProfile == "Selective" ? 80 : 70)
+sellSignal = flipDown and sellConfirmations and sellHTFConfirmed and sellScore >= (signalProfile == "Responsive" ? 65 : signalProfile == "Selective" ? 80 : 70)
+
+htfAligned = useHTF and htfValid and sslState == htfState
+newHTFAlignment = barstate.isconfirmed and htfAligned and not htfAligned[1]
+trendWeakening = barstate.isconfirmed and (ta.crossunder(normalizedWidth, (signalProfile == "Responsive" ? 0.14 : signalProfile == "Selective" ? 0.28 : 0.20)) or ta.crossunder(adxValue, (signalProfile == "Responsive" ? 18.0 : signalProfile == "Selective" ? 25.0 : 20.0)))
+
+
+//Plot
+stateColor = sslState == 1 ? #00D5FF : #FF477E
+boundaryColor = color.from_gradient(math.min(normalizedWidth, 1.0), 0.0, 1.0, color.new(#765CF6, 58), color.new(stateColor, 12))
+strongTransparency = math.max(82 - 18, 0)
+softTransparency = math.min(82 + 14, 100)
+gradientTop = sslState == -1 ? color.new(#FF477E, strongTransparency) : color.new(#765CF6, softTransparency)
+gradientBottom = sslState == 1 ? color.new(#00D5FF, strongTransparency) : color.new(#765CF6, softTransparency)
+trendTransition = not na(sslState[1]) and sslState != sslState[1]
+visualSSL = trendTransition ? na : sslLine
+visualHighMA = trendTransition ? na : highMA
+visualLowMA = trendTransition ? na : lowMA
+
+plot(visualSSL, "SSL Line", color=stateColor, linewidth=2, style=plot.style_linebr)
+plot(visualHighMA , "High Boundary Glow", color=color.new(boundaryColor, 88), linewidth=5, style=plot.style_linebr)
+plot(visualLowMA , "Low Boundary Glow", color=color.new(boundaryColor, 88), linewidth=5, style=plot.style_linebr)
+highPlot = plot(visualHighMA , "High MA", color=color.new(boundaryColor, 12), linewidth=1, style=plot.style_linebr)
+lowPlot = plot(visualLowMA , "Low MA", color=color.new(boundaryColor, 12), linewidth=1, style=plot.style_linebr)
+
+fill(highPlot, lowPlot, visualHighMA, visualLowMA, gradientTop , gradientBottom , title="SSL Native Gradient")
+
+buyMarkerY = low - atrValue * 1.05
+sellMarkerY = high + atrValue * 1.05
+buyLabelY = low - atrValue * (1.05 + 0.25)
+sellLabelY = high + atrValue * (1.05 + 0.25)
+
+plotshape(showSignals and buySignal ? buyMarkerY : na, title="BUY Marker", style=shape.triangleup, location=location.absolute, color=#00D5FF, size=size.small)
+plotshape(showSignals and sellSignal ? sellMarkerY : na, title="SELL Marker", style=shape.triangledown, location=location.absolute, color=#FF477E, size=size.small)
+
+if showSignals and buySignal
+    label.new(bar_index, buyLabelY, "BUY  •  " + grade(buyScore) + "  •  " + str.tostring(buyScore) + "%", yloc=yloc.price, style=label.style_label_up, color=color.new(#00D5FF, 8), textcolor=#06131A, size=size.small)
+
+if showSignals and sellSignal
+    label.new(bar_index, sellLabelY, "SELL  •  " + grade(sellScore) + "  •  " + str.tostring(sellScore) + "%", yloc=yloc.price, style=label.style_label_down, color=color.new(#FF477E, 8), textcolor=color.white, size=size.small)
+
+
+alertcondition(flipUp, "SSL Trend Flip Up", "{{ticker}} | {{interval}} | SSL Trend Flip Up | Confidence: {{plot(\"Trend Confidence\")}}%")
+alertcondition(flipDown, "SSL Trend Flip Down", "{{ticker}} | {{interval}} | SSL Trend Flip Down | Confidence: {{plot(\"Trend Confidence\")}}%")
+alertcondition(buySignal, "Confirmed BUY Signal", "{{ticker}} | {{interval}} | Confirmed BUY | Confidence: {{plot(\"Buy Score\")}}%")
+alertcondition(sellSignal, "Confirmed SELL Signal", "{{ticker}} | {{interval}} | Confirmed SELL | Confidence: {{plot(\"Sell Score\")}}%")
+alertcondition(newHTFAlignment, "HTF Alignment", "{{ticker}} | {{interval}} | HTF Alignment | Confidence: {{plot(\"Trend Confidence\")}}%")
+alertcondition(trendWeakening, "Trend Weakening", "{{ticker}} | {{interval}} | Trend Weakening | Confidence: {{plot(\"Trend Confidence\")}}%")

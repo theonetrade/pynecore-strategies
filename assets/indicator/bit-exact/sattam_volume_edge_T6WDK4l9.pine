@@ -1,0 +1,809 @@
+// This Pine Script code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// (c) Sattam
+//@version=6
+indicator("Sattam | Volume Edge", "Sattam | Volume Edge", overlay = true, max_polylines_count = 55, max_boxes_count = 100)
+
+// ------------------------------------------------------------------ Modules
+showTS   = input.bool(true,  "Trend Signals", inline = "1",  group = "Modules")
+showLIQ  = input.bool(true, "Liquidity",     inline = "M1", group = "Modules")
+showORB  = input.bool(true, "ORB",           inline = "M1", group = "Modules")
+showTL   = input.bool(true, "TrendLines",    inline = "M1", group = "Modules")
+showCAP  = input.bool(true, "Capital Risk",  inline = "M2", group = "Modules")
+showEDGE  = input.bool(true, "EDGE Volume",    inline = "M2", group = "Modules")
+showRMI  = input.bool(true, "RMI Trend",     inline = "M2", group = "Modules")
+showOB   = input.bool(true, "Order Blocks",  inline = "M2", group = "Modules")
+
+// ------------------------------------------------------------------ Trend Signal Settings
+sens     = input.float(1.7, "Sensitivity ", minval = 0.5, maxval = 5, inline = "2", group = "Trend Signal Settings")
+showTP   = input.bool(true, "TP", inline = "2", group = "Trend Signal Settings")
+tsCandle = input.bool(true, "Trend Candles", inline = "2", group = "Trend Signal Settings")
+tsTrail  = input.bool(true, "Trailing TP", inline = "3", group = "Trend Signal Settings", tooltip = "After a Buy signal, a trailing take-profit line (SuperTrend of ATR(10) x factor) follows the move until price closes below it")
+tsTrailK = input.float(2.1, "", minval = 0.5, step = 0.1, inline = "3", group = "Trend Signal Settings")
+
+// ------------------------------------------------------------------ Liquidity Settings
+liqLen   = input.int(10, "", minval = 3, inline = "LIQ1", group = "Liquidity Settings")
+liqMax   = input.int(5,  "Max", inline = "LIQ1", group = "Liquidity Settings")
+liqRight = input.int(5,  "", inline = "LIQ1", group = "Liquidity Settings")
+
+// ------------------------------------------------------------------ ORB Settings
+orbUTC   = input.string("+3", "UTC +/-", inline = "Sess", group = "ORB Settings")
+orbSess  = input.session("0945-1015", "", inline = "Sess", group = "ORB Settings")
+orbCol   = input.color(color.new(#41e677, 83), "", inline = "Sess", group = "ORB Settings")
+orbSig   = input.bool(true, "Signals", inline = "Signals", group = "ORB Settings")
+
+// ------------------------------------------------------------------ TrendLines Settings
+tlPreset = input.string("Small", "", options = ["Small", "Medium", "Big", "Macro"], inline = "000", group = "TrendLines Settings")
+tlCol    = input.color(color.new(#b2b5be, 50), "", inline = "000", group = "TrendLines Settings")
+tlLast   = input.int(2, "Last", options = [1, 2], inline = "000", group = "TrendLines Settings", tooltip = "Show the Last # of Trendlines")
+tlHist   = input.bool(true, "History", inline = "000", group = "TrendLines Settings")
+
+// ------------------------------------------------------------------ OrderBlock Settings
+obPreset = input.string("Macro", "Preset", options = ["Macro", "Big", "Medium", "Small"], inline = "!!!", group = "OrderBlock Settings")
+obBrk    = input.bool(true, "Breaker Block", inline = "!!!", group = "OrderBlock Settings")
+
+// ------------------------------------------------------------------ RMI Settings
+rmiLen   = input.int(14, "RMI Length ", inline = "RMI", group = "RMI Settings")
+rmiPos   = input.int(66, " Positive above", inline = "rsi1", group = "RMI Settings")
+rmiNeg   = input.int(30, "Negative below", inline = "rsi1", group = "RMI Settings")
+rmiShow  = input.bool(true, "Show MA ", inline = "002", group = "RMI Settings")
+rmiBull  = input.color(#00bcd4, "", inline = "002", group = "RMI Settings")
+rmiBear  = input.color(#ff5252, "", inline = "002", group = "RMI Settings")
+
+// ------------------------------------------------------------------ Capital Risk Settings
+capital  = input.float(100000, "Capital", group = "Capital Risk Settings")
+riskPct  = input.float(2, "Account Risk %", maxval = 5, group = "Capital Risk Settings")
+slPct    = input.float(3, "Stop Loss %", group = "Capital Risk Settings")
+rrRatio  = input.float(2, "RR Ratio", group = "Capital Risk Settings")
+
+// ------------------------------------------------------------------ EDGE Volume Screener
+edgeCap   = input.int(14, "Trading Capital", group = "EDGE Volume Screener")
+edgePos   = input.string("Top Right", "Position", options = ["Top Left", "Top Center", "Top Right", "Middle Left", "Middle Center", "Middle Right", "Bottom Left", "Bottom Center", "Bottom Right"], inline = "002", group = "EDGE Volume Screener")
+edgeSize  = input.string("Small", "Size", options = ["Tiny", "Small", "Normal", "Auto"], inline = "002", group = "EDGE Volume Screener")
+
+// ------------------------------------------------------------------ Symbols
+e01 = input.bool(true, "", inline = "s01", group = "Symbols")
+e02 = input.bool(true, "", inline = "s02", group = "Symbols")
+e03 = input.bool(true, "", inline = "s03", group = "Symbols")
+e04 = input.bool(true, "", inline = "s04", group = "Symbols")
+e05 = input.bool(true, "", inline = "s05", group = "Symbols")
+e06 = input.bool(true, "", inline = "s06", group = "Symbols")
+e07 = input.bool(true, "", inline = "s07", group = "Symbols")
+e08 = input.bool(true, "", inline = "s08", group = "Symbols")
+e09 = input.bool(true, "", inline = "s09", group = "Symbols")
+e10 = input.bool(true, "", inline = "s10", group = "Symbols")
+e11 = input.bool(false, "", inline = "s11", group = "Symbols")
+e12 = input.bool(false, "", inline = "s12", group = "Symbols")
+e13 = input.bool(false, "", inline = "s13", group = "Symbols")
+e14 = input.bool(false, "", inline = "s14", group = "Symbols")
+e15 = input.bool(false, "", inline = "s15", group = "Symbols")
+e16 = input.bool(false, "", inline = "s16", group = "Symbols")
+e17 = input.bool(false, "", inline = "s17", group = "Symbols")
+e18 = input.bool(false, "", inline = "s18", group = "Symbols")
+e19 = input.bool(false, "", inline = "s19", group = "Symbols")
+e20 = input.bool(false, "", inline = "s20", group = "Symbols")
+e21 = input.bool(false, "", inline = "s21", group = "Symbols")
+e22 = input.bool(false, "", inline = "s22", group = "Symbols")
+e23 = input.bool(false, "", inline = "s23", group = "Symbols")
+e24 = input.bool(false, "", inline = "s24", group = "Symbols")
+e25 = input.bool(false, "", inline = "s25", group = "Symbols")
+e26 = input.bool(false, "", inline = "s26", group = "Symbols")
+e27 = input.bool(false, "", inline = "s27", group = "Symbols")
+e28 = input.bool(false, "", inline = "s28", group = "Symbols")
+e29 = input.bool(false, "", inline = "s29", group = "Symbols")
+e30 = input.bool(false, "", inline = "s30", group = "Symbols")
+e31 = input.bool(false, "", inline = "s31", group = "Symbols")
+e32 = input.bool(false, "", inline = "s32", group = "Symbols")
+e33 = input.bool(false, "", inline = "s33", group = "Symbols")
+e34 = input.bool(false, "", inline = "s34", group = "Symbols")
+e35 = input.bool(false, "", inline = "s35", group = "Symbols")
+e36 = input.bool(false, "", inline = "s36", group = "Symbols")
+e37 = input.bool(false, "", inline = "s37", group = "Symbols")
+e38 = input.bool(false, "", inline = "s38", group = "Symbols")
+e39 = input.bool(false, "", inline = "s39", group = "Symbols")
+e40 = input.bool(false, "", inline = "s40", group = "Symbols")
+s01 = input.symbol("NASDAQ:NVDA", "Symbol 1",  inline = "s01", group = "Symbols")
+s02 = input.symbol("NASDAQ:TSLA", "Symbol 2",  inline = "s02", group = "Symbols")
+s03 = input.symbol("NASDAQ:AAPL", "Symbol 3",  inline = "s03", group = "Symbols")
+s04 = input.symbol("NASDAQ:META", "Symbol 4",  inline = "s04", group = "Symbols")
+s05 = input.symbol("NASDAQ:MSFT", "Symbol 5",  inline = "s05", group = "Symbols")
+s06 = input.symbol("NASDAQ:AMD", "Symbol 6",  inline = "s06", group = "Symbols")
+s07 = input.symbol("NASDAQ:AMZN", "Symbol 7",  inline = "s07", group = "Symbols")
+s08 = input.symbol("NASDAQ:GOOGL", "Symbol 8",  inline = "s08", group = "Symbols")
+s09 = input.symbol("NASDAQ:AVGO", "Symbol 9",  inline = "s09", group = "Symbols")
+s10 = input.symbol("NYSE:ORCL", "Symbol 10", inline = "s10", group = "Symbols")
+s11 = input.symbol("NASDAQ:NFLX", "Symbol 11", inline = "s11", group = "Symbols")
+s12 = input.symbol("NASDAQ:INTC", "Symbol 12", inline = "s12", group = "Symbols")
+s13 = input.symbol("NASDAQ:QCOM", "Symbol 13", inline = "s13", group = "Symbols")
+s14 = input.symbol("NASDAQ:ADBE", "Symbol 14", inline = "s14", group = "Symbols")
+s15 = input.symbol("NASDAQ:CSCO", "Symbol 15", inline = "s15", group = "Symbols")
+s16 = input.symbol("NASDAQ:PEP", "Symbol 16", inline = "s16", group = "Symbols")
+s17 = input.symbol("NASDAQ:COST", "Symbol 17", inline = "s17", group = "Symbols")
+s18 = input.symbol("NASDAQ:TXN", "Symbol 18", inline = "s18", group = "Symbols")
+s19 = input.symbol("NASDAQ:AMGN", "Symbol 19", inline = "s19", group = "Symbols")
+s20 = input.symbol("NASDAQ:PLTR", "Symbol 20", inline = "s20", group = "Symbols")
+s21 = input.symbol("NASDAQ:MU", "Symbol 21", inline = "s21", group = "Symbols")
+s22 = input.symbol("NASDAQ:ARM", "Symbol 22", inline = "s22", group = "Symbols")
+s23 = input.symbol("NASDAQ:SMCI", "Symbol 23", inline = "s23", group = "Symbols")
+s24 = input.symbol("NASDAQ:COIN", "Symbol 24", inline = "s24", group = "Symbols")
+s25 = input.symbol("NASDAQ:MRVL", "Symbol 25", inline = "s25", group = "Symbols")
+s26 = input.symbol("NASDAQ:PYPL", "Symbol 26", inline = "s26", group = "Symbols")
+s27 = input.symbol("NASDAQ:SBUX", "Symbol 27", inline = "s27", group = "Symbols")
+s28 = input.symbol("NASDAQ:BKNG", "Symbol 28", inline = "s28", group = "Symbols")
+s29 = input.symbol("NASDAQ:ISRG", "Symbol 29", inline = "s29", group = "Symbols")
+s30 = input.symbol("NASDAQ:LRCX", "Symbol 30", inline = "s30", group = "Symbols")
+s31 = input.symbol("NYSE:KO", "Symbol 31", inline = "s31", group = "Symbols")
+s32 = input.symbol("NYSE:JPM", "Symbol 32", inline = "s32", group = "Symbols")
+s33 = input.symbol("NYSE:V", "Symbol 33", inline = "s33", group = "Symbols")
+s34 = input.symbol("NYSE:UNH", "Symbol 34", inline = "s34", group = "Symbols")
+s35 = input.symbol("NYSE:XOM", "Symbol 35", inline = "s35", group = "Symbols")
+s36 = input.symbol("NASDAQ:WMT", "Symbol 36", inline = "s36", group = "Symbols")
+s37 = input.symbol("NYSE:LLY", "Symbol 37", inline = "s37", group = "Symbols")
+s38 = input.symbol("NYSE:BAC", "Symbol 38", inline = "s38", group = "Symbols")
+s39 = input.symbol("NYSE:CRM", "Symbol 39", inline = "s39", group = "Symbols")
+s40 = input.symbol("NYSE:BA", "Symbol 40", inline = "s40", group = "Symbols")
+// declared last to keep the input ids of earlier releases stable
+showTables = input.bool(true, "Trading Capital & Volume Screener", group = "Modules", tooltip = "One switch for both tables (Capital Risk and Volume Screener)")
+capPos   = input.string("Middle Right", "Position", options = ["Top Left", "Top Center", "Top Right", "Middle Left", "Middle Center", "Middle Right", "Bottom Left", "Bottom Center", "Bottom Right"], group = "Capital Risk Settings")
+
+// ================================================================== ORB
+orbTz    = "UTC" + orbUTC
+inSess   = not na(time(timeframe.period, orbSess, orbTz))
+sessOpen = inSess and not inSess[1]
+var float orbHi = na
+var float orbLo = na
+var bool  orbBought = false
+var bool  orbSold   = false
+if sessOpen
+    orbHi := high
+    orbLo := low
+    orbBought := false
+    orbSold   := false
+else if inSess
+    orbHi := math.max(orbHi, high)
+    orbLo := math.min(orbLo, low)
+orbMid  = (orbHi + orbLo) / 2
+orbOn   = showORB and not na(orbHi)
+// one breakout and one breakdown per session, on a close crossing the range
+// signals are evaluated on confirmed bars only, so they never appear and vanish inside a bar
+confirmed = barstate.isconfirmed
+orbBuy  = confirmed and orbOn and orbSig and not inSess and not orbBought and close > orbHi and close[1] <= orbHi[1]
+orbSell = confirmed and orbOn and orbSig and not inSess and not orbSold and close < orbLo and close[1] >= orbLo[1]
+if orbBuy
+    orbBought := true
+if orbSell
+    orbSold := true
+bgcolor(showORB and inSess ? color.new(#00bcd4, 90) : na, title = "Active session highlight")
+alertcondition(orbBuy, "Buy Signal", "Breakout (Buy)")
+alertcondition(orbSell, "Sell Signal", "BreakDown (Sell)")
+plotshape(orbBuy, "Shapes", shape.labelup, location.belowbar, #57B4BA, size = size.tiny, editable = false)
+plotshape(orbSell, "Shapes", shape.labeldown, location.abovebar, #FE4F2D, size = size.tiny, editable = false)
+// lines go blank on the bar their level changes, so the step never draws as a diagonal
+orbHiCol  = orbHi != orbHi[1] ? na : color.new(#707070, 0)
+orbLoCol  = orbLo != orbLo[1] ? na : color.new(#707070, 0)
+orbMidCol = orbMid != orbMid[1] ? na : color.new(#898989, 0)
+pHi  = plot(orbOn ? orbHi : na, "ORB High", orbHiCol, 1)
+pLo  = plot(orbOn ? orbLo : na, "ORB Low", orbLoCol, 1)
+pMid = plot(orbOn ? orbMid : na, "ORB Mid", orbMidCol, 1)
+fill(pHi, pLo, orbHi, orbMid, orbHi != orbHi[1] ? na : color.new(#57b4ba, 85), color.new(color.blue, 100))
+fill(pMid, pLo, orbLo, orbMid, orbLo != orbLo[1] ? na : color.new(#fe4f2d, 85), color.new(color.yellow, 100))
+
+// ================================================================== Liquidity
+type LiqVol
+    float buyV = na
+    float sellV = na
+type LiqVBox
+    box upper = na
+    box lower = na
+    box end = na
+var array<box>     liqHiBox  = array.new<box>()
+var array<box>     liqLoBox  = array.new<box>()
+var array<line>    liqHiLn   = array.new<line>()
+var array<line>    liqLoLn   = array.new<line>()
+var array<LiqVBox> liqHiVB   = array.new<LiqVBox>()
+var array<LiqVBox> liqLoVB   = array.new<LiqVBox>()
+var array<LiqVol>  liqHiVol  = array.new<LiqVol>()
+var array<LiqVol>  liqLoVol  = array.new<LiqVol>()
+var array<line>    liqHiMid  = array.new<line>()
+var array<line>    liqLoMid  = array.new<line>()
+
+liqRemoveOld(array<box> bxs, array<line> lns, array<LiqVBox> vbs, array<LiqVol> vols, int mx, array<line> mids) =>
+    if bxs.size() > mx
+        box.delete(bxs.shift())
+    if vbs.size() > mx
+        c_ = vbs.shift()
+        box.delete(c_.upper)
+        box.delete(c_.lower)
+        box.delete(c_.end)
+    if vols.size() > mx
+        vols.shift()
+    if lns.size() > mx
+        line.delete(lns.shift())
+    if mids.size() > mx
+        line.delete(mids.shift())
+
+liqRemoveAt(array<box> bxs, array<line> lns, array<LiqVBox> vbs, array<LiqVol> vols, array<line> mids, int i) =>
+    box.delete(bxs.remove(i))
+    line.delete(lns.remove(i))
+    aa = vbs.remove(i)
+    box.delete(aa.upper)
+    box.delete(aa.lower)
+    box.delete(aa.end)
+    vols.remove(i)
+    line.delete(mids.remove(i))
+
+liqOverlap(array<box> tops) =>
+    delIdx = 0
+    deleted = false
+    if tops.size() > 0
+        for i = 0 to tops.size() - 1
+            if i > 0
+                bx = tops.get(i)
+                for x = i - 1 to 0
+                    bx2 = tops.get(x)
+                    if (bx.get_top() < bx2.get_bottom() and bx.get_bottom() > bx2.get_top()) or (bx.get_bottom() < bx2.get_top() and bx.get_top() > bx2.get_bottom()) or (bx.get_top() == bx2.get_top() and bx.get_bottom() == bx2.get_bottom())
+                        deleted := true
+                        delIdx := i
+    [deleted, delIdx]
+
+liqExtend(array<box> bxs, array<line> lns, array<LiqVol> vols, array<LiqVBox> vbs, array<line> mids) =>
+    barT = time - time[1]
+    if bxs.size() > 0
+        for i = bxs.size() - 1 to 0
+            bx  = bxs.get(i)
+            vol = vols.get(i)
+            buyV = vol.buyV
+            sellV = vol.sellV
+            delta = buyV + sellV
+            buyM = buyV / delta * 100
+            exT  = time + barT * 20
+            exT2 = time + barT * 2
+            bx.set_right(exT)
+            vb = vbs.get(i)
+            dd = buyV - sellV
+            bx.set_text_color(dd > 0 ? color.lime : #ff0000)
+            bxR = bx.get_right()
+            bxL = bx.get_left()
+            lineT = (bxR + bxL) / 2
+            volCol = buyM > 50 ? color.lime : #ff0000
+            ln = lns.get(i)
+            ln.set_x2(exT2)
+            md = mids.get(i)
+            md.set_x1(exT2)
+            md.set_x2(exT2)
+            md.set_color(volCol)
+            ln.set_color(volCol)
+            dist = math.abs(bxL - lineT)
+            volT  = int(bxL + dist * buyM / 100)
+            volT2 = int(bxL + dist * (100 - buyM) / 100)
+            vb.upper.set_right(volT)
+            vb.upper.set_text("Bull % : " + str.tostring(buyM, "#.##"))
+            vb.lower.set_text("Bear % : " + str.tostring(100 - buyM, "#.##"))
+            vb.lower.set_right(volT2)
+            vb.upper.set_bgcolor(color.rgb(45, 205, 42, 60))
+            vb.lower.set_bgcolor(color.rgb(190, 18, 21, 60))
+            vb.end.set_left(exT2)
+            vb.end.set_right(exT)
+            vb.end.set_text("Delta: " + str.tostring(dd))
+            vb.end.set_bgcolor(dd > 0 ? color.new(color.lime, 75) : color.rgb(253, 5, 5, 75))
+            vb.end.set_text_halign(text.align_center)
+
+liqVerify(array<box> bxs, bool isHigh, array<line> lns, array<LiqVBox> vbs, array<LiqVol> vols, int mx, array<line> mids) =>
+    brk = false
+    if bxs.size() > 0
+        for i = bxs.size() - 1 to 0
+            bx = bxs.get(i)
+            xl = lns.get(i)
+            vb = vbs.get(i)
+            md = mids.get(i)
+            if (isHigh and high > bx.get_top()) or ((not isHigh) and low < bx.get_top())
+                bxs.remove(i)
+                lns.remove(i)
+                mids.remove(i)
+                vbs.remove(i)
+                vols.remove(i)
+                bx.delete()
+                vb.upper.delete()
+                vb.lower.delete()
+                vb.end.delete()
+                xl.delete()
+                md.delete()
+                brk := true
+    liqRemoveOld(bxs, lns, vbs, vols, mx, mids)
+    brk
+
+liqNewVBox(int t0, float top, int t1, float mid, float bot, int exT2) =>
+    LiqVBox.new(
+      box.new(t0, top, t1, mid, bgcolor = color.new(color.red, 70), border_color = color.new(color.white, 100), xloc = xloc.bar_time, border_width = 1, text = "", text_halign = text.align_right, text_color = chart.fg_color, text_size = size.small),
+      box.new(t0, mid, t0 + 1, bot, bgcolor = color.new(color.green, 70), border_color = color.new(color.white, 100), xloc = xloc.bar_time, border_width = 1, text = "", text_halign = text.align_right, text_color = chart.fg_color, text_size = size.small),
+      box.new(exT2, top, exT2[1], bot, bgcolor = color.new(color.red, 70), border_color = color.new(color.white, 100), xloc = xloc.bar_time, border_width = 1, text = "", text_halign = text.align_right, text_color = chart.fg_color, text_size = size.small))
+
+liqAtr300 = ta.atr(300)
+liqPivHi  = ta.pivothigh(high, liqLen, liqRight)
+liqPivLo  = ta.pivotlow(low, liqLen, liqRight)
+liqDraw() =>
+    barT  = time - time[1]
+    thold = liqAtr300 * (2.5 / 3)
+    exT2  = time + barT * 2
+    si    = liqRight
+    liqLine = color.rgb(209, 203, 203, 45)
+    if not na(liqPivHi)
+        buyV  = math.round(volume[si] * (close[si] - low[si]) / (high[si] - low[si]))
+        sellV = math.round(volume[si] * (high[si] - close[si]) / (high[si] - low[si]))
+        y1 = high[si] - thold
+        liqHiBox.push(box.new(time[si], high[si], time[1], y1, bgcolor = color.new(#5d606b, 70), border_color = color.new(color.white, 100), xloc = xloc.bar_time, border_width = 2, text = "", text_halign = text.align_right, text_color = chart.fg_color, text_size = size.small))
+        liqHiMid.push(line.new(exT2, high[si], exT2, y1, xloc = xloc.bar_time, color = liqLine, style = line.style_dashed))
+        mid = (high[si] + y1) / 2
+        liqHiLn.push(line.new(time[si], mid, time[1], mid, xloc = xloc.bar_time, color = liqLine, style = line.style_dashed))
+        liqHiVol.push(LiqVol.new(buyV, sellV))
+        liqHiVB.push(liqNewVBox(time[si], high[si], time[1], mid, y1, exT2))
+    if not na(liqPivLo)
+        buyV  = math.round(volume[si] * (close[si] - low[si]) / (high[si] - low[si]))
+        sellV = math.round(volume[si] * (high[si] - close[si]) / (high[si] - low[si]))
+        y1 = low[si] + thold
+        liqLoVol.push(LiqVol.new(buyV, sellV))
+        liqLoBox.push(box.new(time[si], low[si], time[1], y1, bgcolor = color.new(#5d606b, 70), border_color = color.new(color.white, 100), xloc = xloc.bar_time, border_width = 2, text = "", text_halign = text.align_right, text_color = chart.fg_color, text_size = size.small))
+        mid = (low[si] + y1) / 2
+        liqLoLn.push(line.new(time[si], mid, time[1], mid, xloc = xloc.bar_time, color = liqLine, style = line.style_dashed))
+        liqLoMid.push(line.new(exT2, low[si], exT2, y1, xloc = xloc.bar_time, color = liqLine, style = line.style_dashed))
+        liqLoVB.push(liqNewVBox(time[si], low[si], time[1], mid, y1, exT2))
+
+if showLIQ and confirmed
+    liqVerify(liqHiBox, true, liqHiLn, liqHiVB, liqHiVol, liqMax, liqHiMid)
+    liqVerify(liqLoBox, false, liqLoLn, liqLoVB, liqLoVol, liqMax, liqLoMid)
+    liqExtend(liqHiBox, liqHiLn, liqHiVol, liqHiVB, liqHiMid)
+    liqExtend(liqLoBox, liqLoLn, liqLoVol, liqLoVB, liqLoMid)
+    liqDraw()
+    [d1, i1] = liqOverlap(liqHiBox)
+    if d1
+        liqRemoveAt(liqHiBox, liqHiLn, liqHiVB, liqHiVol, liqHiMid, i1)
+    [d2, i2] = liqOverlap(liqLoBox)
+    if d2
+        liqRemoveAt(liqLoBox, liqLoLn, liqLoVB, liqLoVol, liqLoMid, i2)
+    // resistance zones red, support zones green
+    if liqHiBox.size() > 0
+        for b in liqHiBox
+            b.set_bgcolor(color.new(#f33838, 80))
+    if liqLoBox.size() > 0
+        for b in liqLoBox
+            b.set_bgcolor(color.new(#2ff56a, 80))
+
+// ================================================================== RMI Trend
+var bool rmiP = false
+var bool rmiN = false
+rUp   = ta.rma(math.max(ta.change(close), 0), rmiLen)
+rDn   = ta.rma(-math.min(ta.change(close), 0), rmiLen)
+rRsi  = rDn == 0 ? 100 : rUp == 0 ? 0 : 100 - (100 / (1 + rUp / rDn))
+rMfi  = ta.mfi(hlc3, rmiLen)
+rmi   = math.avg(rRsi, rMfi)
+ema5c = ta.change(ta.ema(close, 5))
+pMom  = rmi[1] < rmiPos and rmi > rmiPos and rmi > rmiNeg and ema5c > 0
+nMom  = rmi < rmiNeg and ema5c < 0
+if pMom and confirmed
+    rmiP := true
+    rmiN := false
+if nMom and confirmed
+    rmiP := false
+    rmiN := true
+rBand = math.min(ta.atr(30) * 0.3, close * (0.3 / 100))[20] / 2 * 8
+rRange = high - low
+rW    = rRange / math.sum(rRange, 20)
+rwma  = math.sum(close * rW, 20) / math.sum(rW, 20)
+rCol  = rmiP ? rmiBull : rmiBear
+RWMA  = rmiP ? rwma - rBand : rmiN ? rwma + rBand : na
+rAlpha = color.new(color.black, 100)
+rOn   = showRMI and rmiShow
+rCenter = plot(rOn ? RWMA : na, "RRTH", rCol)
+plot(rOn ? RWMA : na, "RRTH", color.new(rCol, 70), 2)
+plot(rOn ? RWMA : na, "RRTH", color.new(rCol, 80), 3)
+plot(rOn ? RWMA : na, "RRTH", color.new(rCol, 90), 4)
+rMax = RWMA + rBand
+rMin = RWMA - rBand
+rTop = plot(rOn ? rMax : na, "RRTH", rAlpha)
+rBot = plot(rOn ? rMin : na, "RRTH", rAlpha)
+fill(rTop, rCenter, rMax, RWMA, rAlpha, color.new(rCol, 75))
+fill(rCenter, rBot, RWMA, rMin, color.new(rCol, 75), rAlpha)
+rBarCol = rmiP ? color.green : color.red
+if showRMI and rmiN and not rmiN[1]
+    label.new(bar_index, rMax + rBand / 2, "", color = color.red, size = size.small)
+if showRMI and rmiP and not rmiP[1]
+    label.new(bar_index, rMin - rBand / 2, "", color = color.green, size = size.small, style = label.style_label_up)
+plotcandle(showRMI ? open : na, high, low, close, color = rBarCol, wickcolor = rBarCol, bordercolor = rBarCol)
+barcolor(showRMI ? rBarCol : na)
+alertcondition(rmiP and not rmiP[1], "BUY")
+alertcondition(rmiN and not rmiN[1], "SELL")
+
+// ================================================================== Trend Signals
+// hl2 supertrend whose band is 1.1 * (sensitivity + 2) ATRs of 25 bars. Labels sit 0.18 of
+// the 300-bar range away from the bar; a "+" marks flips on the side of a 186-bar WMA.
+// TP1/TP2 = entry +/- 1x / 2.5x the band.
+tsBull  = #33cfbb
+tsBear  = #dd3024
+tsMult  = (15 * sens + 4) / 11
+tsAtr   = ta.atr(25)
+tsBand  = 1.1 * (sens + 2) * tsAtr
+var int   tsTrend = 0
+var float tsStop  = na
+tsUp = hl2 - tsBand
+tsDn = hl2 + tsBand
+tsUp := tsTrend == 1 and not na(tsStop) ? math.max(tsUp, tsStop) : tsUp
+tsDn := tsTrend == -1 and not na(tsStop) ? math.min(tsDn, tsStop) : tsDn
+if confirmed
+    if tsTrend == 0
+        tsTrend := close > hl2 ? 1 : -1
+        tsStop := tsTrend == 1 ? tsUp : tsDn
+    else if tsTrend == 1
+        if close < tsUp
+            tsTrend := -1
+            tsStop := hl2 + tsBand
+        else
+            tsStop := tsUp
+    else
+        if close > tsDn
+            tsTrend := 1
+            tsStop := hl2 - tsBand
+        else
+            tsStop := tsDn
+tsFlipUp = tsTrend == 1 and tsTrend[1] == -1
+tsFlipDn = tsTrend == -1 and tsTrend[1] == 1
+tsRange  = ta.highest(high, 300) - ta.lowest(low, 300)
+tsAtr14  = ta.atr(14)
+tsStrong = close > ta.wma(close, 186)
+tsCol    = tsTrend[1] == 1 ? tsBull : tsBear
+plotcandle(showTS and tsCandle ? open : na, high, low, close, color = tsCol, wickcolor = tsCol, bordercolor = tsCol)
+barcolor(showTS and tsCandle ? tsCol : na)
+plot(tsMult, "!@", display = display.data_window)
+plotshape(showTS and tsFlipUp and not tsStrong ? low - 0.18 * tsRange : na, "Buy Label", shape.labelup, location.absolute, tsBull, text = "▲", textcolor = #FFFFFF, size = size.tiny)
+plotshape(showTS and tsFlipUp and tsStrong ? low - 0.18 * tsRange : na, "Buy Label", shape.labelup, location.absolute, tsBull, text = "▲+", textcolor = #FFFFFF, size = size.tiny)
+plotshape(showTS and tsFlipDn and tsStrong ? high + 0.18 * tsRange : na, "Sell Label", shape.labeldown, location.absolute, tsBear, text = "▼", textcolor = #FFFFFF, size = size.tiny)
+plotshape(showTS and tsFlipDn and not tsStrong ? high + 0.18 * tsRange : na, "Sell Label", shape.labeldown, location.absolute, tsBear, text = "▼+", textcolor = #FFFFFF, size = size.tiny)
+// alerts for the trend signals (fire on bar close, so they match the plotted arrows)
+alertcondition(tsFlipUp, "Buy Signal (Trend)", "Volume Edge: BUY on {{ticker}} {{interval}} @ {{close}}")
+alertcondition(tsFlipDn, "Sell Signal (Trend)", "Volume Edge: SELL on {{ticker}} {{interval}} @ {{close}}")
+alertcondition(tsFlipUp or tsFlipDn, "Buy or Sell Signal (Trend)", "Volume Edge: signal on {{ticker}} {{interval}} @ {{close}}")
+if showTS and tsFlipUp
+    alert("Volume Edge: BUY on " + syminfo.ticker + " " + timeframe.period + " @ " + str.tostring(close, format.mintick), alert.freq_once_per_bar_close)
+if showTS and tsFlipDn
+    alert("Volume Edge: SELL on " + syminfo.ticker + " " + timeframe.period + " @ " + str.tostring(close, format.mintick), alert.freq_once_per_bar_close)
+
+// trailing take-profit: from a Buy signal ride the SuperTrend(ATR 10, factor) lower band until it
+// flips; a Sell signal rides the upper band the same way
+[tsTrailSt, tsTrailDir] = ta.supertrend(tsTrailK, 10)
+var bool tsTrailOn = false
+var bool tsTrailDnOn = false
+if tsFlipUp
+    tsTrailOn := true
+    tsTrailDnOn := false
+if tsFlipDn
+    tsTrailDnOn := true
+    tsTrailOn := false
+if tsTrailDir == 1 and confirmed
+    tsTrailOn := false
+if tsTrailDir == -1 and confirmed
+    tsTrailDnOn := false
+plot(showTS and tsTrail and tsTrailOn and tsTrailDir < 0 ? tsTrailSt : na, "Up Trend", #4CAF50, 2, plot.style_linebr)
+plot(showTS and tsTrail and tsTrailDnOn and tsTrailDir > 0 ? tsTrailSt : na, "Down Trend", #F23645, 2, plot.style_linebr)
+// take-profit checkmarks
+var float tsEntry = na
+var float tsTp1   = na
+var float tsTp2   = na
+var bool  tsHit1  = false
+var bool  tsHit2  = false
+if tsFlipUp or tsFlipDn
+    tsEntry := close
+    tsTp1   := tsFlipUp ? close + tsBand : close - tsBand
+    tsTp2   := tsFlipUp ? close + 2.5 * tsBand : close - 2.5 * tsBand
+    tsHit1  := false
+    tsHit2  := false
+tsTpCol = color.new(color.black, 100)
+if showTS and showTP and confirmed and not na(tsTp1) and not (tsFlipUp or tsFlipDn)
+    if tsTrend == 1
+        if not tsHit1 and high >= tsTp1
+            tsHit1 := true
+            label.new(bar_index, high + 0.27 * tsAtr14, "✓", style = label.style_label_center, color = tsTpCol, textcolor = #60e264, size = size.normal, tooltip = "LONG TP1 Reached")
+            alert("Volume Edge: LONG TP1 reached on " + syminfo.ticker + " " + timeframe.period, alert.freq_once_per_bar_close)
+        if not tsHit2 and high >= tsTp2
+            tsHit2 := true
+            label.new(bar_index, high + 0.27 * tsAtr14, "✓", style = label.style_label_center, color = tsTpCol, textcolor = #60e264, size = size.normal, tooltip = "LONG TP2 Reached")
+            alert("Volume Edge: LONG TP2 reached on " + syminfo.ticker + " " + timeframe.period, alert.freq_once_per_bar_close)
+    else
+        if not tsHit1 and low <= tsTp1
+            tsHit1 := true
+            label.new(bar_index, low - 0.07 * tsRange, "✓", style = label.style_label_center, color = tsTpCol, textcolor = #60e264, size = size.normal, tooltip = "SHORT TP1 Reached")
+            alert("Volume Edge: SHORT TP1 reached on " + syminfo.ticker + " " + timeframe.period, alert.freq_once_per_bar_close)
+        if not tsHit2 and low <= tsTp2
+            tsHit2 := true
+            label.new(bar_index, low - 0.07 * tsRange, "✓", style = label.style_label_center, color = tsTpCol, textcolor = #60e264, size = size.normal, tooltip = "SHORT TP2 Reached")
+            alert("Volume Edge: SHORT TP2 reached on " + syminfo.ticker + " " + timeframe.period, alert.freq_once_per_bar_close)
+
+// ================================================================== Order Blocks
+// Pivot-candle order blocks: a bullish block is the wick under the body of a pivot low
+// (bearish: the wick above the body of a pivot high), clamped to a volatility height that
+// grows with the preset. The label shows the volume rating and the candle volume still
+// unconsumed by later bars that traded inside the block.
+obLeft = switch obPreset
+    "Macro"  => 50
+    "Big"    => 30
+    "Medium" => 20
+    => 10
+obK = switch obPreset
+    "Macro" => 0.8
+    "Big"   => 0.55
+    => 0.54
+type OB
+    box   bx
+    box   b1
+    box   b2
+    box   b3
+    box   b4
+    int   left
+    float top
+    float bot
+    int   dir
+    float vol
+    string rate
+    bool  broken
+var array<OB> obs = array.new<OB>()
+obAtr = ta.atr(300)
+// rating reference: 20-day average daily volume (19 completed sessions + the running one),
+// computed from the chart bars because the screener already uses all 40 request.* calls
+var array<float> obDayVol = array.new<float>()
+var float obCurDay = 0.0
+if ta.change(dayofmonth) != 0 or barstate.isfirst
+    if not barstate.isfirst
+        obDayVol.push(obCurDay)
+        if obDayVol.size() > 19
+            obDayVol.shift()
+    obCurDay := 0.0
+obCurDay += volume
+obRef = (obDayVol.sum() + obCurDay) / (obDayVol.size() + 1)
+obPH = ta.pivothigh(high, obLeft, 5)
+obPL = ta.pivotlow(low, obLeft, 5)
+// rating of the unconsumed volume: 9% / 3% / 2% of the average daily volume
+obRate(float v, float ref) => v >= 0.09 * ref ? "High" : v >= 0.03 * ref ? "Medium" : v >= 0.02 * ref ? "Low" : "Very Low"
+obBullCols = array.from(#0980ff, #00c3e5, #00eaa4, #05ff3f)
+obBearCols = array.from(#8215ff, #cd31f3, #ff19ba, #ff1515)
+obNew(int idx, int dir) =>
+    th = obK * obAtr
+    float top = na
+    float bot = na
+    if dir == 1
+        bot := low[idx]
+        top := bot + math.max(math.min(math.min(open[idx], close[idx]) - bot, th), th * 0.5)
+    else
+        top := high[idx]
+        bot := top - math.max(math.min(top - math.max(open[idx], close[idx]), th), th * 0.5)
+    OB.new(box.new(bar_index - idx, top, bar_index, bot, xloc = xloc.bar_index, extend = extend.right, bgcolor = color.new(#5a5d77, 80), border_color = color.new(#5a5d77, 80), text_size = size.auto, text_halign = text.align_right, text_color = color.gray),
+      box.new(na, na, na, na), box.new(na, na, na, na), box.new(na, na, na, na), box.new(na, na, na, na), bar_index - idx, top, bot, dir, volume[idx], obRate(volume[idx], obRef), false)
+obOverlap(OB o) =>
+    hi_ = math.min(high, o.top)
+    lo_ = math.max(low, o.bot)
+    hi_ > lo_ and high > low ? (hi_ - lo_) / (high - low) : 0.0
+obOverlapPrev(OB o) =>
+    hi_ = math.min(high[1], o.top)
+    lo_ = math.max(low[1], o.bot)
+    hi_ > lo_ and high[1] > low[1] ? (hi_ - lo_) / (high[1] - low[1]) : 0.0
+if showOB and confirmed
+    // consume volume, break, and redraw
+    if obs.size() > 0
+        for i = obs.size() - 1 to 0
+            o = obs.get(i)
+            if not o.broken
+                o.vol -= obOverlap(o) * volume
+                // a block is spent once later bars have traded away all of its volume
+                if o.vol <= 0
+                    if obBrk
+                        o.broken := true
+                        o.bx.set_bgcolor(color.new(#787b86, 60))
+                        o.bx.set_border_color(color.new(#787b86, 60))
+                        o.bx.set_text("Breaker Block")
+                    else
+                        box.delete(o.bx), box.delete(o.b1), box.delete(o.b2), box.delete(o.b3), box.delete(o.b4)
+                        obs.remove(i)
+                        continue
+                else
+                    o.rate := obRate(math.max(o.vol, 0), obRef)
+                    o.bx.set_text(o.rate + ": " + str.tostring(math.max(o.vol, 0), format.volume))
+            o.bx.set_right(bar_index)
+            span = bar_index - o.left
+            q = span / 4
+            cols = o.dir == 1 ? obBullCols : obBearCols
+            bxs = array.from(o.b1, o.b2, o.b3, o.b4)
+            for k = 0 to 3
+                b = bxs.get(k)
+                b.set_lefttop(o.left + math.round(q * k), o.top)
+                b.set_rightbottom(k == 3 ? bar_index : o.left + math.round(q * (k + 1)), o.bot)
+                c_ = o.broken ? #363a45 : cols.get(k)
+                b.set_bgcolor(color.new(c_, o.broken ? 100 : 68))
+                b.set_border_color(color.new(c_, 100))
+    if not na(obPL)
+        o = obNew(5, 1)
+        o.vol -= obOverlap(o) * volume + obOverlapPrev(o) * volume[1]
+        o.bx.set_text(obRate(math.max(o.vol, 0), obRef) + ": " + str.tostring(math.max(o.vol, 0), format.volume))
+        obs.push(o)
+    if not na(obPH)
+        o = obNew(5, -1)
+        o.vol -= obOverlap(o) * volume + obOverlapPrev(o) * volume[1]
+        o.bx.set_text(obRate(math.max(o.vol, 0), obRef) + ": " + str.tostring(math.max(o.vol, 0), format.volume))
+        obs.push(o)
+    while obs.size() > 5
+        o = obs.shift()
+        box.delete(o.bx), box.delete(o.b1), box.delete(o.b2), box.delete(o.b3), box.delete(o.b4)
+
+// ================================================================== TrendLines
+// Pivots (L, R) by preset; when a new pivot low confirms and the immediately previous pivot
+// low is lower, a rising support wedge is drawn from that previous pivot through the new one
+// (pivot highs mirror this for falling resistance). The wedge is time-linear: it ends at
+// time[R] + 75 bars (using the current bar's duration) and its end price is the two-pivot
+// line extrapolated in time. History keeps every line (up to 55); otherwise only the last
+// `Last` lines survive.
+tlL = switch tlPreset
+    "Small"  => 10
+    "Medium" => 15
+    "Big"    => 20
+    => 30
+tlR = switch tlPreset
+    "Small"  => 5
+    "Medium" => 7
+    "Big"    => 10
+    => 15
+var array<polyline> tls = array.new<polyline>()
+var float tlPrevLo  = na
+var int   tlPrevLoT = na
+var float tlPrevHi  = na
+var int   tlPrevHiT = na
+tlPL = ta.pivotlow(low, tlL, tlR)
+tlPH = ta.pivothigh(high, tlL, tlR)
+tlDelta = time - time[1]
+tlMake(bool sup, int t0, float y0, int t2, float y2) =>
+    tEnd = t2 + 75 * tlDelta
+    ye = y0 + (y2 - y0) * (tEnd - t0) / (t2 - t0)
+    pts = array.from(chart.point.from_time(t0, y0), chart.point.from_time(t0 + 2 * tlDelta, y0), chart.point.from_time(tEnd, ye))
+    polyline.new(pts, false, false, xloc.bar_time, color.new(#484749, 80), sup ? color.new(#f53acc, 50) : tlCol, line.style_solid, 1)
+if showTL and confirmed
+    if not na(tlPL)
+        if not na(tlPrevLo) and tlPrevLo < tlPL
+            tls.push(tlMake(true, tlPrevLoT, tlPrevLo, time[tlR], tlPL))
+        tlPrevLo  := tlPL
+        tlPrevLoT := time[tlR]
+    if not na(tlPH)
+        if not na(tlPrevHi) and tlPrevHi > tlPH
+            tls.push(tlMake(false, tlPrevHiT, tlPrevHi, time[tlR], tlPH))
+        tlPrevHi  := tlPH
+        tlPrevHiT := time[tlR]
+    if not tlHist or barstate.isrealtime
+        while tls.size() > tlLast
+            polyline.delete(tls.shift())
+    while tls.size() > 55
+        polyline.delete(tls.shift())
+
+// ================================================================== Capital Risk
+edgeTablePos(p) =>
+    switch p
+        "Top Left"      => position.top_left
+        "Middle Right"  => position.middle_right
+        "Top Center"    => position.top_center
+        "Top Right"     => position.top_right
+        "Middle Left"   => position.middle_left
+        "Middle Center" => position.middle_center
+        "Bottom Left"   => position.bottom_left
+        "Bottom Center" => position.bottom_center
+        => position.bottom_right
+var table capT = na
+if not (showCAP and showTables) and not na(capT)
+    table.delete(capT)
+    capT := na
+if showCAP and showTables and barstate.islast
+    if na(capT)
+        capT := table.new(edgeTablePos(capPos), 3, 50, bgcolor = #b2b5be, frame_color = #464646, frame_width = 2, border_width = 2)
+    hdrBg = color.new(color.gray, 38)
+    table.cell(capT, 0, 1, "Total Capital", text_color = #000000, bgcolor = hdrBg, text_size = size.normal)
+    table.cell(capT, 1, 1, str.tostring(capital, "#") + " $", text_color = #363a45, bgcolor = #dbdbdb, text_size = size.normal)
+    table.cell(capT, 0, 2, "Risk Per Trade", text_color = #000000, bgcolor = hdrBg, text_size = size.normal)
+    table.cell(capT, 1, 2, str.tostring(capital * riskPct / 100, "#") + " $", text_color = #363a45, bgcolor = #dbdbdb, text_size = size.normal)
+    table.cell(capT, 0, 3, "Profit Per Trade", text_color = #000000, bgcolor = hdrBg, text_size = size.normal)
+    table.cell(capT, 1, 3, str.tostring(capital * riskPct / 100 * rrRatio, "#") + " $", text_color = #363a45, bgcolor = #dbdbdb, text_size = size.normal)
+    table.cell(capT, 0, 4, "Trade Capital", text_color = #000000, bgcolor = hdrBg, text_size = size.normal)
+    table.cell(capT, 1, 4, str.tostring(capital * riskPct / slPct, "#") + " $", text_color = #363a45, bgcolor = #dbdbdb, text_size = size.normal)
+
+// ================================================================== EDGE Volume Screener
+edgeTxtSize(s) =>
+    switch s
+        "Tiny"   => size.tiny
+        "Small"  => size.small
+        "Normal" => size.normal
+        => size.auto
+edgeVal(sym) =>
+    [v1, dsc, tk] = request.security(sym, "D", [close * volume, syminfo.description, syminfo.ticker], ignore_invalid_symbol = true)
+    [v1, dsc, tk]
+[v01, d01, t01] = edgeVal(s01)
+[v02, d02, t02] = edgeVal(s02)
+[v03, d03, t03] = edgeVal(s03)
+[v04, d04, t04] = edgeVal(s04)
+[v05, d05, t05] = edgeVal(s05)
+[v06, d06, t06] = edgeVal(s06)
+[v07, d07, t07] = edgeVal(s07)
+[v08, d08, t08] = edgeVal(s08)
+[v09, d09, t09] = edgeVal(s09)
+[v10, d10, t10] = edgeVal(s10)
+[v11, d11, t11] = edgeVal(s11)
+[v12, d12, t12] = edgeVal(s12)
+[v13, d13, t13] = edgeVal(s13)
+[v14, d14, t14] = edgeVal(s14)
+[v15, d15, t15] = edgeVal(s15)
+[v16, d16, t16] = edgeVal(s16)
+[v17, d17, t17] = edgeVal(s17)
+[v18, d18, t18] = edgeVal(s18)
+[v19, d19, t19] = edgeVal(s19)
+[v20, d20, t20] = edgeVal(s20)
+[v21, d21, t21] = edgeVal(s21)
+[v22, d22, t22] = edgeVal(s22)
+[v23, d23, t23] = edgeVal(s23)
+[v24, d24, t24] = edgeVal(s24)
+[v25, d25, t25] = edgeVal(s25)
+[v26, d26, t26] = edgeVal(s26)
+[v27, d27, t27] = edgeVal(s27)
+[v28, d28, t28] = edgeVal(s28)
+[v29, d29, t29] = edgeVal(s29)
+[v30, d30, t30] = edgeVal(s30)
+[v31, d31, t31] = edgeVal(s31)
+[v32, d32, t32] = edgeVal(s32)
+[v33, d33, t33] = edgeVal(s33)
+[v34, d34, t34] = edgeVal(s34)
+[v35, d35, t35] = edgeVal(s35)
+[v36, d36, t36] = edgeVal(s36)
+[v37, d37, t37] = edgeVal(s37)
+[v38, d38, t38] = edgeVal(s38)
+[v39, d39, t39] = edgeVal(s39)
+[v40, d40, t40] = edgeVal(s40)
+// Only the enabled symbols are listed, packed without gaps: up to 20 in one symbol/volume
+// column pair, more than 20 split evenly into two pairs. The tint runs by row (mirrored in
+// the second pair) and the volume tint turns red below edgeCap million.
+// Manual RGB blend: the blend factor is rounded to single precision (k/20 as float32) and
+// each channel is floored.
+var float[] edgeT32 = array.from(0.0, 0.05000000074505806, 0.10000000149011612, 0.15000000596046448, 0.20000000298023224, 0.25, 0.30000001192092896, 0.3499999940395355, 0.4000000059604645, 0.44999998807907104, 0.5, 0.550000011920929, 0.6000000238418579, 0.6499999761581421, 0.699999988079071, 0.75, 0.800000011920929, 0.8500000238418579, 0.8999999761581421, 0.949999988079071, 1.0)
+edgeGrad(int v, color a, color b) =>
+    t = array.get(edgeT32, math.max(0, math.min(20, v)))
+    color.rgb(math.floor(color.r(a) + (color.r(b) - color.r(a)) * t), math.floor(color.g(a) + (color.g(b) - color.g(a)) * t), math.floor(color.b(a) + (color.b(b) - color.b(a)) * t))
+edgeAdd(bool en, string tk, string dsc, float va, string[] tks, string[] dscs, float[] vas) =>
+    if en and not na(va)
+        tks.push(tk)
+        dscs.push(dsc)
+        vas.push(va)
+var table edgeT = na
+if not (showEDGE and showTables) and not na(edgeT)
+    table.delete(edgeT)
+    edgeT := na
+if showEDGE and showTables and barstate.islast
+    string[] tks  = array.new<string>()
+    string[] dscs = array.new<string>()
+    float[]  vas  = array.new<float>()
+    edgeAdd(e01, t01, d01, v01, tks, dscs, vas), edgeAdd(e02, t02, d02, v02, tks, dscs, vas), edgeAdd(e03, t03, d03, v03, tks, dscs, vas), edgeAdd(e04, t04, d04, v04, tks, dscs, vas), edgeAdd(e05, t05, d05, v05, tks, dscs, vas)
+    edgeAdd(e06, t06, d06, v06, tks, dscs, vas), edgeAdd(e07, t07, d07, v07, tks, dscs, vas), edgeAdd(e08, t08, d08, v08, tks, dscs, vas), edgeAdd(e09, t09, d09, v09, tks, dscs, vas), edgeAdd(e10, t10, d10, v10, tks, dscs, vas)
+    edgeAdd(e11, t11, d11, v11, tks, dscs, vas), edgeAdd(e12, t12, d12, v12, tks, dscs, vas), edgeAdd(e13, t13, d13, v13, tks, dscs, vas), edgeAdd(e14, t14, d14, v14, tks, dscs, vas), edgeAdd(e15, t15, d15, v15, tks, dscs, vas)
+    edgeAdd(e16, t16, d16, v16, tks, dscs, vas), edgeAdd(e17, t17, d17, v17, tks, dscs, vas), edgeAdd(e18, t18, d18, v18, tks, dscs, vas), edgeAdd(e19, t19, d19, v19, tks, dscs, vas), edgeAdd(e20, t20, d20, v20, tks, dscs, vas)
+    edgeAdd(e21, t21, d21, v21, tks, dscs, vas), edgeAdd(e22, t22, d22, v22, tks, dscs, vas), edgeAdd(e23, t23, d23, v23, tks, dscs, vas), edgeAdd(e24, t24, d24, v24, tks, dscs, vas), edgeAdd(e25, t25, d25, v25, tks, dscs, vas)
+    edgeAdd(e26, t26, d26, v26, tks, dscs, vas), edgeAdd(e27, t27, d27, v27, tks, dscs, vas), edgeAdd(e28, t28, d28, v28, tks, dscs, vas), edgeAdd(e29, t29, d29, v29, tks, dscs, vas), edgeAdd(e30, t30, d30, v30, tks, dscs, vas)
+    edgeAdd(e31, t31, d31, v31, tks, dscs, vas), edgeAdd(e32, t32, d32, v32, tks, dscs, vas), edgeAdd(e33, t33, d33, v33, tks, dscs, vas), edgeAdd(e34, t34, d34, v34, tks, dscs, vas), edgeAdd(e35, t35, d35, v35, tks, dscs, vas)
+    edgeAdd(e36, t36, d36, v36, tks, dscs, vas), edgeAdd(e37, t37, d37, v37, tks, dscs, vas), edgeAdd(e38, t38, d38, v38, tks, dscs, vas), edgeAdd(e39, t39, d39, v39, tks, dscs, vas), edgeAdd(e40, t40, d40, v40, tks, dscs, vas)
+    n      = tks.size()
+    groups = n > 20 ? 2 : 1
+    perCol = groups == 2 ? math.ceil(n / 2.0) : n
+    cols   = groups * 2
+    edgeT := table.new(edgeTablePos(edgePos), cols, perCol + 2, frame_color = color.new(#23dee1, 60), frame_width = 2, border_width = 2)
+    ts_ = edgeTxtSize(edgeSize)
+    hdr = color.new(#2f319b, 60)
+    for c_ = 0 to cols - 1
+        table.cell(edgeT, c_, 0, c_ == 0 ? "(EDGE) Volume Screener" : "", text_color = #d2d2d2, bgcolor = hdr, text_size = ts_)
+    if cols > 1
+        table.merge_cells(edgeT, 0, 0, cols - 1, 0)
+    for c_ = 0 to cols - 1
+        table.cell(edgeT, c_, 1, c_ % 2 == 0 ? "Symbol" : "Total Trading Volume", text_color = #000000, bgcolor = color.new(color.gray, 38), text_size = ts_)
+    if n > 0
+        for k = 0 to n - 1
+            grp  = k >= perCol ? 1 : 0
+            row  = 2 + k - grp * perCol
+            va   = vas.get(k)
+            symC = grp == 0 ? edgeGrad(row, #23dee1, #311b92) : edgeGrad(row, #311b92, #23dee1)
+            volC = va < edgeCap * 1000000 ? edgeGrad(k, color.red, #d60404) : edgeGrad(k, #00e676, color.green)
+            table.cell(edgeT, grp * 2, row, tks.get(k), text_color = #d2d2d2, bgcolor = color.new(symC, 60), text_size = ts_, tooltip = dscs.get(k))
+            table.cell(edgeT, grp * 2 + 1, row, "$" + str.tostring(va, "#,###.00"), text_color = #d2d2d2, bgcolor = color.new(volC, 60), text_size = ts_)

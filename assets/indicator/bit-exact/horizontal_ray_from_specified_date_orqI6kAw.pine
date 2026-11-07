@@ -1,0 +1,79 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © finallynitin
+
+//@version=6
+indicator('Horizontal Ray from Specified Date', overlay = true)
+
+// ── Inputs ──────────────────────────────────────────────
+in_day   = input.int(15,   'Date (D / M / Y)', minval = 1,    maxval = 31,   inline = 'date')
+in_month = input.int(9,    '',                 minval = 1,    maxval = 12,   inline = 'date')
+in_year  = input.int(2026, '',                 minval = 1990, maxval = 2100, inline = 'date')
+
+src_in = input.string('High', 'Price Source', options = ['High', 'Low', 'Close', 'Open'])
+
+col_above     = input.color(color.green, 'Color: Close Above', inline = 'col')
+col_below     = input.color(color.red,   'Below',              inline = 'col')
+ray_thickness = input.int(2, 'Ray Thickness', minval = 1, maxval = 5)
+ray_style_in  = input.string('Solid', 'Ray Style', options = ['Solid', 'Dashed', 'Dotted'])
+
+show_text   = input.bool(true, 'Show Text', inline = 'txt')
+ray_text    = input.string('', '', inline = 'txt', tooltip = 'Leave blank to show the date')
+show_price  = input.bool(true, 'Show Price in Text')
+text_offset = input.int(15, 'Text Position (bars right of last candle)', minval = 0, maxval = 400)
+
+ray_style = switch ray_style_in
+    'Dashed' => line.style_dashed
+    'Dotted' => line.style_dotted
+    => line.style_solid
+
+// ── Find the day ────────────────────────────────────────
+t0      = timestamp(syminfo.timezone, in_year, in_month, in_day, 0, 0)
+day_key = year(time) * 10000 + month(time) * 100 + dayofmonth(time)
+
+var line  ray       = na
+var label ray_lbl   = na
+var int   lock_key  = na
+var int   lock_time = na
+var float lvl       = na
+var int   lvl_bar   = na
+
+if na(lock_key) and time_close > t0
+    lock_key  := day_key
+    lock_time := time
+    lvl       := src_in == 'High' ? high : src_in == 'Low' ? low : src_in == 'Close' ? close : open
+    lvl_bar   := bar_index
+    ray       := line.new(lvl_bar, lvl, lvl_bar + 1, lvl, xloc = xloc.bar_index, extend = extend.right,
+                     color = col_below, width = ray_thickness, style = ray_style)
+
+else if not na(lock_key) and day_key == lock_key
+    if src_in == 'High' and high > lvl
+        lvl := high, lvl_bar := bar_index
+    else if src_in == 'Low' and low < lvl
+        lvl := low, lvl_bar := bar_index
+    else if src_in == 'Close'
+        lvl := close, lvl_bar := bar_index
+    line.set_xy1(ray, lvl_bar, lvl)
+    line.set_xy2(ray, lvl_bar + 1, lvl)
+
+// ── Colour: green if latest close is above the ray ──────
+is_above = not na(lvl) and close > lvl
+cur_col  = is_above ? col_above : col_below
+
+if barstate.islast and not na(ray)
+    line.set_color(ray, cur_col)
+    if show_text
+        date_str = str.format_time(lock_time, 'dd MMM yyyy', syminfo.timezone)
+        base_txt = ray_text == '' ? date_str : ray_text
+        txt      = show_price ? base_txt + ' · ' + str.tostring(lvl, format.mintick) : base_txt
+        if na(ray_lbl)
+            ray_lbl := label.new(bar_index + text_offset, lvl, txt, xloc = xloc.bar_index,
+                         style = label.style_label_lower_right, color = color.new(color.white, 100), textcolor = cur_col)
+        else
+            label.set_xy(ray_lbl, bar_index + text_offset, lvl)
+            label.set_text(ray_lbl, txt)
+            label.set_textcolor(ray_lbl, cur_col)
+
+// ── Values for the Pine Screener (hidden on chart) ──────
+plot(lvl,                                    'Ray Level',  display = display.data_window)
+plot(na(lvl) ? na : (is_above ? 1 : 0),      'Above Ray',  display = display.data_window)
+plot(na(lvl) ? na : (close - lvl) / lvl * 100, 'Distance %', display = display.data_window)

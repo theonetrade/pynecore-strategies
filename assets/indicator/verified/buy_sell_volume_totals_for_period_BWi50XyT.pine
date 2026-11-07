@@ -1,0 +1,59 @@
+//@version=4
+//
+// Based on "Buy/Sell Volume Bars" by Rauki
+//      https://www.tradingview.com/script/l21KxMmX-Buy-Sell-Volume-Bars/
+//
+// @author vace117 
+//  - Added calculation of total buy/sell volume for a given time period
+//
+
+study("Buy/Sell Volume Totals for Period", format=format.volume, precision=3)
+
+//////////////////////////////////////////////////////
+//                   INPUTS                         //
+//////////////////////////////////////////////////////
+startTime  = input(defval = timestamp("10 Dec 2021"), title = "Start Time",    type = input.time)
+useEndTime = input(defval = false,                    title = "Use End Time?", type = input.bool)
+endTime    = input(defval = timestamp("04 Jan 2022"), title = "End Time",      type = input.time)
+
+inDateRange = useEndTime ? (time >= startTime) and (time <= endTime) : (time >= startTime)
+
+
+//////////////////////////////////////////////////////
+//                COUNTERS INIT                     //
+//////////////////////////////////////////////////////
+var totalBuyVolume  = 0.0 
+var totalSellVolume = 0.0
+
+if( not inDateRange )
+    totalBuyVolume  := 0.0
+    totalSellVolume := 0.0
+
+
+//////////////////////////////////////////////////////
+//       BUY/SELL VOLUME CALCULATION                //
+//////////////////////////////////////////////////////
+buyVolume  = iff( (high==low), 0, volume*(close-low)/(high-low)  )
+sellVolume = iff( (high==low), 0, volume*(high-close)/(high-low) )
+
+if ( inDateRange )
+    totalBuyVolume  := totalBuyVolume  + buyVolume
+    totalSellVolume := totalSellVolume + sellVolume
+
+totalBuySellRatio = iff(totalSellVolume > 0.0, totalBuyVolume / totalSellVolume, 0.0)
+
+isAccumulation = totalBuyVolume > totalSellVolume
+isDistribution = not isAccumulation
+
+//////////////////////////////////////////////////////
+//                    PLOTS                         //
+//////////////////////////////////////////////////////
+plotchar(totalBuyVolume,    "Total Buy Volume",     "", location.top, color=color.green)
+plotchar(totalSellVolume,   "Total Sell Volume",    "", location.top, color=color.red)
+plotchar(totalBuySellRatio, "Total Buy/Sell Ratio", "", location.top, color=color.yellow)
+
+plot(volume,    style=plot.style_columns, color=color.red,  title="BUY+SELL V") // shows total volume (!) 
+plot(buyVolume, style=plot.style_columns, color=color.teal, title="BUY V")      // shows only buy volume
+
+accDistrColor = isAccumulation ? color.green : color.red
+bgcolor(color.new(accDistrColor, inDateRange ? 70 : 100))

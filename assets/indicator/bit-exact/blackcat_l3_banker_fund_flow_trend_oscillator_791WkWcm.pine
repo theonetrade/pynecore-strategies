@@ -1,0 +1,424 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © blackcat1402
+//@version=6
+
+// V2 polish log (pine-polisher): W7 inputs/zero-division guards/groups, W2+W4 governed exit signal with state machine, W5 dashboard/bg/labels, W6 governed alerts. V1 algorithms and candle semantics preserved by default.
+// V2 enhancement log: multi-channel entry/exit signals, ATR take-profit/stop-loss on the price chart, false-signal filters (volume/strength/HTF), noise reduction (smoothing/hysteresis/range gate), trend line + TP/SL overlays, expanded status table, text-abbreviation signal labels (IN/OUT/TP/SL with channel suffixes).
+// V2 long/short log: mirrored short side (SI entry / SO exit), re-entry signals (RL / RS) that refresh TP/SL, optional stop-and-reverse, direction-aware filters (rising/falling trend, HTF bull/bear alignment).
+indicator('[blackcat] L3 Banker Fund Flow Trend Oscillator V2', overlay = false, max_labels_count = 500)
+
+// ---- Parameter groups (const) ----
+string GRP_OSC = 'Oscillator Settings'
+string GRP_SIG = 'Signal Governance'
+string GRP_FLT = 'Signal Filters'
+string GRP_RSK = 'Risk Management'
+string GRP_VIS = 'Visual'
+string GRP_ALR = 'Alerts'
+
+// ---- Inputs: Oscillator (W7: V1 hard-coded values exposed, defaults = V1) ----
+rawLen = input.int(27, 'Raw Stochastic Length', minval = 2, group = GRP_OSC, tooltip = 'Lowest/Highest lookback of the raw stochastic. V1 hard-coded 27')
+smoothFastLen = input.int(5, 'Fast Smoothing Length', minval = 1, group = GRP_OSC, tooltip = 'First weighted smoothing length. V1 hard-coded 5')
+smoothSlowLen = input.int(3, 'Slow Smoothing Length', minval = 1, group = GRP_OSC, tooltip = 'Second weighted smoothing length. V1 hard-coded 3')
+smoothWeight = input.float(1.0, 'Smoothing Weight', minval = 0.0, step = 0.5, group = GRP_OSC, tooltip = 'Weight of the weighted simple average. V1 hard-coded 1')
+bandLen = input.int(34, 'Bull/Bear Band Length', minval = 2, group = GRP_OSC, tooltip = 'Mid-term Fibonacci band length. V1 hard-coded 34')
+bullBearEmaLen = input.int(13, 'Bull/Bear EMA Length', minval = 1, group = GRP_OSC, tooltip = 'EMA length of the bull/bear line. V1 hard-coded 13')
+declineRatio = input.float(0.95, 'Pullback Ratio', minval = 0.5, maxval = 1.0, step = 0.01, group = GRP_OSC, tooltip = 'White candle prints when trend < previous trend * ratio. V1 hard-coded 0.95')
+entryZone = input.float(25, 'Entry Zone Threshold', minval = 0, maxval = 100, group = GRP_OSC, tooltip = 'Bull/bear line must be below this for the banker entry signal. V1 hard-coded 25')
+exitZone = input.float(75, 'Exit Zone Threshold', minval = 0, maxval = 100, group = GRP_OSC, tooltip = 'V2 new: mirror of the entry zone for the governed exit signal')
+
+// ---- Inputs: Levels (W7: V1 hline values exposed) ----
+obLevel = input.float(80, 'Overbought Level', minval = 50, maxval = 100, group = GRP_OSC)
+strongLevel = input.float(90, 'Strong Level', minval = 50, maxval = 100, group = GRP_OSC)
+osLevel = input.float(20, 'Oversold Level', minval = 0, maxval = 50, group = GRP_OSC)
+weakLevel = input.float(10, 'Weak Level', minval = 0, maxval = 50, group = GRP_OSC)
+
+// ---- Inputs: Signal Governance (W4 + V2 enhancement: long/short multi-channel signals) ----
+useExitSignal = input.bool(true, 'Enable Governed Exit Signal', group = GRP_SIG, tooltip = 'Mirror cross exit channel for long positions (trend crosses under the bull/bear line in the exit zone)')
+useShortEntry = input.bool(true, 'Enable Short Entry Signals', group = GRP_SIG, tooltip = 'Adds the mirrored short side: SI entry, SO exit, RS re-entry. Channel toggles below are shared between long exits and short entries')
+allowReverse = input.bool(true, 'Allow Reverse Entry (SAR)', group = GRP_SIG, tooltip = 'An opposite-direction signal while holding a position closes it and opens the reverse side (stop-and-reverse). When disabled, the opposite signal only closes the current position')
+cooldownBars = input.int(3, 'Cooldown Bars', minval = 0, group = GRP_SIG, tooltip = 'Minimum bars between governed signals (including RL/RS re-entries). 0 disables the cooldown')
+useZoneEntry = input.bool(true, 'Zone Breakout Entry', group = GRP_SIG, tooltip = 'Long: bull/bear line crosses up through the entry zone. Short: bull/bear line crosses down through the exit zone')
+useOsRecovery = input.bool(true, 'Oversold Recovery Entry', group = GRP_SIG, tooltip = 'Long: trend crosses up through the oversold level. Short exit uses the same upward event')
+useObRollExit = input.bool(true, 'Overbought Rollover Exit', group = GRP_SIG, tooltip = 'Long exit: trend crosses down through the overbought level. Short entry uses the same downward event')
+useFlipExit = input.bool(false, 'Trend-Line Flip Exit', group = GRP_SIG, tooltip = 'Trend crosses under the bull/bear line with no zone condition (frequent, enable with care)')
+
+// ---- Inputs: Signal Filters (V2 enhancement: false-signal protection + noise reduction) ----
+useVolFilter = input.bool(true, 'Require Volume Confirmation', group = GRP_FLT, tooltip = 'Entries (long and short) only when volume is above its SMA x multiplier: banker accumulation needs volume')
+volLen = input.int(20, 'Volume SMA Length', minval = 1, group = GRP_FLT)
+volMult = input.float(1.0, 'Volume Multiplier', minval = 0.1, step = 0.1, group = GRP_FLT)
+useStrengthFilter = input.bool(true, 'Require Trend Alignment on Entry', group = GRP_FLT, tooltip = 'Long entries only when the trend is rising, short entries only when the trend is falling')
+useHtfFilter = input.bool(false, 'Higher-Timeframe Trend Filter', group = GRP_FLT, tooltip = 'Long entries only when HTF close is above HTF EMA, short entries only when below. Uses confirmed HTF values only (no repaint)')
+htfTf = input.timeframe('240', 'Filter Timeframe', group = GRP_FLT)
+htfLen = input.int(50, 'HTF EMA Length', minval = 1, group = GRP_FLT)
+useNoiseFilter = input.bool(false, 'Skip Wide-Range Bars', group = GRP_FLT, tooltip = 'Skip entries when the bar range exceeds ATR x multiplier (volatility spike)')
+maxRangeMult = input.float(2.5, 'Max Range x ATR', minval = 0.5, step = 0.5, group = GRP_FLT)
+hysteresis = input.float(0.0, 'Cross Hysteresis (points)', minval = 0, maxval = 25, step = 0.5, group = GRP_FLT, tooltip = 'Trend must exceed the bull/bear line by this margin for the cross entry/exit. 0 disables')
+noiseSmoothLen = input.int(1, 'Extra Smoothing Length', minval = 1, group = GRP_FLT, tooltip = 'Extra EMA smoothing applied to the trend before all signals and visuals. 1 disables (V1 behavior)')
+
+// ---- Inputs: Risk Management (V2 enhancement: take-profit / stop-loss) ----
+useAtrStops = input.bool(true, 'Enable ATR Take-Profit/Stop-Loss', group = GRP_RSK, tooltip = 'On governed entry, locks ATR-based TP and SL levels shown on the price chart')
+atrLen = input.int(14, 'ATR Length', minval = 1, group = GRP_RSK)
+tpMult = input.float(3.0, 'Take Profit x ATR', minval = 0.5, step = 0.5, group = GRP_RSK)
+slMult = input.float(1.5, 'Stop Loss x ATR', minval = 0.5, step = 0.5, group = GRP_RSK)
+
+// ---- Inputs: Visual (W5 + V2 enhancement) ----
+showDash = input.bool(true, 'Show Status Dashboard', group = GRP_VIS)
+showBg = input.bool(true, 'Show Bull/Bear Background', group = GRP_VIS)
+showLabels = input.bool(true, 'Show Entry/Exit Labels', group = GRP_VIS)
+showTrendLine = input.bool(true, 'Show Trend Line', group = GRP_VIS)
+showTpSl = input.bool(true, 'Show Entry/TP/SL on Price Chart', group = GRP_VIS)
+showSignalLabels = input.bool(true, 'Show Signal Labels (IN/OUT/TP/SL)', group = GRP_VIS, tooltip = 'Governed signals as text labels: IN/OUT on the oscillator, TP/SL on the price chart, with trigger-channel abbreviations in the text and tooltip')
+
+// ---- Inputs: Alerts (W6) ----
+enableAlerts = input.bool(true, 'Enable alert() Messages', group = GRP_ALR)
+
+// Function to find the most recent non-NaN value within a given length (kept from V1, dead line removed)
+find_recent_value(values, length) =>
+    recent_value = float(na)
+    if length >= 1
+        for i = 0 to length by 1
+            if na(recent_value) or not na(values[i])
+                recent_value := values[i]
+    recent_value
+
+// Function to calculate a weighted simple average (kept from V1)
+calculate_weighted_simple_average(src, length, weight) =>
+    sum_float = 0.0
+    moving_average = 0.0
+    output = 0.0
+    sum_float := nz(sum_float[1]) - nz(src[length]) + src
+    moving_average := na(src[length]) ? na : sum_float / length
+    output := na(output[1]) ? moving_average : (src * weight + output[1] * (length - weight)) / length
+    output
+
+// Function to calculate banker fund flow trend, bull bear line, entry and exit signals (algorithm kept from V1, W7 zero-division guards added)
+calculate_banker_fund_flow(close, low, high, open) =>
+    // Define typical price for banker fund
+    typical_price = (2 * close + high + low + open) / 5
+    // Lowest/Highest with mid-term Fibonacci level 34
+    lowest_low = ta.lowest(low, bandLen)
+    highest_high = ta.highest(high, bandLen)
+    // Raw stochastic window with zero-division protection
+    raw_low = ta.lowest(low, rawLen)
+    raw_high = ta.highest(high, rawLen)
+    raw_range = raw_high - raw_low
+    raw_stoch = raw_range == 0 ? float(na) : (close - raw_low) / raw_range * 100
+    // Set up a simple model of banker fund flow trend
+    fast_smooth = calculate_weighted_simple_average(raw_stoch, smoothFastLen, smoothWeight)
+    slow_smooth = calculate_weighted_simple_average(fast_smooth, smoothSlowLen, smoothWeight)
+    fund_flow_trend = (3 * fast_smooth - 2 * slow_smooth - 50) * 1.032 + 50
+    // Define banker fund flow bull bear line with zero-division protection
+    band_range = highest_high - lowest_low
+    bull_bear_line = ta.ema(band_range == 0 ? float(na) : (typical_price - lowest_low) / band_range * 100, bullBearEmaLen)
+    // Define banker entry signal (V1) and governed exit signal (V2 mirror)
+    banker_entry_signal = ta.crossover(fund_flow_trend, bull_bear_line) and bull_bear_line < entryZone
+    banker_exit_signal = ta.crossunder(fund_flow_trend, bull_bear_line) and bull_bear_line > exitZone
+    // Return the calculated values
+    [fund_flow_trend, bull_bear_line, banker_entry_signal, banker_exit_signal]
+
+// Calculate banker fund flow values
+[fund_flow_trend, bull_bear_line, banker_entry_signal, banker_exit_signal] = calculate_banker_fund_flow(close, low, high, open)
+
+// ---- Noise reduction: optional extra smoothing (1 = off, identical to V1) ----
+fund_flow_trend := ta.ema(fund_flow_trend, noiseSmoothLen)
+banker_entry_signal := ta.crossover(fund_flow_trend, bull_bear_line) and bull_bear_line < entryZone
+banker_exit_signal := ta.crossunder(fund_flow_trend, bull_bear_line) and bull_bear_line > exitZone
+
+// ---- Helper series (all computed unconditionally every bar) ----
+float atrVal = ta.atr(atrLen)
+float volSma = ta.sma(volume, volLen)
+float crossLevel = bull_bear_line + hysteresis
+
+// ---- Higher-timeframe trend filter (confirmed values only: [1] + lookahead_off = no repaint) ----
+[htfClose, htfEma] = request.security(syminfo.tickerid, htfTf, [close[1], ta.ema(close, htfLen)[1]], lookahead = barmerge.lookahead_off)
+bool htfBull = htfClose > htfEma
+
+// ---- False-signal filters (direction-aware for entries; exits stay ungated for safety) ----
+bool volOK = not useVolFilter or volume > volSma * volMult
+bool strengthLongOK = not useStrengthFilter or fund_flow_trend > fund_flow_trend[1]
+bool strengthShortOK = not useStrengthFilter or fund_flow_trend < fund_flow_trend[1]
+bool noiseOK = not useNoiseFilter or high - low < atrVal * maxRangeMult
+bool htfBullOK = not useHtfFilter or htfBull
+bool htfBearOK = not useHtfFilter or not htfBull
+bool confirmGateLong = volOK and strengthLongOK and noiseOK and htfBullOK
+bool confirmGateShort = volOK and strengthShortOK and noiseOK and htfBearOK
+
+// ---- Multi-channel long/short signals (all ta.* evaluated unconditionally, then gated) ----
+// Long-side events (upward crosses)
+bool crossEntry = ta.crossover(fund_flow_trend, crossLevel) and bull_bear_line < entryZone
+bool zoneEntryCross = ta.crossover(bull_bear_line, entryZone)
+bool osRecoverCross = ta.crossover(fund_flow_trend, osLevel)
+// Short-side events (downward crosses, mirrored)
+bool mirrorExitCross = ta.crossunder(fund_flow_trend, crossLevel)
+bool obRollCross = ta.crossunder(fund_flow_trend, obLevel)
+bool flipCross = ta.crossunder(fund_flow_trend, bull_bear_line)
+bool zoneShortCross = ta.crossunder(bull_bear_line, exitZone)
+// Long entry channels
+bool zoneEntry = useZoneEntry and zoneEntryCross
+bool osRecoverEntry = useOsRecovery and osRecoverCross
+bool anyEntry = crossEntry or zoneEntry or osRecoverEntry
+// Long exit channels (the same downward events also serve as short entry events)
+bool mirrorExit = useExitSignal and mirrorExitCross and bull_bear_line > exitZone
+bool obRollExit = useObRollExit and obRollCross
+bool flipExit = useFlipExit and flipCross
+bool anyExit = mirrorExit or obRollExit or flipExit
+// Short entry channels (mirror of the long side, gated by the short master switch)
+bool shortCross = mirrorExitCross and bull_bear_line > exitZone
+bool shortZone = useZoneEntry and zoneShortCross
+bool shortObRoll = useObRollExit and obRollCross
+bool shortFlip = useFlipExit and flipCross
+bool anyShortEntry = useShortEntry and (shortCross or shortZone or shortObRoll or shortFlip)
+
+// ---- Governance: long/short state machine + cooldown + confirmation gates ----
+var int posState = 0
+var int lastSignalBar = -1
+var int entryCount = 0
+var int exitCount = 0
+var int reLongCount = 0
+var int reShortCount = 0
+var float entryPrice = na
+var float tpPrice = na
+var float slPrice = na
+bool cooldownOK = lastSignalBar < 0 or bar_index - lastSignalBar > cooldownBars
+bool longEntryOK = anyEntry and confirmGateLong
+bool shortEntryOK = anyShortEntry and confirmGateShort
+bool longEvt = longEntryOK and cooldownOK
+bool shortEvt = shortEntryOK and cooldownOK
+bool longExitEvt = anyEntry and cooldownOK
+bool shortExitEvt = (anyExit or anyShortEntry) and cooldownOK
+bool govEntry = false
+bool govExit = false
+bool govShortEntry = false
+bool govShortExit = false
+bool govReLong = false
+bool govReShort = false
+bool reversedToLong = false
+bool reversedToShort = false
+if cooldownOK
+    if posState == 0
+        // Flat: first qualifying signal wins (long has priority, V1 heritage)
+        if longEvt
+            govEntry := true
+        else if shortEvt
+            govShortEntry := true
+    else if posState == 1
+        // Long: same-direction signal re-fires -> RL; opposite event -> reverse or plain exit
+        if longEvt
+            govReLong := true
+        else if shortExitEvt
+            if allowReverse and shortEntryOK
+                govShortEntry := true
+                reversedToShort := true
+            else
+                govExit := true
+    else
+        // Short: same-direction signal re-fires -> RS; opposite event -> reverse or plain exit
+        if shortEvt
+            govReShort := true
+        else if longExitEvt
+            if allowReverse and longEntryOK
+                govEntry := true
+                reversedToLong := true
+            else
+                govShortExit := true
+
+// ---- State transitions: apply entries, re-entries, exits, reversals ----
+if govEntry
+    posState := 1
+    lastSignalBar := bar_index
+    entryCount += 1
+    if reversedToLong
+        exitCount += 1
+    if useAtrStops
+        entryPrice := close
+        tpPrice := close + atrVal * tpMult
+        slPrice := close - atrVal * slMult
+if govShortEntry
+    posState := -1
+    lastSignalBar := bar_index
+    entryCount += 1
+    if reversedToShort
+        exitCount += 1
+    if useAtrStops
+        entryPrice := close
+        tpPrice := close - atrVal * tpMult
+        slPrice := close + atrVal * slMult
+if govReLong
+    lastSignalBar := bar_index
+    reLongCount += 1
+    if useAtrStops
+        entryPrice := close
+        tpPrice := close + atrVal * tpMult
+        slPrice := close - atrVal * slMult
+if govReShort
+    lastSignalBar := bar_index
+    reShortCount += 1
+    if useAtrStops
+        entryPrice := close
+        tpPrice := close - atrVal * tpMult
+        slPrice := close + atrVal * slMult
+if govExit or govShortExit
+    posState := 0
+    lastSignalBar := bar_index
+    exitCount += 1
+    entryPrice := na
+    tpPrice := na
+    slPrice := na
+
+// ---- Take-profit / stop-loss hit tracking (direction-aware, intrabar high/low) ----
+bool tpHit = useAtrStops and not na(tpPrice) and ((posState == 1 and high >= tpPrice) or (posState == -1 and low <= tpPrice))
+bool slHit = useAtrStops and not na(slPrice) and ((posState == 1 and low <= slPrice) or (posState == -1 and high >= slPrice))
+if tpHit or slHit
+    posState := 0
+    lastSignalBar := bar_index
+    exitCount += 1
+    entryPrice := na
+    tpPrice := na
+    slPrice := na
+
+// Candle state booleans (V1 semantics preserved, pullback reference computed once)
+float pullbackRef = find_recent_value(fund_flow_trend * declineRatio, 1)
+bool isYellow = banker_entry_signal
+bool isGreen = fund_flow_trend > bull_bear_line
+bool isWhite = fund_flow_trend < pullbackRef
+bool isRed = fund_flow_trend < bull_bear_line
+bool isBlue = fund_flow_trend < bull_bear_line and fund_flow_trend > pullbackRef
+
+// Banker fund entry with yellow candle (V1 kept)
+plotcandle(0, 50, 0, 50, title = 'Banker Entry', color = isYellow ? color.new(color.yellow, 0) : na, bordercolor = na)
+
+// Banker increase position with green candle (V1 kept)
+plotcandle(fund_flow_trend, bull_bear_line, fund_flow_trend, bull_bear_line, title = 'Banker Increase', color = isGreen ? color.new(color.green, 0) : na, bordercolor = na)
+
+// Banker decrease position with white candle (V1 kept)
+plotcandle(fund_flow_trend, bull_bear_line, fund_flow_trend, bull_bear_line, title = 'Banker Decrease', color = isWhite ? color.new(color.white, 0) : na, bordercolor = na)
+
+// Banker fund exit/quit with red candle (V1 kept)
+plotcandle(fund_flow_trend, bull_bear_line, fund_flow_trend, bull_bear_line, title = 'Banker Exit', color = isRed ? color.new(color.red, 0) : na, bordercolor = na)
+
+// Banker fund weak rebound with blue candle (V1 kept)
+plotcandle(fund_flow_trend, bull_bear_line, fund_flow_trend, bull_bear_line, title = 'Banker Rebound', color = isBlue ? color.new(color.blue, 0) : na, bordercolor = na)
+
+// ---- Enhancement: state-colored trend line ----
+plot(showTrendLine ? fund_flow_trend : na, 'Fund Flow Trend Line', color = isYellow ? color.new(color.yellow, 0) : isGreen ? color.new(color.green, 0) : isWhite ? color.new(color.white, 0) : isRed ? color.new(color.red, 0) : color.new(color.blue, 0), linewidth = 2)
+
+// ---- Enhancement: entry/TP/SL levels drawn on the main price chart ----
+plot(showTpSl and useAtrStops ? entryPrice : na, 'Entry Price', color = color.new(color.gray, 0), style = plot.style_linebr, force_overlay = true)
+plot(showTpSl and useAtrStops ? tpPrice : na, 'Take Profit', color = color.new(color.teal, 0), style = plot.style_linebr, force_overlay = true)
+plot(showTpSl and useAtrStops ? slPrice : na, 'Stop Loss', color = color.new(color.maroon, 0), style = plot.style_linebr, force_overlay = true)
+
+// Overbought and oversold threshold lines (V1 kept, levels now inputs)
+overbought_threshold = hline(obLevel, title = 'Overbought', color = color.red, linestyle = hline.style_dotted)
+oversold_threshold = hline(osLevel, title = 'Oversold', color = color.yellow, linestyle = hline.style_dotted)
+weak_threshold = hline(weakLevel, title = 'Weak', color = color.lime, linestyle = hline.style_dotted)
+strong_threshold = hline(strongLevel, title = 'Strong', color = color.fuchsia, linestyle = hline.style_dotted)
+fill(oversold_threshold, weak_threshold, color = color.new(color.yellow, 70))
+fill(overbought_threshold, strong_threshold, color = color.new(color.fuchsia, 70))
+
+// ---- W5: bull/bear state background ----
+bgcolor(showBg ? isGreen ? color.new(color.green, 92) : isRed ? color.new(color.red, 92) : na : na, title = 'Bull/Bear Background')
+
+// ---- W5: V1 native banker entry label ----
+if showLabels and banker_entry_signal
+    label.new(bar_index, fund_flow_trend, 'Banker In', style = label.style_label_up, color = color.new(color.yellow, 10), textcolor = color.black, size = size.small)
+
+// ---- Enhancement: governed signal labels with text abbreviations ----
+// IN = long entry (R suffix = reversal from short), suffixes: XB cross breakout / ZB zone breakout / OSR oversold recovery
+// OUT = long exit, suffixes: MX mirror exit / OBR overbought rollover / FL trend flip
+// SI = short entry (R suffix = reversal from long), suffixes: MX mirror cross / ZD zone breakdown / OBR overbought rollover / FL trend flip
+// SO = short exit, suffixes: XB cross breakout / ZB zone breakout / OSR oversold recovery
+// RL / RS = re-entry long / re-entry short (refreshes entry price and TP/SL)
+// TP / SL = take-profit / stop-loss hit, drawn on the price chart
+if showSignalLabels and govEntry
+    string entryLbl = (reversedToLong ? 'IN ·R' : 'IN') + (crossEntry ? ' ·XB' : '') + (zoneEntry ? ' ·ZB' : '') + (osRecoverEntry ? ' ·OSR' : '')
+    label.new(bar_index, fund_flow_trend, entryLbl, style = label.style_label_up, color = color.new(color.lime, 10), textcolor = color.black, size = size.small, tooltip = (reversedToLong ? 'Reverse: close short, open long\n' : '') + 'Governed long entry @ ' + str.tostring(close, format.mintick) + (useAtrStops ? '\nTP ' + str.tostring(tpPrice, format.mintick) + ' | SL ' + str.tostring(slPrice, format.mintick) : ''))
+if showSignalLabels and govExit
+    string exitLbl = 'OUT' + (mirrorExit ? ' ·MX' : '') + (obRollExit ? ' ·OBR' : '') + (flipExit ? ' ·FL' : '')
+    label.new(bar_index, fund_flow_trend, exitLbl, style = label.style_label_down, color = color.new(color.orange, 10), textcolor = color.white, size = size.small)
+if showSignalLabels and govShortEntry
+    string shortLbl = (reversedToShort ? 'SI ·R' : 'SI') + (shortCross ? ' ·MX' : '') + (shortZone ? ' ·ZD' : '') + (shortObRoll ? ' ·OBR' : '') + (shortFlip ? ' ·FL' : '')
+    label.new(bar_index, fund_flow_trend, shortLbl, style = label.style_label_down, color = color.new(color.fuchsia, 10), textcolor = color.white, size = size.small, tooltip = (reversedToShort ? 'Reverse: close long, open short\n' : '') + 'Governed short entry @ ' + str.tostring(close, format.mintick) + (useAtrStops ? '\nTP ' + str.tostring(tpPrice, format.mintick) + ' | SL ' + str.tostring(slPrice, format.mintick) : ''))
+if showSignalLabels and govShortExit
+    string shortExitLbl = 'SO' + (crossEntry ? ' ·XB' : '') + (zoneEntry ? ' ·ZB' : '') + (osRecoverEntry ? ' ·OSR' : '')
+    label.new(bar_index, fund_flow_trend, shortExitLbl, style = label.style_label_up, color = color.new(color.blue, 10), textcolor = color.white, size = size.small)
+if showSignalLabels and govReLong
+    string reLongLbl = 'RL' + (crossEntry ? ' ·XB' : '') + (zoneEntry ? ' ·ZB' : '') + (osRecoverEntry ? ' ·OSR' : '')
+    label.new(bar_index, fund_flow_trend, reLongLbl, style = label.style_label_up, color = color.new(color.teal, 10), textcolor = color.white, size = size.small, tooltip = 'Re-entry long: levels refreshed @ ' + str.tostring(close, format.mintick) + (useAtrStops ? '\nTP ' + str.tostring(tpPrice, format.mintick) + ' | SL ' + str.tostring(slPrice, format.mintick) : ''))
+if showSignalLabels and govReShort
+    string reShortLbl = 'RS' + (shortCross ? ' ·MX' : '') + (shortZone ? ' ·ZD' : '') + (shortObRoll ? ' ·OBR' : '') + (shortFlip ? ' ·FL' : '')
+    label.new(bar_index, fund_flow_trend, reShortLbl, style = label.style_label_down, color = color.new(color.purple, 10), textcolor = color.white, size = size.small, tooltip = 'Re-entry short: levels refreshed @ ' + str.tostring(close, format.mintick) + (useAtrStops ? '\nTP ' + str.tostring(tpPrice, format.mintick) + ' | SL ' + str.tostring(slPrice, format.mintick) : ''))
+if showSignalLabels and tpHit
+    label.new(bar_index, na, 'TP', yloc = yloc.abovebar, style = label.style_label_down, color = color.new(color.teal, 0), textcolor = color.white, size = size.small, force_overlay = true)
+if showSignalLabels and slHit
+    label.new(bar_index, na, 'SL', yloc = yloc.belowbar, style = label.style_label_up, color = color.new(color.maroon, 0), textcolor = color.white, size = size.small, force_overlay = true)
+
+// Governed position state for data window (W4)
+plot(posState, 'Governed Position State', display = display.data_window)
+
+// ---- Enhanced status dashboard ----
+var table dash = table.new(position.top_right, 2, 10, bgcolor = color.new(color.black, 60), border_width = 1)
+if showDash and barstate.islast
+    string stateTxt = isGreen ? 'Increase (Green)' : isWhite ? 'Decrease (White)' : isBlue ? 'Weak Rebound (Blue)' : 'Exit (Red)'
+    color stateColor = isGreen ? color.green : isRed ? color.red : isYellow ? color.yellow : color.blue
+    string posTxt = posState == 1 ? 'LONG #' + str.tostring(entryCount) : posState == -1 ? 'SHORT #' + str.tostring(entryCount) : 'FLAT'
+    color posColor = posState == 1 ? color.lime : posState == -1 ? color.fuchsia : color.white
+    string entryTxt = not na(entryPrice) ? str.tostring(entryPrice, format.mintick) : '-'
+    string tpTxt = not na(tpPrice) ? str.tostring(tpPrice, format.mintick) : '-'
+    string slTxt = not na(slPrice) ? str.tostring(slPrice, format.mintick) : '-'
+    string distTxt = not na(tpPrice) ? str.tostring(math.abs(tpPrice - close) / close * 100, '#.##') + '% / ' + str.tostring(math.abs(slPrice - close) / close * 100, '#.##') + '%' : '-'
+    string pnlTxt = posState == 1 and not na(entryPrice) ? str.tostring((close - entryPrice) / entryPrice * 100, '#.##') + '%' : posState == -1 and not na(entryPrice) ? str.tostring((entryPrice - close) / entryPrice * 100, '#.##') + '%' : '-'
+    string filterTxt = (volOK ? 'Vol+ ' : 'Vol- ') + (strengthLongOK ? 'StrL+ ' : 'StrL- ') + (strengthShortOK ? 'StrS+ ' : 'StrS- ') + (noiseOK ? 'Rng+ ' : 'Rng- ') + (htfBullOK ? 'HTF+' : 'HTF-')
+    string sigTxt = (cooldownOK ? 'Ready' : 'Wait') + ' | In ' + str.tostring(entryCount) + ' Out ' + str.tostring(exitCount) + ' | RL ' + str.tostring(reLongCount) + ' RS ' + str.tostring(reShortCount)
+    table.cell(dash, 0, 0, 'Fund Flow Trend', text_color = color.white, text_size = size.tiny)
+    table.cell(dash, 1, 0, str.tostring(fund_flow_trend, '#.##'), text_color = stateColor, text_size = size.tiny)
+    table.cell(dash, 0, 1, 'Bull/Bear Line', text_color = color.white, text_size = size.tiny)
+    table.cell(dash, 1, 1, str.tostring(bull_bear_line, '#.##'), text_color = color.white, text_size = size.tiny)
+    table.cell(dash, 0, 2, 'Candle State', text_color = color.white, text_size = size.tiny)
+    table.cell(dash, 1, 2, stateTxt, text_color = stateColor, text_size = size.tiny)
+    table.cell(dash, 0, 3, 'Governed Position', text_color = color.white, text_size = size.tiny)
+    table.cell(dash, 1, 3, posTxt, text_color = posColor, text_size = size.tiny)
+    table.cell(dash, 0, 4, 'Entry Price', text_color = color.white, text_size = size.tiny)
+    table.cell(dash, 1, 4, entryTxt, text_color = color.white, text_size = size.tiny)
+    table.cell(dash, 0, 5, 'TP / SL', text_color = color.white, text_size = size.tiny)
+    table.cell(dash, 1, 5, tpTxt + ' / ' + slTxt, text_color = color.white, text_size = size.tiny)
+    table.cell(dash, 0, 6, 'TP/SL Distance', text_color = color.white, text_size = size.tiny)
+    table.cell(dash, 1, 6, distTxt, text_color = color.white, text_size = size.tiny)
+    table.cell(dash, 0, 7, 'Open P&L', text_color = color.white, text_size = size.tiny)
+    table.cell(dash, 1, 7, pnlTxt, text_color = color.white, text_size = size.tiny)
+    table.cell(dash, 0, 8, 'Entry Filters', text_color = color.white, text_size = size.tiny)
+    table.cell(dash, 1, 8, filterTxt, text_color = confirmGateLong or confirmGateShort ? color.lime : color.orange, text_size = size.tiny)
+    table.cell(dash, 0, 9, 'Cooldown | Signals', text_color = color.white, text_size = size.tiny)
+    table.cell(dash, 1, 9, sigTxt, text_color = color.white, text_size = size.tiny)
+
+// ---- W6: alerts ----
+// V1 alert conditions preserved verbatim
+alertcondition(banker_entry_signal, title = 'Alert on Yellow Candle', message = 'Yellow Candle!')
+alertcondition(fund_flow_trend > bull_bear_line, title = 'Alert on Green Candle', message = 'Green Candle!')
+alertcondition(fund_flow_trend < pullbackRef, title = 'Alert on White Candle', message = 'White Candle!')
+alertcondition(fund_flow_trend < bull_bear_line, title = 'Alert on Red Candle', message = 'Red Candle!')
+alertcondition(fund_flow_trend < bull_bear_line and fund_flow_trend > pullbackRef, title = 'Alert on Blue Candle', message = 'Blue Candle!')
+// Governed channel alerts (long + short + re-entry)
+alertcondition(govEntry, title = 'Governed Banker Entry', message = 'Long entry: confirmed by filters and governance')
+alertcondition(govExit, title = 'Governed Banker Exit', message = 'Long exit: trend crossed under bull/bear line in exit zone')
+alertcondition(govShortEntry, title = 'Governed Short Entry', message = 'Short entry: confirmed by filters and governance')
+alertcondition(govShortExit, title = 'Governed Short Exit', message = 'Short exit: upward cross closed the short side')
+alertcondition(govReLong, title = 'Re-entry Long', message = 'Re-entry long: long signal re-fired while long, levels refreshed')
+alertcondition(govReShort, title = 'Re-entry Short', message = 'Re-entry short: short signal re-fired while short, levels refreshed')
+alertcondition(tpHit, title = 'Take Profit Hit', message = 'TP hit: price reached the ATR take-profit level')
+alertcondition(slHit, title = 'Stop Loss Hit', message = 'SL hit: price reached the ATR stop-loss level')
+if enableAlerts and govEntry
+    alert((reversedToLong ? 'Reverse to long' : 'Long entry') + ' @ ' + str.tostring(close, format.mintick), alert.freq_once_per_bar_close)
+if enableAlerts and govExit
+    alert('Long exit @ ' + str.tostring(close, format.mintick), alert.freq_once_per_bar_close)
+if enableAlerts and govShortEntry
+    alert((reversedToShort ? 'Reverse to short' : 'Short entry') + ' @ ' + str.tostring(close, format.mintick), alert.freq_once_per_bar_close)
+if enableAlerts and govShortExit
+    alert('Short exit @ ' + str.tostring(close, format.mintick), alert.freq_once_per_bar_close)
+if enableAlerts and govReLong
+    alert('Re-entry long @ ' + str.tostring(close, format.mintick), alert.freq_once_per_bar_close)
+if enableAlerts and govReShort
+    alert('Re-entry short @ ' + str.tostring(close, format.mintick), alert.freq_once_per_bar_close)
+if enableAlerts and tpHit
+    alert('TP hit @ ' + str.tostring(tpPrice, format.mintick), alert.freq_once_per_bar_close)
+if enableAlerts and slHit
+    alert('SL hit @ ' + str.tostring(slPrice, format.mintick), alert.freq_once_per_bar_close)

@@ -1,0 +1,431 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © bluesignalfx
+
+//@version=6
+// ═══════════════════════════════════════════════════════════════════
+//  CC FIRST RED / GREEN DAY  ·  Blue Signal FX · Coffee & Charts
+//  FRD: a rally of higher closes into a fresh high → first red day after the peak
+//  FGD: a selloff of lower closes into a fresh low  → first green day after the trough
+//  Signal day ARMS the setup → close through the 47 MA CONFIRMS it
+//  Pullback zone (signal-day range or 47 MA retest) → entry, or trigger-line break
+// ═══════════════════════════════════════════════════════════════════
+indicator("CC First Red / Green Day", shorttitle = "CC FRD/FGD", overlay = true, max_boxes_count = 200, max_lines_count = 300, max_labels_count = 300)
+
+// ─── INPUTS ────────────────────────────────────────────────────────
+string G1 = "⚙ Signal Engine"
+calcOn    = input.string("Real Candles", "Calculate Signals On", options = ["Real Candles", "Heikin Ashi"], group = G1, tooltip = "Real Candles: always uses true OHLC, even when your chart is set to Heikin Ashi.\nHeikin Ashi: FRD/FGD are read from Heikin Ashi candles (pairs well with 'Candle Color').")
+sigTF     = input.timeframe("D", "Signal Timeframe", group = G1, tooltip = "What counts as a 'day'. Keep on D for FRD/FGD.")
+redDef    = input.string("Prior Close", "Red / Green Definition", options = ["Prior Close", "Candle Color", "Both"], group = G1, tooltip = "Prior Close: red = close below yesterday's close.\nCandle Color: red = close below open.\nBoth: must satisfy both.")
+minRun    = input.int(3, "Min Higher / Lower Closes Into Extreme", minval = 1, maxval = 20, group = G1, tooltip = "The rally into the peak (FRD) must contain at least this many higher closes. Mirror for FGD.")
+graceBars = input.int(2, "Allowed Pause Days In Rally", minval = 0, maxval = 10, group = G1, tooltip = "Rally is counted over (Min Closes + this) days ending at the peak, so a doji or small pause inside the run doesn't kill it. Very common on Heikin Ashi.")
+locLen    = input.int(10, "Extreme Lookback (Signal TF bars)", minval = 2, maxval = 500, group = G1, tooltip = "The peak / trough must be the highest high / lowest low of at least this many days.")
+
+string G5 = "〰 47 MA Confirmation"
+useMA    = input.bool(true, "Require 47 MA Break", group = G5, tooltip = "FRD fires on a close below the MA, FGD on a close above it — isolates the major turning points.")
+maTF     = input.timeframe("240", "MA Timeframe", group = G5, tooltip = "Blueprint default: 4H.")
+maLen    = input.int(47, "MA Length", minval = 1, group = G5)
+maType   = input.string("SMA", "MA Type", options = ["SMA", "EMA"], group = G5)
+armMax   = input.int(15, "Max Days From Peak To MA Break", minval = 2, maxval = 60, group = G5, tooltip = "The setup stays armed while the peak (FRD) / trough (FGD) is within this many days. Covers long topping/bottoming chop. A new high/low re-starts the setup.")
+armBars  = input.int(3, "MA Break Before Signal Day: Max Gap (days)", minval = 0, maxval = 20, group = G5, tooltip = "If the MA breaks first, the FRD/FGD day must follow within this many days.")
+useSlope = input.bool(true, "Ignore Breaks Against A Strong MA Slope", group = G5, tooltip = "Skips FRDs while the MA is still rising steeply (a normal dip in an uptrend) and FGDs while it is falling steeply. Real turns happen after the MA flattens.")
+slopeLen = input.int(10, "Slope Lookback (MA TF bars)", minval = 2, maxval = 100, group = G5)
+slopeMax = input.float(1.0, "Max Slope (in ATRs)", minval = 0.1, step = 0.1, group = G5, tooltip = "How far the MA may have moved over the slope lookback, measured in ATRs. Lower = stricter.")
+showArm  = input.bool(true, "Mark Signal Days (armed)", group = G5)
+showMA   = input.bool(false, "Plot MA", group = G5)
+
+string G2 = "▣ Setup Zones"
+showZones    = input.bool(true, "Show Setup Zones", group = G2)
+zoneMode     = input.string("Auto", "Zone Type", options = ["Auto", "Signal Day", "MA Retest"], group = G2, tooltip = "Signal Day: FRD close → FRD high (FGD low → FGD close).\nMA Retest: a tight zone around the 47 MA at the break.\nAuto: uses the signal-day zone when it is close to price, otherwise switches to the MA retest so the zone is never miles away.")
+zoneMaxAtr   = input.float(1.5, "Auto: Max Distance To Signal-Day Zone (ATRs)", minval = 0.1, step = 0.1, group = G2)
+zoneAtrW     = input.float(0.5, "MA Retest Zone Half-Width (ATRs)", minval = 0.1, step = 0.1, group = G2)
+showTrig     = input.bool(true, "Show Trigger Line", group = G2, tooltip = "Signal-day zone: FRD low / FGD high. MA retest zone: the break candle's low / high.")
+useTrigEntry = input.bool(true, "Trigger-Line Entry (no retrace)", group = G2, tooltip = "If price never pulls back into the zone and instead CLOSES through the trigger line, fire FRD BRK / FGD BRK.")
+trigNoTouch  = input.bool(true, "Only If Zone Was Never Tapped", group = G2)
+zoneLen      = input.int(3, "Zone Length (days)", minval = 1, maxval = 20, group = G2)
+maxZones     = input.int(10, "Max Zones Kept", minval = 1, maxval = 50, group = G2)
+
+string G3 = "⤵ Break of Structure"
+showBOS = input.bool(true, "Show BOS", group = G3)
+pvLen   = input.int(3, "Swing Strength", minval = 1, maxval = 20, group = G3)
+
+string G4 = "◈ Visuals"
+colBear  = input.color(#ff1744, "Bearish", group = G4)
+colBull  = input.color(#00e676, "Bullish", group = G4)
+colAcc   = input.color(#00bcd4, "Accent", group = G4)
+colBg    = input.color(#0a1628, "Panel Background", group = G4)
+showDash = input.bool(true, "Show Dashboard", group = G4)
+dashPos  = input.string("Bottom Left", "Dashboard Position", options = ["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group = G4)
+
+// ─── TIMEFRAME / SOURCE ────────────────────────────────────────────
+int    chartSec = timeframe.in_seconds()
+int    sigSec   = timeframe.in_seconds(sigTF)
+bool   sameTF   = chartSec >= sigSec
+string reqTF    = sameTF ? timeframe.period : sigTF
+int    effSec   = sameTF ? chartSec : sigSec
+string tfLabel  = reqTF + (calcOn == "Heikin Ashi" ? " · HA" : "")
+string tkr      = calcOn == "Heikin Ashi" ? ticker.heikinashi(syminfo.tickerid) : ticker.standard(syminfo.tickerid)
+
+// ─── HELPERS ───────────────────────────────────────────────────────
+f_isRed(float o, float c, float pc) =>
+    redDef == "Prior Close" ? c < pc : redDef == "Candle Color" ? c < o : c < pc and c < o
+
+f_isGreen(float o, float c, float pc) =>
+    redDef == "Prior Close" ? c > pc : redDef == "Candle Color" ? c > o : c > pc and c > o
+
+// ─── CORE ENGINE (signal timeframe) ────────────────────────────────
+// Looks BACK from today: find the peak, check the rally into it, find the first red day after it.
+// No fragile streak state — a pause, doji or chop at the top can't make it miss the turn.
+f_core() =>
+    var int upRun = 0
+    var int dnRun = 0
+    upRun := close > close[1] ? upRun + 1 : 0
+    dnRun := close < close[1] ? dnRun + 1 : 0
+    bool red   = f_isRed(open, close, close[1])
+    bool green = f_isGreen(open, close, close[1])
+
+    int   W      = math.max(armMax, locLen)
+    int   pkOff  = math.max(-ta.highestbars(high, W), 0)
+    int   trOff  = math.max(-ta.lowestbars(low, W), 0)
+    int   cntLen = minRun + graceBars
+    float upCnt  = math.sum(close > close[1] ? 1 : 0, cntLen)
+    float dnCnt  = math.sum(close < close[1] ? 1 : 0, cntLen)
+
+    // FRD: first red day on/after the peak
+    int frdOff = -1
+    if bar_index > W
+        for i = pkOff to 0
+            if red[i]
+                frdOff := i
+                break
+    bool  frdArm = bar_index > W and pkOff <= armMax and upCnt[pkOff] >= minRun and frdOff >= 0
+    int   fo     = math.max(frdOff, 0)
+    bool  frdDay = frdArm and frdOff == 0
+
+    // FGD: first green day on/after the trough
+    int fgdOff = -1
+    if bar_index > W
+        for i = trOff to 0
+            if green[i]
+                fgdOff := i
+                break
+    bool  fgdArm = bar_index > W and trOff <= armMax and dnCnt[trOff] >= minRun and fgdOff >= 0
+    int   go     = math.max(fgdOff, 0)
+    bool  fgdDay = fgdArm and fgdOff == 0
+
+    float locHi     = ta.highest(high, locLen)
+    float locLo     = ta.lowest(low, locLen)
+    float curPeak   = ta.highest(high, math.max(upRun, 1))
+    float curTrough = ta.lowest(low, math.max(dnRun, 1))
+
+    // Break of structure on closes
+    float ph = ta.pivothigh(high, pvLen, pvLen)
+    float pl = ta.pivotlow(low, pvLen, pvLen)
+    var float swHi   = na
+    var int   swHiT  = na
+    var bool  hiLive = false
+    var float swLo   = na
+    var int   swLoT  = na
+    var bool  loLive = false
+    if not na(ph)
+        swHi   := ph
+        swHiT  := time[pvLen]
+        hiLive := true
+    if not na(pl)
+        swLo   := pl
+        swLoT  := time[pvLen]
+        loLive := true
+    bool bosUp = false
+    bool bosDn = false
+    if hiLive and close > swHi
+        bosUp  := true
+        hiLive := false
+    if loLive and close < swLo
+        bosDn  := true
+        loLive := false
+
+    [frdArm, frdDay, high[fo], low[fo], close[fo], time[fo], high[pkOff], time[pkOff], fgdArm, fgdDay, high[go], low[go], close[go], time[go], low[trOff], time[trOff], upRun, dnRun, curPeak, curTrough, locHi, locLo, close, bosUp, bosDn, swHi, swHiT, swLo, swLoT]
+
+// Last COMPLETED signal-TF bar (non-repainting)
+f_confirmed() =>
+    [y1, y2, y3, y4, y5, y6, y7, y8, y9, y10, y11, y12, y13, y14, y15, y16, y17, y18, y19, y20, y21, y22, y23, y24, y25, y26, y27, y28, y29] = f_core()
+    [y1[1], y2[1], y3[1], y4[1], y5[1], y6[1], y7[1], y8[1], y9[1], y10[1], y11[1], y12[1], y13[1], y14[1], y15[1], y16[1], y17[1], y18[1], y19[1], y20[1], y21[1], y22[1], y23[1], y24[1], y25[1], y26[1], y27[1], y28[1], y29[1]]
+
+[cArm, cDay, cFdH, cFdL, cFdC, cFdT, cPk, cPkT, cGArm, cGDay, cGdH, cGdL, cGdC, cGdT, cTr, cTrT, cUp, cDn, cCurPk, cCurTr, cLh, cLl, cC, cBu, cBd, cSh, cSht, cSl, cSlt] = request.security(tkr, reqTF, f_core())
+[pArm, pDay, pFdH, pFdL, pFdC, pFdT, pPk, pPkT, pGArm, pGDay, pGdH, pGdL, pGdC, pGdT, pTr, pTrT, pUp, pDn, pCurPk, pCurTr, pLh, pLl, pC, pBu, pBd, pSh, pSht, pSl, pSlt] = request.security(tkr, reqTF, f_confirmed(), lookahead = barmerge.lookahead_on)
+float dOpen     = request.security(tkr, reqTF, open, lookahead = barmerge.lookahead_on)
+float liveClose = request.security(tkr, timeframe.period, close)
+float liveHigh  = request.security(tkr, timeframe.period, high)
+float liveLow   = request.security(tkr, timeframe.period, low)
+float liveAtr   = request.security(tkr, timeframe.period, ta.atr(14))
+
+bool newSig = timeframe.change(reqTF)
+
+// ─── STATE (as of the last completed signal day) ───────────────────
+bool  sArm  = sameTF ? cArm  : pArm
+float sFdH  = sameTF ? cFdH  : pFdH
+float sFdL  = sameTF ? cFdL  : pFdL
+float sFdC  = sameTF ? cFdC  : pFdC
+int   sFdT  = sameTF ? cFdT  : pFdT
+float sPk   = sameTF ? cPk   : pPk
+int   sPkT  = sameTF ? cPkT  : pPkT
+bool  sGArm = sameTF ? cGArm : pGArm
+float sGdH  = sameTF ? cGdH  : pGdH
+float sGdL  = sameTF ? cGdL  : pGdL
+float sGdC  = sameTF ? cGdC  : pGdC
+int   sGdT  = sameTF ? cGdT  : pGdT
+float sTr   = sameTF ? cTr   : pTr
+int   sTrT  = sameTF ? cTrT  : pTrT
+
+bool frdDayEvt = sameTF ? cDay and barstate.isconfirmed : newSig and pDay
+bool fgdDayEvt = sameTF ? cGDay and barstate.isconfirmed : newSig and pGDay
+bool armOkD    = sameTF ? barstate.isconfirmed : true
+
+bool  bosUpEvt = showBOS and (sameTF ? cBu and barstate.isconfirmed : newSig and pBu)
+bool  bosDnEvt = showBOS and (sameTF ? cBd and barstate.isconfirmed : newSig and pBd)
+float bUpLvl   = sameTF ? cSh : pSh
+int   bUpT0    = sameTF ? cSht : pSht
+float bDnLvl   = sameTF ? cSl : pSl
+int   bDnT0    = sameTF ? cSlt : pSlt
+
+// ─── 47 MA ENGINE ──────────────────────────────────────────────────
+f_ma(float src) =>
+    float e = ta.ema(src, maLen)
+    float m = ta.sma(src, maLen)
+    maType == "EMA" ? e : m
+
+f_maS() =>
+    float m = f_ma(close)
+    [m, (m - m[slopeLen]) / ta.atr(14)]
+
+f_maX() =>
+    float m = f_ma(close)
+    [m, ta.crossunder(close, m), ta.crossover(close, m), (m - m[slopeLen]) / ta.atr(14)]
+
+f_maXConf() =>
+    [a, b, c, d] = f_maX()
+    [a[1], b[1], c[1], d[1]]
+
+int  maSec   = timeframe.in_seconds(maTF)
+bool maLower = chartSec < maSec
+[maLive, slLive] = request.security(tkr, maTF, f_maS())
+[mMa, mXdn, mXup, mSl] = request.security(tkr, maTF, f_maXConf(), lookahead = barmerge.lookahead_on)
+bool  maChg  = timeframe.change(maTF)
+bool  cXdn   = ta.crossunder(liveClose, maLive)
+bool  cXup   = ta.crossover(liveClose, maLive)
+bool  xDnEvt = maLower ? maChg and mXdn : cXdn and barstate.isconfirmed
+bool  xUpEvt = maLower ? maChg and mXup : cXup and barstate.isconfirmed
+float maRef  = maLower ? mMa : maLive
+float slRef  = maLower ? mSl : slLive
+bool  slOkDn = not useSlope or na(slRef) or slRef < slopeMax
+bool  slOkUp = not useSlope or na(slRef) or slRef > -slopeMax
+
+plot(maLive, "47 MA", color = showMA ? colAcc : color.new(colAcc, 100), linewidth = 2)
+
+// ─── SIGNAL GATING ────────────────────────────────────────────────
+var int xDnT = na
+var int xUpT = na
+var int lastFrdPkT = na     // one FRD per peak
+var int lastFgdTrT = na     // one FGD per trough
+int winMs = (armBars + 1) * effSec * 1000
+
+if not na(xDnT) and time - xDnT > winMs
+    xDnT := na
+if not na(xUpT) and time - xUpT > winMs
+    xUpT := na
+if xDnEvt
+    xDnT := time
+    xUpT := na
+if xUpEvt
+    xUpT := time
+    xDnT := na
+
+bool frdLive = sArm and armOkD and (na(lastFrdPkT) or sPkT != lastFrdPkT)
+bool fgdLive = sGArm and armOkD and (na(lastFgdTrT) or sTrT != lastFgdTrT)
+
+bool frdFire = useMA ? frdLive and liveClose < maRef and slOkDn and (xDnEvt or (frdDayEvt and not na(xDnT))) : frdLive and frdDayEvt
+bool fgdFire = useMA ? fgdLive and liveClose > maRef and slOkUp and (xUpEvt or (fgdDayEvt and not na(xUpT))) : fgdLive and fgdDayEvt
+
+plotshape(useMA and showArm and frdDayEvt and frdLive, title = "FRD Day (armed)", style = shape.triangledown, location = location.abovebar, color = color.new(colBear, 30), size = size.tiny)
+plotshape(useMA and showArm and fgdDayEvt and fgdLive, title = "FGD Day (armed)", style = shape.triangleup, location = location.belowbar, color = color.new(colBull, 30), size = size.tiny)
+
+// ─── DRAWING ───────────────────────────────────────────────────────
+var array<box>  zoneBoxes = array.new<box>()
+var array<line> trigLines = array.new<line>()
+var string lastSig = "—"
+var color  lastCol = color.gray
+
+f_addZone(int t1, float top, float bot, float trig, color col, string txt) =>
+    int t2 = t1 + zoneLen * effSec * 1000
+    if showZones
+        box b = box.new(t1, top, t2, bot, xloc = xloc.bar_time, border_color = color.new(col, 30), bgcolor = color.new(col, 85), text = txt, text_color = col, text_size = size.small, text_halign = text.align_left, text_valign = text.align_top)
+        zoneBoxes.push(b)
+        if zoneBoxes.size() > maxZones
+            zoneBoxes.shift().delete()
+    if showTrig
+        line ln = line.new(t1, trig, t2, trig, xloc = xloc.bar_time, color = col, style = line.style_dashed, width = 1)
+        trigLines.push(ln)
+        if trigLines.size() > maxZones
+            trigLines.shift().delete()
+
+// ─── TRIGGER-LINE ENTRY STATE ─────────────────────────────────────
+var bool  trD_on = false
+var int   trD_t = na
+var float trD_lvl = na
+var float trD_zone = na
+var float trD_pk = na
+var bool  trD_touch = false
+var bool  trU_on = false
+var int   trU_t = na
+var float trU_lvl = na
+var float trU_zone = na
+var float trU_tr = na
+var bool  trU_touch = false
+
+if frdFire
+    float w      = zoneAtrW * liveAtr
+    bool  sigFar = liveClose > sFdH or sFdC - liveClose > zoneMaxAtr * liveAtr
+    bool  useSig = zoneMode == "Signal Day" or (zoneMode == "Auto" and not sigFar)
+    float zTop   = useSig ? sFdH : math.min(maRef + w, sPk)
+    float zBot   = useSig ? sFdC : math.min(maRef, math.max(liveClose, maRef - w))
+    float zTrig  = useSig ? sFdL : liveLow
+    lastSig := "FRD · " + str.format_time(sFdT, "MMM dd", syminfo.timezone)
+    lastCol := colBear
+    lastFrdPkT := sPkT
+    xDnT := na
+    f_addZone(time, zTop, zBot, zTrig, colBear, useSig ? "FRD SELL ZONE" : "FRD SELL ZONE · MA")
+    alert("🔴 CC FRD CONFIRMED" + (useMA ? " + 47 MA BREAK" : "") + " — " + syminfo.ticker + " (" + tfLabel + ") | Sell zone " + str.tostring(zBot, format.mintick) + " – " + str.tostring(zTop, format.mintick) + " | Trigger " + str.tostring(zTrig, format.mintick), alert.freq_once_per_bar_close)
+    trD_on    := useTrigEntry and liveClose > zTrig
+    trD_t     := time
+    trD_lvl   := zTrig
+    trD_zone  := zBot
+    trD_pk    := sPk
+    trD_touch := false
+
+if fgdFire
+    float w      = zoneAtrW * liveAtr
+    bool  sigFar = liveClose < sGdL or liveClose - sGdC > zoneMaxAtr * liveAtr
+    bool  useSig = zoneMode == "Signal Day" or (zoneMode == "Auto" and not sigFar)
+    float zBot   = useSig ? sGdL : math.max(maRef - w, sTr)
+    float zTop   = useSig ? sGdC : math.max(maRef, math.min(liveClose, maRef + w))
+    float zTrig  = useSig ? sGdH : liveHigh
+    lastSig := "FGD · " + str.format_time(sGdT, "MMM dd", syminfo.timezone)
+    lastCol := colBull
+    lastFgdTrT := sTrT
+    xUpT := na
+    f_addZone(time, zTop, zBot, zTrig, colBull, useSig ? "FGD BUY ZONE" : "FGD BUY ZONE · MA")
+    alert("🟢 CC FGD CONFIRMED" + (useMA ? " + 47 MA BREAK" : "") + " — " + syminfo.ticker + " (" + tfLabel + ") | Buy zone " + str.tostring(zBot, format.mintick) + " – " + str.tostring(zTop, format.mintick) + " | Trigger " + str.tostring(zTrig, format.mintick), alert.freq_once_per_bar_close)
+    trU_on    := useTrigEntry and liveClose < zTrig
+    trU_t     := time
+    trU_lvl   := zTrig
+    trU_zone  := zTop
+    trU_tr    := sTr
+    trU_touch := false
+
+int zoneMs = zoneLen * effSec * 1000
+bool frdBrk = false
+bool fgdBrk = false
+
+if trD_on and time > trD_t and barstate.isconfirmed
+    if time - trD_t > zoneMs or liveClose > trD_pk or fgdFire
+        trD_on := false
+    else
+        if liveHigh >= trD_zone
+            trD_touch := true
+        if liveClose < trD_lvl and (not trigNoTouch or not trD_touch)
+            frdBrk := true
+            trD_on := false
+
+if trU_on and time > trU_t and barstate.isconfirmed
+    if time - trU_t > zoneMs or liveClose < trU_tr or frdFire
+        trU_on := false
+    else
+        if liveLow <= trU_zone
+            trU_touch := true
+        if liveClose > trU_lvl and (not trigNoTouch or not trU_touch)
+            fgdBrk := true
+            trU_on := false
+
+if frdBrk
+    lastSig := "FRD BRK · " + str.format_time(time, "MMM dd", syminfo.timezone)
+    lastCol := colBear
+    alert("🔻 CC FRD TRIGGER-LINE ENTRY — " + syminfo.ticker + " (" + tfLabel + ") closed below " + str.tostring(trD_lvl, format.mintick) + (trD_touch ? "" : " without retracing to the sell zone"), alert.freq_once_per_bar_close)
+if fgdBrk
+    lastSig := "FGD BRK · " + str.format_time(time, "MMM dd", syminfo.timezone)
+    lastCol := colBull
+    alert("🔺 CC FGD TRIGGER-LINE ENTRY — " + syminfo.ticker + " (" + tfLabel + ") closed above " + str.tostring(trU_lvl, format.mintick) + (trU_touch ? "" : " without retracing to the buy zone"), alert.freq_once_per_bar_close)
+
+plotshape(frdBrk, title = "FRD Trigger Entry", style = shape.labeldown, location = location.abovebar, color = color.new(colBear, 20), text = "FRD BRK", textcolor = color.white, size = size.tiny)
+plotshape(fgdBrk, title = "FGD Trigger Entry", style = shape.labelup, location = location.belowbar, color = color.new(colBull, 20), text = "FGD BRK", textcolor = color.black, size = size.tiny)
+
+if bosDnEvt and not na(bDnLvl) and not na(bDnT0)
+    line.new(bDnT0, bDnLvl, time, bDnLvl, xloc = xloc.bar_time, color = colBear, style = line.style_dotted, width = 2)
+    label.new(time, bDnLvl, "BOS ↓", xloc = xloc.bar_time, style = label.style_label_left, color = colBg, textcolor = colBear, size = size.small)
+    alert("⤵ CC BEARISH BOS — " + syminfo.ticker + " (" + tfLabel + ") closed below swing low " + str.tostring(bDnLvl, format.mintick), alert.freq_once_per_bar_close)
+
+if bosUpEvt and not na(bUpLvl) and not na(bUpT0)
+    line.new(bUpT0, bUpLvl, time, bUpLvl, xloc = xloc.bar_time, color = colBull, style = line.style_dotted, width = 2)
+    label.new(time, bUpLvl, "BOS ↑", xloc = xloc.bar_time, style = label.style_label_left, color = colBg, textcolor = colBull, size = size.small)
+    alert("⤴ CC BULLISH BOS — " + syminfo.ticker + " (" + tfLabel + ") closed above swing high " + str.tostring(bUpLvl, format.mintick), alert.freq_once_per_bar_close)
+
+plotshape(frdFire, title = "FRD", style = shape.labeldown, location = location.abovebar, color = colBear, text = "FRD", textcolor = color.white, size = size.small)
+plotshape(fgdFire, title = "FGD", style = shape.labelup, location = location.belowbar, color = colBull, text = "FGD", textcolor = color.black, size = size.small)
+
+// ─── LIVE "FORMING" HEADS-UP ───────────────────────────────────────
+bool liveRed    = f_isRed(dOpen, liveClose, pC)
+bool liveGreen  = f_isGreen(dOpen, liveClose, pC)
+bool frdForming = barstate.isrealtime and pUp >= minRun and liveRed and pCurPk >= pLh
+bool fgdForming = barstate.isrealtime and pDn >= minRun and liveGreen and pCurTr <= pLl
+
+varip bool frdFired = false
+varip bool fgdFired = false
+if newSig
+    frdFired := false
+    fgdFired := false
+if frdForming and not frdFired
+    frdFired := true
+    alert("⚠ CC FRD FORMING — " + syminfo.ticker + " (" + tfLabel + ") trading red vs prior close " + str.tostring(pC, format.mintick) + " after " + str.tostring(pUp) + " higher closes", alert.freq_once_per_bar)
+if fgdForming and not fgdFired
+    fgdFired := true
+    alert("⚠ CC FGD FORMING — " + syminfo.ticker + " (" + tfLabel + ") trading green vs prior close " + str.tostring(pC, format.mintick) + " after " + str.tostring(pDn) + " lower closes", alert.freq_once_per_bar)
+
+alertcondition(frdFire, "CC FRD Confirmed", "CC FRD confirmed on {{ticker}} — watch pullback into sell zone")
+alertcondition(fgdFire, "CC FGD Confirmed", "CC FGD confirmed on {{ticker}} — watch pullback into buy zone")
+alertcondition(frdBrk, "CC FRD Trigger-Line Entry", "CC FRD trigger-line entry on {{ticker}}")
+alertcondition(fgdBrk, "CC FGD Trigger-Line Entry", "CC FGD trigger-line entry on {{ticker}}")
+alertcondition(frdForming, "CC FRD Forming", "CC FRD forming on {{ticker}}")
+alertcondition(fgdForming, "CC FGD Forming", "CC FGD forming on {{ticker}}")
+alertcondition(bosDnEvt, "CC Bearish BOS", "CC bearish BOS on {{ticker}}")
+alertcondition(bosUpEvt, "CC Bullish BOS", "CC bullish BOS on {{ticker}}")
+
+// ─── DASHBOARD ─────────────────────────────────────────────────────
+f_pos(string s) =>
+    switch s
+        "Top Left"     => position.top_left
+        "Top Right"    => position.top_right
+        "Bottom Right" => position.bottom_right
+        => position.bottom_left
+
+var table dash = table.new(f_pos(dashPos), 2, 8, bgcolor = colBg, frame_color = colAcc, frame_width = 1, border_color = color.new(colAcc, 75), border_width = 1)
+
+f_row(int r, string k, string v, color vc) =>
+    table.cell(dash, 0, r, k, text_color = color.new(colAcc, 20), text_size = size.small, text_halign = text.align_left, text_font_family = font.family_monospace)
+    table.cell(dash, 1, r, v, text_color = vc, text_size = size.small, text_halign = text.align_right, text_font_family = font.family_monospace)
+
+if barstate.isfirst and showDash
+    table.merge_cells(dash, 0, 0, 1, 0)
+
+if showDash and barstate.islast
+    bool useCur = sameTF and not barstate.isrealtime
+    int  dUp    = useCur ? cUp : pUp
+    int  dDn    = useCur ? cDn : pDn
+    bool aboveMA = liveClose > maRef
+    string status = frdForming ? "⚠ FRD FORMING" : fgdForming ? "⚠ FGD FORMING" : trD_on ? (trD_touch ? "FRD zone tapped" : "FRD live: zone / BRK") : trU_on ? (trU_touch ? "FGD zone tapped" : "FGD live: zone / BRK") : frdLive ? (slOkDn ? "FRD armed → MA break" : "FRD armed · MA too steep") : fgdLive ? (slOkUp ? "FGD armed → MA break" : "FGD armed · MA too steep") : dUp >= minRun ? "Watching → FRD" : dDn >= minRun ? "Watching → FGD" : "No setup"
+    color  stCol  = trD_on or frdForming or frdLive or dUp >= minRun ? colBear : trU_on or fgdForming or fgdLive or dDn >= minRun ? colBull : color.gray
+    table.cell(dash, 0, 0, "CC FIRST RED / GREEN DAY", text_color = colAcc, text_size = size.small, text_font_family = font.family_monospace)
+    f_row(1, "Signal TF",     tfLabel, color.white)
+    f_row(2, "Definition",    redDef, color.white)
+    f_row(3, "Higher Closes", str.tostring(dUp) + (dUp >= minRun ? " ✓" : ""), dUp >= minRun ? colBull : color.white)
+    f_row(4, "Lower Closes",  str.tostring(dDn) + (dDn >= minRun ? " ✓" : ""), dDn >= minRun ? colBear : color.white)
+    f_row(5, "Last Signal",   lastSig, lastCol)
+    f_row(6, str.tostring(maLen) + " " + maType + " (" + maTF + ")", na(maRef) ? "—" : aboveMA ? "Above ▲" : "Below ▼", aboveMA ? colBull : colBear)
+    f_row(7, "Status",        status, stCol)

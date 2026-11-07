@@ -1,0 +1,839 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/ MPL-2.0
+//@version=6
+indicator("Buy/Sell Zones", shorttitle = "Buy/Sell Zones", overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 200)
+
+// --- Core ---
+string CORE_GROUP = "Core"
+string structureModeInput = input.string("Fractal Odd", "Structure Mode", options = ["Fractal Odd", "Real Time Internal Structure"], group = CORE_GROUP, tooltip = "Choose symmetric odd-length fractal pivots or internal leg pivots with close-cross structure breaks. Both modes create zones only on CHoCH.")
+int lengthInput = input.int(7, "Fractal Length", minval = 3, maxval = 501, group = CORE_GROUP, tooltip = "Odd fractal window length; used only in Fractal Odd mode. Even values round up to the next odd value.")
+int internalLengthInput = input.int(7, "Internal Structure Length", minval = 2, maxval = 100, group = CORE_GROUP, tooltip = "Bars needed to confirm a new internal leg; default 7. Used only in Real Time Internal Structure mode.")
+int barsToRightInput = input.int(10, "Bars to Right", minval = 1, maxval = 300, group = CORE_GROUP, tooltip = "Number of chart bars used to project the active CHOCH levels to the right.")
+bool requireBodyInput = input.bool(true, "Break = Close Beyond Level", group = CORE_GROUP, tooltip = "When enabled, a close must break the pivot. When disabled, a wick can break it.")
+
+// --- Optional Filters ---
+string FILTERS_GROUP = "Optional Filters"
+bool useVwapFilterInput = input.bool(false, "Use VWAP Direction Filter", group = FILTERS_GROUP, tooltip = "Bullish CHOCH zones require a close above the selected anchored VWAP; bearish zones require a close below it. Disabled by default.")
+string vwapAnchorInput = input.string("Monthly", "VWAP Reset Period", options = ["Daily", "Weekly", "Monthly"], group = FILTERS_GROUP, tooltip = "Resets VWAP at the start of each day, week, or month. Monthly by default; applies to both the chart VWAP and reference-asset filter.")
+bool showVwapInput = input.bool(false, "Show VWAP", group = FILTERS_GROUP, tooltip = "Displays the daily, weekly, or monthly VWAP used by the optional direction filter.")
+bool useEmaFilterInput = input.bool(false, "Use EMA Trend Filter", group = FILTERS_GROUP, tooltip = "Bullish CHOCH zones require a close above the EMA; bearish zones require a close below it.")
+int emaLengthInput = input.int(200, "EMA Length", minval = 1, group = FILTERS_GROUP, tooltip = "Length of the EMA used by the optional trend filter.")
+bool showEmaInput = input.bool(false, "Show EMA", group = FILTERS_GROUP, tooltip = "Displays the EMA used by the optional trend filter.")
+bool useVolumeFilterInput = input.bool(false, "Use Relative Volume Filter", group = FILTERS_GROUP, tooltip = "Skips a CHOCH zone if current volume is below average volume multiplied by the selected factor.")
+int volumeLengthInput = input.int(20, "Volume Average Length", minval = 1, group = FILTERS_GROUP, tooltip = "Lookback used to calculate average volume.")
+float volumeMultiplierInput = input.float(1.0, "Minimum Relative Volume", minval = 0.0, step = 0.1, group = FILTERS_GROUP, tooltip = "Current volume must be at least average volume multiplied by this value.")
+bool useAtrRangeFilterInput = input.bool(false, "Use ATR Zone-Size Filter", group = FILTERS_GROUP, tooltip = "Skips CHOCH zones whose signal-candle range is too small or too large relative to ATR.")
+int atrLengthInput = input.int(14, "ATR Length", minval = 1, group = FILTERS_GROUP, tooltip = "Length of the ATR used to normalize the signal-candle range.")
+float minAtrRangeInput = input.float(0.5, "Minimum Range in ATR", minval = 0.0, step = 0.1, group = FILTERS_GROUP, tooltip = "Minimum accepted signal-candle range expressed as an ATR multiple.")
+float maxAtrRangeInput = input.float(3.0, "Maximum Range in ATR", minval = 0.1, step = 0.1, group = FILTERS_GROUP, tooltip = "Maximum accepted signal-candle range expressed as an ATR multiple.")
+bool requireConfirmedInput = input.bool(false, "Require Confirmed Bar", group = FILTERS_GROUP, tooltip = "Creates a CHOCH zone only after the signal bar closes. Useful for preventing intrabar signals.")
+int minimumBarsInput = input.int(0, "Minimum Bars Between CHOCH Zones", minval = 0, maxval = 5000, group = FILTERS_GROUP, tooltip = "Skips new CHOCH zones until this many bars have elapsed since the last accepted zone. Zero disables the filter.")
+
+// --- Asset Zone HUD ---
+string HUD_GROUP = "Asset Zone HUD"
+bool showHudInput = input.bool(true, "Show Asset Zone HUD", group = HUD_GROUP, tooltip = "Displays the latest structural zone of the selected asset and its mapped signal for the chart.")
+string hudAssetInput = input.symbol("CRYPTOCAP:USDT.D", "Reference Asset", group = HUD_GROUP, tooltip = "Asset whose latest BUY/SELL zone will be monitored on the chart timeframe.")
+string hudSizeInput = input.string("normal", "HUD Size", options = ["tiny", "small", "normal", "large"], group = HUD_GROUP, tooltip = "Controls the text size of the Asset Zone HUD. Default is normal.")
+
+// --- Performance ---
+string PERFORMANCE_GROUP = "Performance"
+int MAX_SAFE_ZONE_SETS = 19
+int calcLastBarsInput = input.int(20000, "Calc Only Last N Bars (0=all)", minval = 0, maxval = 50000, group = PERFORMANCE_GROUP, tooltip = "Restricts object-creation logic to the latest N bars. Zero processes all loaded bars.")
+int chochShowLastInput = input.int(1, "CHOCH Show Last N Zones (0=safe max)", minval = 0, maxval = MAX_SAFE_ZONE_SETS, group = PERFORMANCE_GROUP, tooltip = "Limits retained CHOCH sets to prevent TradingView drawing-limit failures. Zero uses the safe maximum of 19 zones.")
+
+// --- CHOCH Levels ---
+string CHOCH_GROUP = "CHOCH Levels"
+color chochLineUpInput = input.color(#089981, "CHOCH Lines UP Color", group = CHOCH_GROUP, tooltip = "Color of bullish CHOCH levels.")
+color chochLineDownInput = input.color(#f23645, "CHOCH Lines DN Color", group = CHOCH_GROUP, tooltip = "Color of bearish CHOCH levels.")
+int chochHighLowWidthInput = input.int(2, "CHOCH H/L Width", minval = 1, maxval = 5, group = CHOCH_GROUP, tooltip = "Width of the signal candle's high and low levels.")
+int chochStepWidthInput = input.int(1, "CHOCH Step Width (+/- levels)", minval = 1, maxval = 5, group = CHOCH_GROUP, tooltip = "Width of the projected range-multiple levels.")
+color halfStepColorInput = input.color(#ffffff, "±0.5 Level Color", group = CHOCH_GROUP, tooltip = "Solid color of +0.5 and -0.5 levels; default white.")
+float minSweepDepthInput = input.float(0.70, "Min ±0.5 Sweep Strength (0–1)", minval = 0.0, maxval = 1.0, step = 0.01, group = CHOCH_GROUP, tooltip = "Minimum penetration AND exposed wick, scaled to a usable 0–1 sensitivity: 0.30 = 3%, 0.70 = 7% (default), 1.00 = 10% of the distance between ±0.5 and ±1. Higher values require clearer sweeps; 1 is not an impossible 100% band breach.")
+bool showPreviousSignalInput = input.bool(true, "Show Previous Setup Signal", group = CHOCH_GROUP, tooltip = "When a new zone forms, keep only the latest confirmed direction triangle from the immediately preceding setup, annotated LONG or SHORT. Older setup triangles are removed; defaults to on.")
+string rejectedLabelSizeInput = input.string("normal", "Rejected Label Size", options = ["tiny", "small", "normal"], group = CHOCH_GROUP, tooltip = "Size of the active wall's REJECTED label; small by default.")
+string chochStyleInput = input.string("Dotted", "CHOCH Level Style", options = ["Solid", "Dashed", "Dotted"], group = CHOCH_GROUP, tooltip = "Line style used by the projected range-multiple levels.")
+color boxFillUpInput = input.color(color.new(#089981, 88), "CHOCH Box Fill UP", group = CHOCH_GROUP, tooltip = "Fill color of bullish CHOCH signal-candle zones.")
+color boxFillDownInput = input.color(color.new(#f23645, 88), "CHOCH Box Fill DN", group = CHOCH_GROUP, tooltip = "Fill color of bearish CHOCH signal-candle zones.")
+bool showWallFillInput = input.bool(true, "Shade Buyers/Sellers Wall", group = CHOCH_GROUP, tooltip = "Subtly shades the area between H and L without changing the dashed center line.")
+color buyersWallFillInput = input.color(color.new(#089981, 94), "Buyers Wall Shading", group = CHOCH_GROUP, tooltip = "Translucent fill between H and L of bullish zones.")
+color sellersWallFillInput = input.color(color.new(#f23645, 94), "Sellers Wall Shading", group = CHOCH_GROUP, tooltip = "Translucent fill between H and L of bearish zones.")
+color boxBorderUpInput = input.color(#089981, "CHOCH Box Border UP", group = CHOCH_GROUP, tooltip = "Border color of bullish CHOCH zones.")
+color boxBorderDownInput = input.color(#f23645, "CHOCH Box Border DN", group = CHOCH_GROUP, tooltip = "Border color of bearish CHOCH zones.")
+bool showLevelLabelsInput = input.bool(true, "Show Level Labels (right side)", group = CHOCH_GROUP, tooltip = "Displays H, L, EQ, and range-multiple labels at the right edge.")
+color levelLabelTextInput = input.color(#d1d4dc, "Level Label Text Color", group = CHOCH_GROUP, tooltip = "Text color used by the right-side level labels.")
+string labelSizeInput = input.string("normal", "Label Size", options = ["tiny", "small", "normal"], group = CHOCH_GROUP, tooltip = "Size of CHOCH zone and level labels.")
+float zoneLabelAtrGapInput = input.float(0.35, "Zone Label Distance (ATR)", minval = 0.05, maxval = 5.0, step = 0.05, group = CHOCH_GROUP, tooltip = "Direct ATR multiplier used for the vertical distance between the broken structure line and the BUY/SELL ZONE label. Every change now directly moves the label.")
+
+// --- Deviation Marker ---
+string DEVIATION_GROUP = "Deviation Marker"
+bool showDeviationInput = input.bool(false, "Mark Candle Returning into Range", group = DEVIATION_GROUP, tooltip = "Marks the first close returning inside the -4 to +4 range after price traded beyond it. Disabled by default.")
+color deviationUpInput = input.color(#089981, "Deviation UP Color", group = DEVIATION_GROUP, tooltip = "Color of bullish return-to-range markers.")
+color deviationDownInput = input.color(#f23645, "Deviation DN Color", group = DEVIATION_GROUP, tooltip = "Color of bearish return-to-range markers.")
+
+// --- Alerts ---
+string ALERTS_GROUP = "Alerts"
+bool longTriangleAlertInput = input.bool(true, "LONG Triangle Alerts", group = ALERTS_GROUP, tooltip = "Enable alerts on a newly confirmed or updated LONG sweep triangle. On by default; also included in the combined alert stream.")
+bool shortTriangleAlertInput = input.bool(true, "SHORT Triangle Alerts", group = ALERTS_GROUP, tooltip = "Enable alerts on a newly confirmed or updated SHORT sweep triangle. On by default; also included in the combined alert stream.")
+bool buyZoneAlertInput = input.bool(false, "Include BUY in Combined Alert", group = ALERTS_GROUP, tooltip = "Optional: includes BUY ZONE events when using TradingView's Any alert() function call condition. The separate named BUY Zone Created condition works without this toggle.")
+bool sellZoneAlertInput = input.bool(false, "Include SELL in Combined Alert", group = ALERTS_GROUP, tooltip = "Optional: includes SELL ZONE events when using TradingView's Any alert() function call condition. The separate named SELL Zone Created condition works without this toggle.")
+bool returnToRangeAlertInput = input.bool(false, "Include Return-to-Range in Combined Alert", group = ALERTS_GROUP, tooltip = "Optional: includes return-to-range events when using TradingView's Any alert() function call condition. The separate named Price Returning to Range condition works without this toggle.")
+
+string vwapPeriod = vwapAnchorInput == "Daily" ? "D" : vwapAnchorInput == "Weekly" ? "W" : "M"
+
+// --- Helpers ---
+f_lineStyle(string styleText) =>
+    styleText == "Solid" ? line.style_solid : styleText == "Dashed" ? line.style_dashed : line.style_dotted
+
+f_labelSize(string sizeText) =>
+    sizeText == "tiny" ? size.tiny : sizeText == "small" ? size.small : sizeText == "large" ? size.large : size.normal
+
+f_levelLabel(int x, float y, string labelText, labelSize, bool prominent) =>
+    label.new(x, y, labelText, xloc = xloc.bar_time, style = label.style_label_left, textcolor = color.new(levelLabelTextInput, prominent ? 0 : 50), color = #00000000, size = labelSize)
+
+var line[] activeLines = array.new_line()
+var label[] activeLabels = array.new_label()
+var line[] storedLines = array.new_line()
+var label[] storedLabels = array.new_label()
+var box[] storedBoxes = array.new_box()
+var box[] storedWallBoxes = array.new_box()
+var int[] storedLineCounts = array.new_int()
+var int[] storedLabelCounts = array.new_int()
+var label[] storedLowTriangles = array.new_label()
+var label[] storedHighTriangles = array.new_label()
+var label[] repeatedHighTriangles = array.new_label()
+var int[] repeatedHighZoneIds = array.new_int()
+var int[] storedZoneIds = array.new_int()
+var int currentZoneId = 0
+var label previousTriangle = na
+var label previousSignalText = na
+var float pendingBrokenLevel = na
+var int pendingStructureStartTime = na
+var float pendingZoneLabelGap = na
+var float pendingRangeBoxTop = na
+var float pendingRangeBoxBottom = na
+
+f_addLevel(line[] linesArray, label[] labelsArray, int leftTime, int rightTime, float level, string labelText, color lineColor, string lineStyle, int lineWidth, labelSize, bool prominent) =>
+    line levelLine = line.new(leftTime, level, rightTime, level, xloc = xloc.bar_time, color = lineColor, style = lineStyle, width = lineWidth)
+    array.push(linesArray, levelLine)
+    label levelLabel = na
+    if showLevelLabelsInput
+        levelLabel := f_levelLabel(rightTime, level, labelText, labelSize, prominent)
+        if labelText == "+0.5" or labelText == "-0.5"
+            label.set_textcolor(levelLabel, halfStepColorInput)
+        if labelText == "BUYERS WALL" or labelText == "SELLERS WALL"
+            label.set_textcolor(levelLabel, lineColor)
+            label.set_text_formatting(levelLabel, text.format_bold)
+    array.push(labelsArray, levelLabel)
+
+f_trimStoredSets() =>
+    int effectiveZoneLimit = chochShowLastInput == 0 ? MAX_SAFE_ZONE_SETS : math.min(chochShowLastInput, MAX_SAFE_ZONE_SETS)
+    while array.size(storedBoxes) > effectiveZoneLimit
+        box oldBox = array.shift(storedBoxes)
+        if not na(oldBox)
+            box.delete(oldBox)
+        box oldWallBox = array.shift(storedWallBoxes)
+        if not na(oldWallBox)
+            box.delete(oldWallBox)
+        int oldZoneId = array.shift(storedZoneIds)
+        int repeatedCount = array.size(repeatedHighZoneIds)
+        if repeatedCount > 0
+            for offset = 0 to repeatedCount - 1
+                int repeatIndex = repeatedCount - 1 - offset
+                if array.get(repeatedHighZoneIds, repeatIndex) == oldZoneId
+                    label.delete(array.remove(repeatedHighTriangles, repeatIndex))
+                    array.remove(repeatedHighZoneIds, repeatIndex)
+        label oldLowTriangle = array.shift(storedLowTriangles)
+        label oldHighTriangle = array.shift(storedHighTriangles)
+        if not na(oldLowTriangle)
+            label.delete(oldLowTriangle)
+        if not na(oldHighTriangle)
+            label.delete(oldHighTriangle)
+        int lineCount = array.shift(storedLineCounts)
+        if lineCount > 0
+            for index = 0 to lineCount - 1
+                line oldLine = array.shift(storedLines)
+                if not na(oldLine)
+                    line.delete(oldLine)
+        int labelCount = array.shift(storedLabelCounts)
+        if labelCount > 0
+            for index = 0 to labelCount - 1
+                label oldLabel = array.shift(storedLabels)
+                if not na(oldLabel)
+                    label.delete(oldLabel)
+
+// Retain only the most recent confirmed signal from the setup that just ended.
+// Detach it from the zone arrays so a 1-zone display limit cannot delete it.
+f_keepPreviousSignal(label lowTriangle, label highTriangle, label oldPrevious, label oldText, float textGap) =>
+    if not na(oldPrevious)
+        label.delete(oldPrevious)
+    if not na(oldText)
+        label.delete(oldText)
+    // Older retests belong to past setups; keep only the last confirmed direction.
+    while array.size(repeatedHighTriangles) > 0
+        label.delete(array.pop(repeatedHighTriangles))
+        array.pop(repeatedHighZoneIds)
+    label keptTriangle = lowTriangle
+    if not na(highTriangle) and (na(keptTriangle) or label.get_x(highTriangle) >= label.get_x(keptTriangle))
+        keptTriangle := highTriangle
+    int storedCount = array.size(storedLowTriangles)
+    if storedCount > 0
+        for index = 0 to storedCount - 1
+            label olderLow = array.get(storedLowTriangles, index)
+            label olderHigh = array.get(storedHighTriangles, index)
+            if not na(olderLow) and olderLow != keptTriangle
+                label.delete(olderLow)
+            if not na(olderHigh) and olderHigh != keptTriangle
+                label.delete(olderHigh)
+            array.set(storedLowTriangles, index, na)
+            array.set(storedHighTriangles, index, na)
+    label keptText = na
+    if not na(keptTriangle)
+        label.set_size(keptTriangle, size.normal)
+        bool wasLong = keptTriangle == lowTriangle
+        keptText := label.new(label.get_x(keptTriangle), label.get_y(keptTriangle) + (wasLong ? -textGap : textGap), wasLong ? "LONG" : "SHORT", xloc = xloc.bar_time, yloc = yloc.price, color = color.new(chart.bg_color, 10), style = label.style_label_center, textcolor = wasLong ? #089981 : #f23645, size = size.normal)
+    [keptTriangle, keptText]
+
+f_storeActiveSet(box zoneBox) =>
+    int lineCount = array.size(activeLines)
+    int labelCount = array.size(activeLabels)
+    if lineCount > 0
+        for index = 0 to lineCount - 1
+            array.push(storedLines, array.get(activeLines, index))
+    if labelCount > 0
+        for index = 0 to labelCount - 1
+            array.push(storedLabels, array.get(activeLabels, index))
+    array.push(storedBoxes, zoneBox)
+    array.push(storedZoneIds, currentZoneId)
+    array.push(storedLineCounts, lineCount)
+    array.push(storedLabelCounts, labelCount)
+    array.push(storedLowTriangles, na)
+    array.push(storedHighTriangles, na)
+    f_trimStoredSets()
+
+f_freezeActive(int freezeTime) =>
+    if array.size(storedWallBoxes) > 0
+        box wallBox = array.get(storedWallBoxes, array.size(storedWallBoxes) - 1)
+        if not na(wallBox)
+            box.set_right(wallBox, freezeTime)
+    int lineCount = math.min(23, array.size(activeLines))
+    if lineCount > 0
+        for index = 0 to lineCount - 1
+            line activeLine = array.get(activeLines, index)
+            if not na(activeLine)
+                line.set_x2(activeLine, freezeTime)
+    int levelLabelCount = math.min(23, array.size(activeLabels))
+    if levelLabelCount > 0
+        for index = 0 to levelLabelCount - 1
+            label activeLabel = array.get(activeLabels, index)
+            if not na(activeLabel)
+                label.set_x(activeLabel, freezeTime)
+
+f_hideActiveLevel(int index) =>
+    if array.size(activeLines) > index
+        line levelLine = array.get(activeLines, index)
+        if not na(levelLine)
+            line.set_color(levelLine, na)
+    if array.size(activeLabels) > index
+        label levelLabel = array.get(activeLabels, index)
+        if not na(levelLabel)
+            label.set_textcolor(levelLabel, na)
+
+f_showExtendedLevels(int firstIndex, int lastIndex, color directionColor) =>
+    for index = firstIndex to lastIndex
+        if array.size(activeLines) > index
+            line extendedLine = array.get(activeLines, index)
+            if not na(extendedLine)
+                line.set_color(extendedLine, color.new(directionColor, 50))
+        if array.size(activeLabels) > index
+            label extendedLabel = array.get(activeLabels, index)
+            if not na(extendedLabel)
+                label.set_textcolor(extendedLabel, color.new(levelLabelTextInput, 50))
+
+f_createChochSet(int direction, float zoneHigh, float zoneLow, int extensionMilliseconds, int oneBarMilliseconds) =>
+    array.clear(activeLines)
+    array.clear(activeLabels)
+
+    float zoneRange = math.max(syminfo.mintick, zoneHigh - zoneLow)
+    float equilibrium = zoneHigh - zoneRange * 0.5
+    int leftTime = time
+    int rightTime = time + extensionMilliseconds
+    color directionColor = direction == 1 ? chochLineUpInput : chochLineDownInput
+    color stepColor = color.new(directionColor, 50)
+    lineStyle = f_lineStyle(chochStyleInput)
+    labelSize = f_labelSize(labelSizeInput)
+
+    f_addLevel(activeLines, activeLabels, leftTime, rightTime, zoneHigh, "H", directionColor, line.style_solid, chochHighLowWidthInput, labelSize, true)
+    f_addLevel(activeLines, activeLabels, leftTime, rightTime, zoneLow, "L", directionColor, line.style_solid, chochHighLowWidthInput, labelSize, true)
+    string entryText = direction == 1 ? "BUYERS WALL" : "SELLERS WALL"
+    f_addLevel(activeLines, activeLabels, leftTime, rightTime, equilibrium, entryText, directionColor, line.style_dashed, 2, labelSize, true)
+    f_addLevel(activeLines, activeLabels, leftTime, rightTime, zoneHigh + zoneRange * 0.5, "+0.5", halfStepColorInput, line.style_solid, chochStepWidthInput, labelSize, false)
+    f_addLevel(activeLines, activeLabels, leftTime, rightTime, zoneHigh + zoneRange, "+1", stepColor, lineStyle, chochStepWidthInput, labelSize, false)
+    f_addLevel(activeLines, activeLabels, leftTime, rightTime, zoneHigh + zoneRange * 1.5, "+1.5", stepColor, lineStyle, chochStepWidthInput, labelSize, false)
+    f_addLevel(activeLines, activeLabels, leftTime, rightTime, zoneHigh + zoneRange * 2.0, "+2", stepColor, lineStyle, chochStepWidthInput, labelSize, false)
+    f_addLevel(activeLines, activeLabels, leftTime, rightTime, zoneHigh + zoneRange * 3.0, "+3", stepColor, lineStyle, chochStepWidthInput, labelSize, false)
+    f_addLevel(activeLines, activeLabels, leftTime, rightTime, zoneHigh + zoneRange * 4.0, "+4", stepColor, lineStyle, chochStepWidthInput, labelSize, false)
+    f_addLevel(activeLines, activeLabels, leftTime, rightTime, zoneLow - zoneRange * 0.5, "-0.5", halfStepColorInput, line.style_solid, chochStepWidthInput, labelSize, false)
+    f_addLevel(activeLines, activeLabels, leftTime, rightTime, zoneLow - zoneRange, "-1", stepColor, lineStyle, chochStepWidthInput, labelSize, false)
+    f_addLevel(activeLines, activeLabels, leftTime, rightTime, zoneLow - zoneRange * 1.5, "-1.5", stepColor, lineStyle, chochStepWidthInput, labelSize, false)
+    f_addLevel(activeLines, activeLabels, leftTime, rightTime, zoneLow - zoneRange * 2.0, "-2", stepColor, lineStyle, chochStepWidthInput, labelSize, false)
+    f_addLevel(activeLines, activeLabels, leftTime, rightTime, zoneLow - zoneRange * 3.0, "-3", stepColor, lineStyle, chochStepWidthInput, labelSize, false)
+    f_addLevel(activeLines, activeLabels, leftTime, rightTime, zoneLow - zoneRange * 4.0, "-4", stepColor, lineStyle, chochStepWidthInput, labelSize, false)
+
+    // Extended trend levels are created hidden and revealed only after price crosses +/-4.
+    f_addLevel(activeLines, activeLabels, leftTime, rightTime, zoneHigh + zoneRange * 5.0, "+5", stepColor, lineStyle, chochStepWidthInput, labelSize, false)
+    f_addLevel(activeLines, activeLabels, leftTime, rightTime, zoneHigh + zoneRange * 6.0, "+6", stepColor, lineStyle, chochStepWidthInput, labelSize, false)
+    f_addLevel(activeLines, activeLabels, leftTime, rightTime, zoneHigh + zoneRange * 7.0, "+7", stepColor, lineStyle, chochStepWidthInput, labelSize, false)
+    f_addLevel(activeLines, activeLabels, leftTime, rightTime, zoneHigh + zoneRange * 8.0, "+8", stepColor, lineStyle, chochStepWidthInput, labelSize, false)
+    f_addLevel(activeLines, activeLabels, leftTime, rightTime, zoneLow - zoneRange * 5.0, "-5", stepColor, lineStyle, chochStepWidthInput, labelSize, false)
+    f_addLevel(activeLines, activeLabels, leftTime, rightTime, zoneLow - zoneRange * 6.0, "-6", stepColor, lineStyle, chochStepWidthInput, labelSize, false)
+    f_addLevel(activeLines, activeLabels, leftTime, rightTime, zoneLow - zoneRange * 7.0, "-7", stepColor, lineStyle, chochStepWidthInput, labelSize, false)
+    f_addLevel(activeLines, activeLabels, leftTime, rightTime, zoneLow - zoneRange * 8.0, "-8", stepColor, lineStyle, chochStepWidthInput, labelSize, false)
+    for hiddenIndex = 15 to 22
+        f_hideActiveLevel(hiddenIndex)
+
+    int safeStructureStart = na(pendingStructureStartTime) ? leftTime : pendingStructureStartTime
+    float safeBrokenLevel = na(pendingBrokenLevel) ? equilibrium : pendingBrokenLevel
+    int structureMiddleTime = safeStructureStart + int((leftTime - safeStructureStart) / 2)
+    line structureLine = line.new(safeStructureStart, safeBrokenLevel, leftTime, safeBrokenLevel, xloc = xloc.bar_time, color = directionColor, style = line.style_solid, width = 2)
+    array.push(activeLines, structureLine)
+
+    float labelGap = math.max(nz(pendingZoneLabelGap, zoneRange * 0.50), syminfo.mintick * 20.0)
+    float zoneLabelY = direction == 1 ? safeBrokenLevel + labelGap : safeBrokenLevel - labelGap
+    string zoneText = direction == 1 ? "BUY ZONE" : "SELL ZONE"
+    zoneLabelStyle = direction == 1 ? label.style_label_down : label.style_label_up
+    label zoneLabel = label.new(structureMiddleTime, zoneLabelY, zoneText, xloc = xloc.bar_time, style = zoneLabelStyle, textcolor = directionColor, color = color.new(chart.bg_color, 5), size = labelSize, textalign = text.align_center)
+    array.push(activeLabels, zoneLabel)
+
+    color borderColor = direction == 1 ? boxBorderUpInput : boxBorderDownInput
+    color fillColor = direction == 1 ? boxFillUpInput : boxFillDownInput
+    float rawRangeTop = nz(pendingRangeBoxTop, zoneHigh)
+    float rawRangeBottom = nz(pendingRangeBoxBottom, zoneLow)
+    float rangeBoxTop = math.max(rawRangeTop, rawRangeBottom)
+    float rangeBoxBottom = math.min(rawRangeTop, rawRangeBottom)
+    box zoneBox = box.new(safeStructureStart, rangeBoxTop, leftTime + oneBarMilliseconds, rangeBoxBottom, xloc = xloc.bar_time, border_color = borderColor, bgcolor = fillColor, border_width = 1, border_style = line.style_dotted)
+    f_storeActiveSet(zoneBox)
+    color wallFillColor = direction == 1 ? buyersWallFillInput : sellersWallFillInput
+    box wallBox = box.new(leftTime, zoneHigh, rightTime, zoneLow, xloc = xloc.bar_time, border_color = #00000000, bgcolor = showWallFillInput ? wallFillColor : #00000000)
+    array.push(storedWallBoxes, wallBox)
+
+// An internal leg flips when the candle `lookback` bars ago sets a new extreme
+// against the following `lookback` bars. Its pivot becomes known only now.
+f_internalLeg(int lookback) =>
+    var int currentLeg = 0
+    bool foundHigh = not na(high[lookback]) and high[lookback] > ta.highest(high, lookback)
+    bool foundLow = not na(low[lookback]) and low[lookback] < ta.lowest(low, lookback)
+    if foundHigh
+        currentLeg := 0
+    else if foundLow
+        currentLeg := 1
+    currentLeg
+
+f_referenceZoneState(int strength) =>
+    float referencePivotHigh = ta.pivothigh(high, strength, strength)
+    float referencePivotLow = ta.pivotlow(low, strength, strength)
+    float referenceVwap = ta.vwap(hlc3, timeframe.change(vwapPeriod))
+    float referenceEma = ta.ema(close, emaLengthInput)
+    float referenceAverageVolume = ta.sma(volume, volumeLengthInput)
+    float referenceAtr = ta.atr(atrLengthInput)
+
+    var float referenceUpLevel = na
+    var float referenceDownLevel = na
+    var bool referenceUpBroken = false
+    var bool referenceDownBroken = false
+    var int referenceBreakDirection = 0
+    var int referenceZoneDirection = 0
+    var int referenceLastZoneBar = na
+
+    int referenceLeg = f_internalLeg(internalLengthInput)
+    bool referenceNewHigh = referenceLeg == 0 and referenceLeg[1] == 1
+    bool referenceNewLow = referenceLeg == 1 and referenceLeg[1] == 0
+    bool internalMode = structureModeInput == "Real Time Internal Structure"
+    if internalMode ? referenceNewHigh : not na(referencePivotHigh)
+        referenceUpLevel := internalMode ? high[internalLengthInput] : referencePivotHigh
+        referenceUpBroken := false
+    if internalMode ? referenceNewLow : not na(referencePivotLow)
+        referenceDownLevel := internalMode ? low[internalLengthInput] : referencePivotLow
+        referenceDownBroken := false
+
+    bool referenceCloseCrossUp = ta.crossover(close, referenceUpLevel)
+    bool referenceCloseCrossDown = ta.crossunder(close, referenceDownLevel)
+    bool referenceBreakUp = not na(referenceUpLevel) and not referenceUpBroken and (internalMode ? referenceCloseCrossUp : (requireBodyInput ? close > referenceUpLevel : high > referenceUpLevel))
+    bool referenceBreakDown = not na(referenceDownLevel) and not referenceDownBroken and (internalMode ? referenceCloseCrossDown : (requireBodyInput ? close < referenceDownLevel : low < referenceDownLevel))
+    bool referenceVolumePass = not useVolumeFilterInput or not na(volume) and not na(referenceAverageVolume) and volume >= referenceAverageVolume * volumeMultiplierInput
+    float referenceMinAtr = math.min(minAtrRangeInput, maxAtrRangeInput)
+    float referenceMaxAtr = math.max(minAtrRangeInput, maxAtrRangeInput)
+    bool referenceAtrPass = not useAtrRangeFilterInput or not na(referenceAtr) and high - low >= referenceAtr * referenceMinAtr and high - low <= referenceAtr * referenceMaxAtr
+    bool referenceConfirmedPass = not requireConfirmedInput or barstate.isconfirmed
+    bool referenceBullPass = (not useVwapFilterInput or not na(referenceVwap) and close > referenceVwap) and (not useEmaFilterInput or not na(referenceEma) and close > referenceEma)
+    bool referenceBearPass = (not useVwapFilterInput or not na(referenceVwap) and close < referenceVwap) and (not useEmaFilterInput or not na(referenceEma) and close < referenceEma)
+
+    if referenceBreakUp
+        bool referenceCooldownPass = minimumBarsInput == 0 or na(referenceLastZoneBar) or bar_index - referenceLastZoneBar >= minimumBarsInput
+        bool referenceIsBullishChoch = referenceBreakDirection == -1
+        referenceUpBroken := true
+        if referenceIsBullishChoch and referenceVolumePass and referenceAtrPass and referenceConfirmedPass and referenceBullPass and referenceCooldownPass
+            referenceZoneDirection := 1
+            referenceLastZoneBar := bar_index
+        referenceBreakDirection := 1
+
+    if referenceBreakDown
+        bool referenceCooldownPass = minimumBarsInput == 0 or na(referenceLastZoneBar) or bar_index - referenceLastZoneBar >= minimumBarsInput
+        bool referenceIsBearishChoch = referenceBreakDirection == 1
+        referenceDownBroken := true
+        if referenceIsBearishChoch and referenceVolumePass and referenceAtrPass and referenceConfirmedPass and referenceBearPass and referenceCooldownPass
+            referenceZoneDirection := -1
+            referenceLastZoneBar := bar_index
+        referenceBreakDirection := -1
+
+    referenceZoneDirection
+
+// --- Core Calculations ---
+bool inCalculationWindow = calcLastBarsInput == 0 or bar_index >= last_bar_index - calcLastBarsInput
+int oddLength = lengthInput % 2 == 0 ? lengthInput + 1 : lengthInput
+int pivotStrength = int(oddLength / 2)
+bool internalMode = structureModeInput == "Real Time Internal Structure"
+int internalLeg = f_internalLeg(internalLengthInput)
+bool internalPivotHigh = internalLeg == 0 and internalLeg[1] == 1
+bool internalPivotLow = internalLeg == 1 and internalLeg[1] == 0
+int timeframeSeconds = timeframe.in_seconds(timeframe.period)
+int extensionMilliseconds = timeframeSeconds * 1000 * barsToRightInput
+int oneBarMilliseconds = timeframeSeconds * 1000
+
+float pivotHighValue = ta.pivothigh(high, pivotStrength, pivotStrength)
+float pivotLowValue = ta.pivotlow(low, pivotStrength, pivotStrength)
+float pivotWindowLow = ta.lowest(low, pivotStrength + 1)
+float pivotWindowHigh = ta.highest(high, pivotStrength + 1)
+float internalWindowLow = ta.lowest(low, internalLengthInput + 1)
+float internalWindowHigh = ta.highest(high, internalLengthInput + 1)
+float vwapValue = ta.vwap(hlc3, timeframe.change(vwapPeriod))
+float emaValue = ta.ema(close, emaLengthInput)
+float averageVolume = ta.sma(volume, volumeLengthInput)
+float atrValue = ta.atr(atrLengthInput)
+int referenceZoneState = request.security(hudAssetInput, timeframe.period, f_referenceZoneState(pivotStrength), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off, ignore_invalid_symbol = true)
+
+bool volumeFilterPass = not useVolumeFilterInput or not na(volume) and not na(averageVolume) and volume >= averageVolume * volumeMultiplierInput
+float lowerAtrMultiple = math.min(minAtrRangeInput, maxAtrRangeInput)
+float upperAtrMultiple = math.max(minAtrRangeInput, maxAtrRangeInput)
+float signalRange = high - low
+bool atrRangeFilterPass = not useAtrRangeFilterInput or not na(atrValue) and signalRange >= atrValue * lowerAtrMultiple and signalRange <= atrValue * upperAtrMultiple
+bool confirmedFilterPass = not requireConfirmedInput or barstate.isconfirmed
+bool commonFilterPass = volumeFilterPass and atrRangeFilterPass and confirmedFilterPass
+bool bullishDirectionPass = not useVwapFilterInput or not na(vwapValue) and close > vwapValue
+bullishDirectionPass := bullishDirectionPass and (not useEmaFilterInput or not na(emaValue) and close > emaValue)
+bool bearishDirectionPass = not useVwapFilterInput or not na(vwapValue) and close < vwapValue
+bearishDirectionPass := bearishDirectionPass and (not useEmaFilterInput or not na(emaValue) and close < emaValue)
+
+// --- Candidate State ---
+var float bullishBreakLevel = na
+var int bullishLevelStartTime = na
+var float bullishRangeLow = na
+var bool bullishLevelBroken = false
+var float bearishBreakLevel = na
+var int bearishLevelStartTime = na
+var float bearishRangeHigh = na
+var bool bearishLevelBroken = false
+var int lastBreakDirection = 0
+var bool chochActive = false
+var int activeChochDirection = 0
+var float currentChochHigh = na
+var float currentChochLow = na
+var float currentChochRange = na
+var int lastAcceptedChochBar = na
+var bool outOfRangeUp = false
+var bool outOfRangeDown = false
+var bool upperExtensionShown = false
+var bool lowerExtensionShown = false
+// Her CHOCH seti için bir alt/üst üçgen: yalnız teyitli yeni uç fitilde taşınır.
+var float lowestConfirmedSweep = na
+var float highestConfirmedSweep = na
+var bool highSweepArmed = true
+var float pendingLowSweep = na
+var float pendingHighSweep = na
+var float pendingLowBodyTop = na
+var float pendingHighBodyBottom = na
+var int pendingLowBar = na
+var int pendingHighBar = na
+var int pendingLowTime = na
+var int pendingHighTime = na
+var label activeLowTriangle = na
+var label activeHighTriangle = na
+// Only the strongest confirmed rejection inside the active H/L wall survives.
+var label activeWallRejectedLabel = na
+var float activeWallRejectedWick = na
+
+// --- Candidate Updates and Level Pruning ---
+if inCalculationWindow
+    if internalMode ? internalPivotHigh : not na(pivotHighValue)
+        bullishBreakLevel := internalMode ? high[internalLengthInput] : pivotHighValue
+        bullishLevelStartTime := internalMode ? time[internalLengthInput] : time[pivotStrength]
+        bullishRangeLow := internalMode ? internalWindowLow : pivotWindowLow
+        bullishLevelBroken := false
+        if chochActive and activeChochDirection == -1
+            if bullishBreakLevel <= currentChochHigh + currentChochRange * 4.0
+                f_hideActiveLevel(8)
+            if bullishBreakLevel <= currentChochHigh + currentChochRange * 3.0
+                f_hideActiveLevel(7)
+            if bullishBreakLevel <= currentChochHigh + currentChochRange * 2.0
+                f_hideActiveLevel(6)
+            if bullishBreakLevel <= currentChochHigh + currentChochRange * 1.5
+                f_hideActiveLevel(5)
+            if bullishBreakLevel <= currentChochHigh + currentChochRange
+                f_hideActiveLevel(4)
+
+    if internalMode ? internalPivotLow : not na(pivotLowValue)
+        bearishBreakLevel := internalMode ? low[internalLengthInput] : pivotLowValue
+        bearishLevelStartTime := internalMode ? time[internalLengthInput] : time[pivotStrength]
+        bearishRangeHigh := internalMode ? internalWindowHigh : pivotWindowHigh
+        bearishLevelBroken := false
+        if chochActive and activeChochDirection == 1
+            if bearishBreakLevel >= currentChochLow - currentChochRange * 4.0
+                f_hideActiveLevel(14)
+            if bearishBreakLevel >= currentChochLow - currentChochRange * 3.0
+                f_hideActiveLevel(13)
+            if bearishBreakLevel >= currentChochLow - currentChochRange * 2.0
+                f_hideActiveLevel(12)
+            if bearishBreakLevel >= currentChochLow - currentChochRange * 1.5
+                f_hideActiveLevel(11)
+            if bearishBreakLevel >= currentChochLow - currentChochRange
+                f_hideActiveLevel(10)
+
+// Keep the full pivot-to-break range updated for directional zone boxes.
+if inCalculationWindow
+    if not na(bullishBreakLevel) and not bullishLevelBroken
+        bullishRangeLow := math.min(nz(bullishRangeLow, low), low)
+    if not na(bearishBreakLevel) and not bearishLevelBroken
+        bearishRangeHigh := math.max(nz(bearishRangeHigh, high), high)
+
+// --- Break Detection ---
+// Internal mode requires an actual close crossing the active internal pivot;
+// the fractal mode retains its original close-or-wick break setting.
+bool internalCrossUp = ta.crossover(close, bullishBreakLevel)
+bool internalCrossDown = ta.crossunder(close, bearishBreakLevel)
+bool bullishBreak = inCalculationWindow and not na(bullishBreakLevel) and not bullishLevelBroken and (internalMode ? internalCrossUp : (requireBodyInput ? close > bullishBreakLevel : high > bullishBreakLevel))
+bool bearishBreak = inCalculationWindow and not na(bearishBreakLevel) and not bearishLevelBroken and (internalMode ? internalCrossDown : (requireBodyInput ? close < bearishBreakLevel : low < bearishBreakLevel))
+
+// --- Invalidate failed sweep signals before transferring the previous setup ---
+// A body close beyond the opposite ±1 level, on any later confirmed bar of
+// this range (including the third bar), cancels the direction's signal.
+if inCalculationWindow and chochActive and barstate.isconfirmed
+    float failureLow = currentChochLow - currentChochRange
+    float failureHigh = currentChochHigh + currentChochRange
+    if not na(activeLowTriangle) and close < failureLow
+        label.delete(activeLowTriangle)
+        activeLowTriangle := na
+        if array.size(storedLowTriangles) > 0
+            array.set(storedLowTriangles, array.size(storedLowTriangles) - 1, na)
+        lowestConfirmedSweep := na
+        pendingLowSweep := na
+        pendingLowTime := na
+        pendingLowBar := na
+        pendingLowBodyTop := na
+    if not na(activeHighTriangle) and close > failureHigh
+        label.delete(activeHighTriangle)
+        activeHighTriangle := na
+        if array.size(storedHighTriangles) > 0
+            array.set(storedHighTriangles, array.size(storedHighTriangles) - 1, na)
+        int repeatedCount = array.size(repeatedHighZoneIds)
+        if repeatedCount > 0
+            for offset = 0 to repeatedCount - 1
+                int repeatIndex = repeatedCount - 1 - offset
+                if array.get(repeatedHighZoneIds, repeatIndex) == currentZoneId
+                    label.delete(array.remove(repeatedHighTriangles, repeatIndex))
+                    array.remove(repeatedHighZoneIds, repeatIndex)
+        highestConfirmedSweep := na
+        pendingHighSweep := na
+        pendingHighTime := na
+        pendingHighBar := na
+        pendingHighBodyBottom := na
+        highSweepArmed := false
+
+// --- Apply Breaks ---
+bool buyZoneCreatedSignal = false
+bool sellZoneCreatedSignal = false
+
+if bullishBreak
+    bool isBullishChoch = lastBreakDirection == -1
+    bullishLevelBroken := true
+    bool cooldownPass = minimumBarsInput == 0 or na(lastAcceptedChochBar) or bar_index - lastAcceptedChochBar >= minimumBarsInput
+    if isBullishChoch and commonFilterPass and bullishDirectionPass and cooldownPass
+        if chochActive
+            f_freezeActive(time)
+            if showPreviousSignalInput
+                float previousTagGap = math.max(syminfo.mintick * 20.0, math.min(nz(atrValue, currentChochRange) * 0.35, currentChochRange * 0.60))
+                [keptTriangle, keptText] = f_keepPreviousSignal(activeLowTriangle, activeHighTriangle, previousTriangle, previousSignalText, previousTagGap)
+                previousTriangle := keptTriangle
+                previousSignalText := keptText
+        currentChochHigh := high
+        currentChochLow := low
+        currentChochRange := math.max(syminfo.mintick, high - low)
+        pendingBrokenLevel := bullishBreakLevel
+        pendingStructureStartTime := bullishLevelStartTime
+        pendingZoneLabelGap := math.max(syminfo.mintick * 20.0, nz(atrValue, currentChochRange) * zoneLabelAtrGapInput)
+        pendingRangeBoxTop := bullishBreakLevel
+        pendingRangeBoxBottom := math.min(nz(bullishRangeLow, low), low)
+        currentZoneId += 1
+        f_createChochSet(1, currentChochHigh, currentChochLow, extensionMilliseconds, oneBarMilliseconds)
+        buyZoneCreatedSignal := true
+        chochActive := true
+        activeChochDirection := 1
+        lastAcceptedChochBar := bar_index
+        outOfRangeUp := false
+        outOfRangeDown := false
+        upperExtensionShown := false
+        lowerExtensionShown := false
+        lowestConfirmedSweep := na
+        highestConfirmedSweep := na
+        highSweepArmed := true
+        pendingLowSweep := na
+        pendingHighSweep := na
+        pendingLowBodyTop := na
+        pendingHighBodyBottom := na
+        pendingLowBar := na
+        pendingHighBar := na
+        pendingLowTime := na
+        pendingHighTime := na
+        activeLowTriangle := na
+        activeHighTriangle := na
+    lastBreakDirection := 1
+
+if bearishBreak
+    bool isBearishChoch = lastBreakDirection == 1
+    bearishLevelBroken := true
+    bool cooldownPass = minimumBarsInput == 0 or na(lastAcceptedChochBar) or bar_index - lastAcceptedChochBar >= minimumBarsInput
+    if isBearishChoch and commonFilterPass and bearishDirectionPass and cooldownPass
+        if chochActive
+            f_freezeActive(time)
+            if showPreviousSignalInput
+                float previousTagGap = math.max(syminfo.mintick * 20.0, math.min(nz(atrValue, currentChochRange) * 0.35, currentChochRange * 0.60))
+                [keptTriangle, keptText] = f_keepPreviousSignal(activeLowTriangle, activeHighTriangle, previousTriangle, previousSignalText, previousTagGap)
+                previousTriangle := keptTriangle
+                previousSignalText := keptText
+        currentChochHigh := high
+        currentChochLow := low
+        currentChochRange := math.max(syminfo.mintick, high - low)
+        pendingBrokenLevel := bearishBreakLevel
+        pendingStructureStartTime := bearishLevelStartTime
+        pendingZoneLabelGap := math.max(syminfo.mintick * 20.0, nz(atrValue, currentChochRange) * zoneLabelAtrGapInput)
+        pendingRangeBoxTop := math.max(nz(bearishRangeHigh, high), high)
+        pendingRangeBoxBottom := bearishBreakLevel
+        currentZoneId += 1
+        f_createChochSet(-1, currentChochHigh, currentChochLow, extensionMilliseconds, oneBarMilliseconds)
+        sellZoneCreatedSignal := true
+        chochActive := true
+        activeChochDirection := -1
+        lastAcceptedChochBar := bar_index
+        outOfRangeUp := false
+        outOfRangeDown := false
+        upperExtensionShown := false
+        lowerExtensionShown := false
+        lowestConfirmedSweep := na
+        highestConfirmedSweep := na
+        highSweepArmed := true
+        pendingLowSweep := na
+        pendingHighSweep := na
+        pendingLowBodyTop := na
+        pendingHighBodyBottom := na
+        pendingLowBar := na
+        pendingHighBar := na
+        pendingLowTime := na
+        pendingHighTime := na
+        activeLowTriangle := na
+        activeHighTriangle := na
+    lastBreakDirection := -1
+
+// REJECTED belongs to the active setup only, regardless of stored zone count.
+if buyZoneCreatedSignal or sellZoneCreatedSignal
+    if not na(activeWallRejectedLabel)
+        label.delete(activeWallRejectedLabel)
+    activeWallRejectedLabel := na
+    activeWallRejectedWick := na
+
+// --- Update Active CHOCH Set ---
+if inCalculationWindow and chochActive
+    int rightTime = time + extensionMilliseconds
+    if array.size(storedWallBoxes) > 0
+        box wallBox = array.get(storedWallBoxes, array.size(storedWallBoxes) - 1)
+        if not na(wallBox)
+            box.set_right(wallBox, rightTime)
+    int activeLineCount = math.min(23, array.size(activeLines))
+    if activeLineCount > 0
+        for index = 0 to activeLineCount - 1
+            line activeLine = array.get(activeLines, index)
+            if not na(activeLine)
+                line.set_x2(activeLine, rightTime)
+    if showLevelLabelsInput
+        int levelLabelCount = math.min(23, array.size(activeLabels))
+        if levelLabelCount > 0
+            for index = 0 to levelLabelCount - 1
+                label activeLabel = array.get(activeLabels, index)
+                if not na(activeLabel)
+                    label.set_x(activeLabel, rightTime)
+
+// --- Automatic Long-Trend Level Expansion ---
+if inCalculationWindow and chochActive
+    float upperFourTrigger = currentChochHigh + currentChochRange * 4.0
+    float lowerFourTrigger = currentChochLow - currentChochRange * 4.0
+    color activeDirectionColor = activeChochDirection == 1 ? chochLineUpInput : chochLineDownInput
+    if not upperExtensionShown and high > upperFourTrigger
+        f_showExtendedLevels(15, 18, activeDirectionColor)
+        upperExtensionShown := true
+    if not lowerExtensionShown and low < lowerFourTrigger
+        f_showExtendedLevels(19, 22, activeDirectionColor)
+        lowerExtensionShown := true
+
+// --- Active Wall Rejection ---
+// The wick must cross the dashed midpoint, remain inside H/L, and close back
+// on the originating side. Only the most extreme valid wick keeps the label.
+if inCalculationWindow and chochActive and barstate.isconfirmed and bar_index > lastAcceptedChochBar
+    float wallMid = math.avg(currentChochHigh, currentChochLow)
+    bool isSellerWall = activeChochDirection == -1
+    bool wallRejected = isSellerWall ?
+         high >= wallMid + syminfo.mintick and high <= currentChochHigh and high - math.max(open, close) >= syminfo.mintick and close < open and close < wallMid :
+         low <= wallMid - syminfo.mintick and low >= currentChochLow and math.min(open, close) - low >= syminfo.mintick and close > open and close > wallMid
+    bool moreExtreme = na(activeWallRejectedWick) or (isSellerWall ? high > activeWallRejectedWick : low < activeWallRejectedWick)
+    if wallRejected and moreExtreme
+        float wickPrice = isSellerWall ? high : low
+        float labelGap = math.max(syminfo.mintick * 5.0, math.min(nz(atrValue, currentChochRange) * 0.12, currentChochRange * 0.15))
+        float labelY = wickPrice + (isSellerWall ? labelGap : -labelGap)
+        color rejectedColor = isSellerWall ? #f23645 : #089981
+        if na(activeWallRejectedLabel)
+            activeWallRejectedLabel := label.new(time, labelY, "REJECTED", xloc = xloc.bar_time, yloc = yloc.price, color = #00000000, style = isSellerWall ? label.style_label_down : label.style_label_up, textcolor = rejectedColor, size = f_labelSize(rejectedLabelSizeInput))
+        else
+            label.set_xy(activeWallRejectedLabel, time, labelY)
+        activeWallRejectedWick := wickPrice
+
+// --- ±0.5 → ±1 Sweep Triangles ---
+bool longTriangleSignal = false
+bool shortTriangleSignal = false
+// One confirmed extremum of each side per CHOCH set. A new extreme moves its
+// existing triangle instead of leaving historical triangles behind.
+if inCalculationWindow and chochActive and barstate.isconfirmed
+    float lowerHalf = currentChochLow - currentChochRange * 0.5
+    float lowerOne = currentChochLow - currentChochRange
+    float upperHalf = currentChochHigh + currentChochRange * 0.5
+    float upperOne = currentChochHigh + currentChochRange
+    float minWickDepth = math.max(syminfo.mintick, currentChochRange * 0.5 * minSweepDepthInput * 0.10)
+    // Require both a clear ±0.5 penetration and an exposed wick. At the maximum
+    // setting the required depth is 10% of the half-band, not the entire band.
+    bool lowInBand = low >= lowerOne and low <= lowerHalf - minWickDepth and math.min(open, close) - low >= minWickDepth
+    bool highRejectedInBand = high <= upperOne and high >= upperHalf + minWickDepth and high - math.max(open, close) >= minWickDepth
+    // Only the very next candle can confirm a sweep: it must be green, reclaim
+    // -0.5, and close above the sweep candle's whole body. Failed candidates expire.
+    bool confirmLow = not na(pendingLowSweep) and bar_index == pendingLowBar + 1 and close > open and close > pendingLowBodyTop and close > lowerHalf
+    if confirmLow
+        lowestConfirmedSweep := pendingLowSweep
+        float triangleY = math.min(low, pendingLowSweep) - math.max(syminfo.mintick * 10.0, math.min(nz(atrValue, currentChochRange) * 0.45, currentChochRange * 0.50))
+        if na(activeLowTriangle)
+            activeLowTriangle := label.new(time, triangleY, "", xloc = xloc.bar_time, yloc = yloc.price, color = #089981, style = label.style_triangleup, textcolor = #089981, size = 5)
+            array.set(storedLowTriangles, array.size(storedLowTriangles) - 1, activeLowTriangle)
+        else
+            label.set_xy(activeLowTriangle, time, triangleY)
+        longTriangleSignal := true
+    if not na(pendingLowSweep) and bar_index > pendingLowBar
+        pendingLowSweep := na
+        pendingLowTime := na
+        pendingLowBar := na
+        pendingLowBodyTop := na
+    if lowInBand and (na(lowestConfirmedSweep) or low < lowestConfirmedSweep)
+        pendingLowSweep := low
+        pendingLowTime := time
+        pendingLowBar := bar_index
+        pendingLowBodyTop := math.max(open, close)
+    // After a confirmed +0.5 rejection, require a full bar back below the level
+    // before another retest can signal. Keep only the highest wick of each retest.
+    if not highSweepArmed and high < upperHalf and close < upperHalf
+        highSweepArmed := true
+    // The next candle must be red and close below both +0.5 and the sweep
+    // candle's whole body; a green or weak follow-through voids the candidate.
+    bool confirmHigh = highSweepArmed and not na(pendingHighSweep) and bar_index == pendingHighBar + 1 and close < open and close < pendingHighBodyBottom and close < upperHalf
+    if confirmHigh
+        highestConfirmedSweep := pendingHighSweep
+        float triangleY = highestConfirmedSweep + math.max(syminfo.mintick * 10.0, math.min(nz(atrValue, currentChochRange) * 0.45, currentChochRange * 0.50))
+        if not na(activeHighTriangle)
+            array.push(repeatedHighTriangles, activeHighTriangle)
+            array.push(repeatedHighZoneIds, currentZoneId)
+        activeHighTriangle := label.new(pendingHighTime, triangleY, "", xloc = xloc.bar_time, yloc = yloc.price, color = #f23645, style = label.style_triangledown, textcolor = #f23645, size = 5)
+        array.set(storedHighTriangles, array.size(storedHighTriangles) - 1, activeHighTriangle)
+        int safeZoneLimit = chochShowLastInput == 0 ? MAX_SAFE_ZONE_SETS : chochShowLastInput
+        int maxRetests = math.min(15, math.max(0, 500 - 26 * safeZoneLimit - 5))
+        while array.size(repeatedHighTriangles) > maxRetests
+            label.delete(array.shift(repeatedHighTriangles))
+            array.shift(repeatedHighZoneIds)
+        shortTriangleSignal := true
+        highSweepArmed := false
+    if not na(pendingHighSweep) and bar_index > pendingHighBar
+        pendingHighSweep := na
+        pendingHighTime := na
+        pendingHighBar := na
+        pendingHighBodyBottom := na
+    if highSweepArmed and highRejectedInBand
+        pendingHighSweep := high
+        pendingHighTime := time
+        pendingHighBar := bar_index
+        pendingHighBodyBottom := math.min(open, close)
+
+// --- Deviation Marker ---
+bool deviationUpSignal = false
+bool deviationDownSignal = false
+if inCalculationWindow and chochActive
+    float upperFourLevel = currentChochHigh + currentChochRange * 4.0
+    float lowerFourLevel = currentChochLow - currentChochRange * 4.0
+    if high > upperFourLevel
+        outOfRangeUp := true
+    if outOfRangeUp and close < upperFourLevel and close > lowerFourLevel
+        deviationDownSignal := true
+        outOfRangeUp := false
+    if low < lowerFourLevel
+        outOfRangeDown := true
+    if outOfRangeDown and close > lowerFourLevel and close < upperFourLevel
+        deviationUpSignal := true
+        outOfRangeDown := false
+
+// --- Visuals ---
+plot(showVwapInput ? vwapValue : na, "Session VWAP", color = #5b9cf6, linewidth = 2)
+plot(showEmaInput ? emaValue : na, "Trend EMA", color = #f59e0b, linewidth = 2)
+plotshape(showDeviationInput and deviationDownSignal, "Dev Down", style = shape.triangledown, location = location.abovebar, color = deviationDownInput, size = size.small)
+plotshape(showDeviationInput and deviationUpSignal, "Dev Up", style = shape.triangleup, location = location.belowbar, color = deviationUpInput, size = size.small)
+
+// --- Alert Conditions ---
+// Named alert conditions are always active. Users select the desired event directly in TradingView's alert dialog.
+alertcondition(buyZoneCreatedSignal, "BUY Zone Created", "BUY ZONE created on {{ticker}} ({{interval}}). Price: {{close}}")
+alertcondition(sellZoneCreatedSignal, "SELL Zone Created", "SELL ZONE created on {{ticker}} ({{interval}}). Price: {{close}}")
+alertcondition(deviationUpSignal or deviationDownSignal, "Price Returning to Range", "Price returned inside the active -4 to +4 range on {{ticker}} ({{interval}}). Price: {{close}}")
+alertcondition(longTriangleAlertInput and longTriangleSignal, "LONG Triangle Confirmed", "LONG sweep triangle confirmed or moved to a deeper sweep on {{ticker}} ({{interval}}). Price: {{close}}")
+alertcondition(shortTriangleAlertInput and shortTriangleSignal, "SHORT Triangle Confirmed", "SHORT sweep triangle confirmed or moved to a higher sweep on {{ticker}} ({{interval}}). Price: {{close}}")
+
+// Optional combined stream for users selecting "Any alert() function call" in the alert dialog.
+if buyZoneAlertInput and buyZoneCreatedSignal
+    alert("BUY ZONE created | " + syminfo.ticker + " | " + timeframe.period + " | Price: " + str.tostring(close, format.mintick), alert.freq_once_per_bar_close)
+if sellZoneAlertInput and sellZoneCreatedSignal
+    alert("SELL ZONE created | " + syminfo.ticker + " | " + timeframe.period + " | Price: " + str.tostring(close, format.mintick), alert.freq_once_per_bar_close)
+if returnToRangeAlertInput and (deviationUpSignal or deviationDownSignal)
+    alert("Price returned inside the active -4 to +4 range | " + syminfo.ticker + " | " + timeframe.period + " | Price: " + str.tostring(close, format.mintick), alert.freq_once_per_bar_close)
+if longTriangleAlertInput and longTriangleSignal
+    alert("LONG triangle confirmed | " + syminfo.ticker + " | " + timeframe.period + " | Price: " + str.tostring(close, format.mintick), alert.freq_once_per_bar_close)
+if shortTriangleAlertInput and shortTriangleSignal
+    alert("SHORT triangle confirmed | " + syminfo.ticker + " | " + timeframe.period + " | Price: " + str.tostring(close, format.mintick), alert.freq_once_per_bar_close)
+
+// --- Asset Zone HUD and Watermark ---
+hudTextSize = f_labelSize(hudSizeInput)
+var table zoneHudTable = table.new(position.top_right, 2, 4, frame_color = color.new(chart.fg_color, 70), frame_width = 1, border_color = color.new(chart.fg_color, 85), border_width = 1)
+var table watermarkTable = table.new(position.bottom_right, 1, 1)
+
+if barstate.islast
+    string referenceZoneText = na(referenceZoneState) ? "NO DATA" : referenceZoneState == 1 ? "BUY ZONE" : referenceZoneState == -1 ? "SELL ZONE" : "NEUTRAL"
+    color referenceZoneColor = na(referenceZoneState) ? color.new(chart.fg_color, 35) : referenceZoneState == 1 ? #089981 : referenceZoneState == -1 ? #f23645 : #5b9cf6
+    color hudBackground = color.new(chart.bg_color, 15)
+
+    if showHudInput
+        table.cell(zoneHudTable, 0, 0, "REFERENCE ZONE HUD", text_color = chart.fg_color, bgcolor = color.new(#5b9cf6, 75), text_size = hudTextSize)
+        table.cell(zoneHudTable, 1, 0, "STATUS", text_color = chart.fg_color, bgcolor = color.new(#5b9cf6, 75), text_size = hudTextSize)
+        table.cell(zoneHudTable, 0, 1, "Asset", text_color = color.new(chart.fg_color, 25), bgcolor = hudBackground, text_size = hudTextSize)
+        table.cell(zoneHudTable, 1, 1, hudAssetInput, text_color = chart.fg_color, bgcolor = hudBackground, text_size = hudTextSize)
+        table.cell(zoneHudTable, 0, 2, "Asset Zone", text_color = color.new(chart.fg_color, 25), bgcolor = hudBackground, text_size = hudTextSize)
+        table.cell(zoneHudTable, 1, 2, referenceZoneText, text_color = referenceZoneColor, bgcolor = hudBackground, text_size = hudTextSize)
+        table.cell(zoneHudTable, 0, 3, "Timeframe", text_color = color.new(chart.fg_color, 25), bgcolor = hudBackground, text_size = hudTextSize)
+        table.cell(zoneHudTable, 1, 3, timeframe.period, text_color = chart.fg_color, bgcolor = hudBackground, text_size = hudTextSize)
+    else
+        table.clear(zoneHudTable, 0, 0, 1, 3)
+
+    table.cell(watermarkTable, 0, 0, "erdensedat", text_color = color.new(chart.fg_color, 70), bgcolor = #00000000, text_size = size.small)

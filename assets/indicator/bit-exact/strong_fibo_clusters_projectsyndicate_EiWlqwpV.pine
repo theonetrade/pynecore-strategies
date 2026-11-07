@@ -1,0 +1,668 @@
+//@version=6
+indicator("Strong Fibo Clusters", overlay=true, max_lines_count=500, max_boxes_count=500, max_labels_count=500)
+
+// ---------------------------------------------------------------- Anchor ----
+grpA         = "Anchor"
+anchorTf     = input.string("W", "Anchor Period", options=["W","2W","M"], group=grpA, tooltip="W = weekly (last week's data). 2W = bi-weekly. M = monthly. Clusters, extremes and separators all follow this anchor.")
+sourceLookback = input.int(1, "Source Swings Lookback (periods)", minval=1, maxval=8, group=grpA, tooltip="How many completed periods of swings feed the cluster search. 1 = last period only.")
+maxPer       = input.int(4, "Periods to Keep Drawn", minval=1, maxval=12, group=grpA, tooltip="Most recent periods whose zones stay drawn. Older periods are removed — virgin magnets survive the cull.")
+
+// -------------------------------------------------------- Swing Detection ----
+swingLen     = input.int(10, "Swing Length (bars)", minval=3, maxval=50, group="Swing Detection")
+maxSwings    = input.int(10, "Max Swings per Side", minval=4, maxval=15, group="Swing Detection")
+
+// ------------------------------------------------------ Retracement Levels ----
+useFib236    = input.bool(true,  "0.236", group="Retracement Levels", inline="r1")
+useFib382    = input.bool(true,  "0.382", group="Retracement Levels", inline="r1")
+useFib500    = input.bool(true,  "0.500", group="Retracement Levels", inline="r1")
+useFib618    = input.bool(true,  "0.618", group="Retracement Levels", inline="r2")
+useFib786    = input.bool(true,  "0.786", group="Retracement Levels", inline="r2")
+useFib1000   = input.bool(false, "1.000", group="Retracement Levels", inline="r2")
+
+// ---------------------------------------------------------- Extension Zones ----
+showExt113   = input.bool(true, "1.130 (above high)", group="Extension Zones", inline="e1")
+showExt127   = input.bool(true, "1.270 (above high)", group="Extension Zones", inline="e1")
+showExtN013  = input.bool(true, "-0.130 (below low)", group="Extension Zones", inline="e2")
+showExtN027  = input.bool(true, "-0.270 (below low)", group="Extension Zones", inline="e2")
+
+// ----------------------------------------------- Golden Pocket & Equilibrium ----
+grpGP        = "Golden Pocket & Equilibrium"
+showGP       = input.bool(true,  "Show Golden Pocket", group=grpGP)
+gpFibLow     = input.float(0.50,  "Lower Fib", minval=0.0, maxval=1.0, step=0.001, group=grpGP)
+gpFibHigh    = input.float(0.618, "Upper Fib", minval=0.0, maxval=1.0, step=0.001, group=grpGP)
+showEQ       = input.bool(true,  "Show Equilibrium (50%) Line", group=grpGP)
+
+// ------------------------------------------------------------- Clustering ----
+grpCl        = "Clustering"
+atrMult      = input.float(0.5, "Cluster Tolerance (x ATR)", minval=0.1, maxval=3.0, step=0.1, group=grpCl, tooltip="Two Fib levels from different swing pairs must be within this distance to be counted as confluent.")
+minRangeMult = input.float(2.0, "Min Pair Range (x ATR)", minval=0.1, maxval=10.0, step=0.1, group=grpCl, tooltip="A swing high/low pair must span at least this distance to contribute Fib levels.")
+minStr       = input.int(2, "Min Cluster Strength", minval=2, maxval=20, group=grpCl, tooltip="Minimum number of distinct swing pairs that must agree on a zone.")
+maxClusters  = input.int(5, "Max Clusters to Display", minval=1, maxval=10, group=grpCl)
+sepMult      = input.float(1.5, "Min Separation (x ATR)", minval=0.5, maxval=5.0, step=0.1, group=grpCl, tooltip="Minimum center-to-center distance between displayed clusters.")
+
+// -------------------------------------------------------- Lifecycle Engine ----
+grpLC        = "Lifecycle Engine"
+showLiqLines = input.bool(true, "Show Prior High/Low Lines", group=grpLC, tooltip="Draws the prior period high and low as key liquidity levels, recolored as their state changes.")
+showState    = input.bool(true, "Recolor Lines by State", group=grpLC, tooltip="INTACT -> SWEPT -> ACCEPTED -> FAILED BREAK.")
+showMarks    = input.bool(true, "Plot Lifecycle Markers", group=grpLC)
+maxMark      = input.int(40, "Max Event Markers Kept", minval=4, maxval=200, group=grpLC)
+mkSize       = input.string("tiny", "Marker Size", options=["tiny","small","normal"], group=grpLC)
+sweepMult    = input.float(0.08, "Sweep Threshold (x ATR)", minval=0.0, maxval=5.0, step=0.01, group=grpLC, tooltip="Wick beyond the extreme by this much, closing back inside, is a sweep.")
+breakMult    = input.float(0.30, "Acceptance Threshold (x ATR)", minval=0.0, maxval=5.0, step=0.01, group=grpLC, tooltip="A close beyond the extreme by this much is acceptance.")
+
+// -------------------------------------------------------- Virgin Magnets ----
+grpVM        = "Virgin Magnets"
+useMagnet    = input.bool(true, "Track Untouched Levels as Magnets", group=grpVM, tooltip="A cluster or prior extreme never traded into during its period is promoted to a persistent magnet that projects right until price tags it.")
+maxMagnet    = input.int(8, "Max Active Magnets", minval=1, maxval=40, group=grpVM)
+magWidth     = input.int(1, "Magnet Line Width", minval=1, maxval=4, group=grpVM)
+magStyle     = input.string("dotted", "Magnet Line Style", options=["dotted","dashed","solid"], group=grpVM)
+magLabels    = input.bool(true, "Label Magnets", group=grpVM)
+
+// ------------------------------------------------------ Period Separators ----
+grpSep       = "Period Separators"
+showSep      = input.bool(true, "Show Period Separators", group=grpSep)
+sepCol       = input.color(#5C6470, "Separator Color", group=grpSep)
+sepWidth     = input.int(1, "Separator Width", minval=1, maxval=4, group=grpSep)
+sepStyle     = input.string("dashed", "Separator Style", options=["dashed","dotted","solid"], group=grpSep)
+
+// ---------------------------------------------------------------- Display ----
+grpD         = "Display"
+zoneHalfMult = input.float(0.2, "Zone Half-Height (x ATR)", minval=0.1, maxval=2.0, step=0.1, group=grpD)
+showLabels   = input.bool(true, "Show Zone Labels", group=grpD)
+extRight     = input.int(30, "Extend Latest Period (bars)", minval=0, maxval=300, group=grpD)
+labelSz      = input.string("small", "Label Size", options=["tiny","small","normal","large"], group=grpD)
+showDots     = input.bool(false, "Show Swing Dots", group=grpD)
+
+// ----------------------------------------------------------------- Colors ----
+grpC         = "Colors"
+colElite     = input.color(#21c997, "Cluster Elite  (>=6)", group=grpC)
+colStrong    = input.color(#26a69a, "Cluster Strong (4-5)", group=grpC)
+colMedium    = input.color(#00897b, "Cluster Medium (2-3)", group=grpC)
+colExt1      = input.color(#cc24e2, "Ext 1.130 / -0.130", group=grpC)
+colExt2      = input.color(#880e4f, "Ext 1.270 / -0.270", group=grpC)
+gpColor      = input.color(#787878, "Golden Pocket Zone", group=grpC)
+eqCol        = input.color(#8E8E8E, "Equilibrium Line", group=grpC)
+domHiCol     = input.color(#21c997, "Prior High Line", group=grpC)
+domLoCol     = input.color(#cc24e2, "Prior Low Line", group=grpC)
+sweptCol     = input.color(#cc24e2, "State: Swept", group=grpC)
+accCol       = input.color(#00897b, "State: Accepted", group=grpC)
+failCol      = input.color(#880e4f, "State: Failed Break", group=grpC)
+magCol       = input.color(#9AA5B1, "Virgin Magnet", group=grpC)
+colLabel     = input.color(color.white, "Label Text", group=grpC)
+boxTransp    = input.int(78, "Box Transparency", minval=0, maxval=100, group=grpC)
+brdTransp    = input.int(40, "Border Transparency", minval=0, maxval=100, group=grpC)
+gpTransp     = input.int(80, "Golden Pocket Transparency", minval=40, maxval=99, group=grpC)
+showBorder   = input.bool(false, "Show Zone Borders", group=grpC)
+
+// ================================================================= Types ====
+type SwingPt
+    float price  = 0.0
+    int   barIdx = 0
+    bool  isHigh = false
+
+type FibCluster
+    float center   = 0.0
+    int   strength = 0
+
+type Zone
+    float center   = 0.0
+    float top      = 0.0
+    float bot      = 0.0
+    int   strength = 0
+    int   kind     = 0     // 0 cluster, 1 ext-inner, 2 ext-outer, 3 GP, 4 EQ
+    bool  touched  = false
+    box   bx       = na
+    line  ln       = na
+    label lb       = na
+
+type PerDraw
+    array<box>   boxes  = na
+    array<line>  lines  = na
+    array<label> labels = na
+
+// ============================================================= Helpers =====
+clearC = color.new(color.gray, 100)
+
+// magnet stores (declared before f_spawnMag, which appends to them)
+var array<float> magPx = array.new<float>()
+var array<line>  magLn = array.new<line>()
+var array<label> magLb = array.new<label>()
+
+f_lblSize()  => labelSz=="tiny" ? size.tiny : labelSz=="small" ? size.small : labelSz=="large" ? size.large : size.normal
+f_mkSizeF()  => mkSize=="tiny" ? size.tiny : mkSize=="small" ? size.small : size.normal
+f_magStyleF()=> magStyle=="dashed" ? line.style_dashed : magStyle=="solid" ? line.style_solid : line.style_dotted
+f_sepStyleF()=> sepStyle=="dotted" ? line.style_dotted : sepStyle=="solid" ? line.style_solid : line.style_dashed
+f_anchorName()=> anchorTf=="W" ? "WEEK" : anchorTf=="2W" ? "2-WEEK" : "MONTH"
+
+f_tier(int s)  => s>=6 ? "ELITE" : s>=4 ? "STRONG" : "MEDIUM"
+f_clCol(int s) => s>=6 ? colElite : s>=4 ? colStrong : colMedium
+f_stateTag(int st) => st==1 ? "SWEPT" : st==2 ? "ACCEPTED" : st==3 ? "FAILED BREAK" : "INTACT"
+f_stateCol(int st, color baseC) => st==1 ? sweptCol : st==2 ? accCol : st==3 ? failCol : baseC
+
+f_delPer(PerDraw d) =>
+    if not na(d.boxes)
+        for b in d.boxes
+            box.delete(b)
+    if not na(d.lines)
+        for l in d.lines
+            line.delete(l)
+    if not na(d.labels)
+        for x in d.labels
+            label.delete(x)
+
+// Spawns a virgin-magnet line/label and appends to the global magnet arrays.
+f_spawnMag(float price, string tagTxt, int leftB, int rightBar) =>
+    mLn = line.new(leftB, price, rightBar, price, xloc=xloc.bar_index, color=magCol, width=magWidth, style=f_magStyleF())
+    mLb = magLabels ? label.new(rightBar, price, tagTxt, xloc=xloc.bar_index, color=color.new(color.gray,100), textcolor=magCol, style=label.style_label_left, size=f_mkSizeF()) : na
+    array.push(magPx, price)
+    array.push(magLn, mLn)
+    array.push(magLb, mLb)
+
+// ============================================================= Globals =====
+float atr14 = ta.atr(14)
+float phVal = ta.pivothigh(high, swingLen, swingLen)
+float plVal = ta.pivotlow(low,  swingLen, swingLen)
+int   swingCap = math.min(maxSwings, 15)
+
+var array<SwingPt> swings       = array.new<SwingPt>()
+var array<int>     boundaryBars = array.new<int>()
+var array<PerDraw> drawPer      = array.new<PerDraw>()
+var array<Zone>    activeZones  = array.new<Zone>()
+var array<label>   mkArr        = array.new<label>()
+var array<line>    sepArr       = array.new<line>()
+
+var float pHigh = na
+var float pLow  = na
+
+var bool  haveActive = false
+var int   abLeft = na
+var float lvHigh = na
+var float lvLow  = na
+var float lvSwU  = na
+var float lvBkU  = na
+var float lvSwL  = na
+var float lvBkL  = na
+var int   stU  = 0
+var int   stL  = 0
+var bool  tchU = false
+var bool  tchL = false
+var line  lnHi = na
+var line  lnLo = na
+var label lbHi = na
+var label lbLo = na
+
+// swing buffer (updated every bar, newest first)
+if not na(phVal)
+    array.unshift(swings, SwingPt.new(phVal, bar_index - swingLen, true))
+if not na(plVal)
+    array.unshift(swings, SwingPt.new(plVal, bar_index - swingLen, false))
+while array.size(swings) > 300
+    array.pop(swings)
+
+plotshape(showDots and not na(phVal), title="SH", location=location.abovebar, style=shape.circle, color=color.new(colElite, 20), size=size.tiny)
+plotshape(showDots and not na(plVal), title="SL", location=location.belowbar, style=shape.circle, color=color.new(colExt1, 20), size=size.tiny)
+
+// event flags (per bar)
+bool evSweepU = false
+bool evSweepL = false
+bool evAccU   = false
+bool evAccL   = false
+bool evFailU  = false
+bool evFailL  = false
+bool evMagTag = false
+bool evTouch  = false
+
+// ======================================================= Period boundary ===
+bool newP = ta.change(time(anchorTf)) != 0
+
+if newP
+    int boundaryBar = bar_index
+
+    // 1) finalize the previous period -> virgin magnets from untouched levels
+    if haveActive
+        if useMagnet and not tchU and not na(lvHigh)
+            f_spawnMag(lvHigh, "VIRGIN " + f_anchorName() + " HIGH", abLeft, boundaryBar)
+        if useMagnet and not tchL and not na(lvLow)
+            f_spawnMag(lvLow, "VIRGIN " + f_anchorName() + " LOW", abLeft, boundaryBar)
+        if array.size(activeZones) > 0
+            for z in activeZones
+                if useMagnet and z.kind == 0 and not z.touched
+                    f_spawnMag(z.center, "VIRGIN CLUSTER", abLeft, boundaryBar)
+        while array.size(magPx) > maxMagnet
+            array.shift(magPx)
+            oldln = array.shift(magLn)
+            oldlb = array.shift(magLb)
+            if not na(oldln)
+                line.delete(oldln)
+            if not na(oldlb)
+                label.delete(oldlb)
+
+    // 2) separator at the new period's first bar
+    if showSep
+        sepLn = line.new(boundaryBar, low, boundaryBar, high, xloc=xloc.bar_index, extend=extend.both, color=sepCol, width=sepWidth, style=f_sepStyleF())
+        array.push(sepArr, sepLn)
+        while array.size(sepArr) > maxPer + 1
+            osep = array.shift(sepArr)
+            if not na(osep)
+                line.delete(osep)
+
+    // 3) read the just-completed period's extremes
+    float prevH = pHigh
+    float prevL = pLow
+
+    // source window start bar
+    int szB = array.size(boundaryBars)
+    int idxB = sourceLookback - 1
+    int startBar = 0
+    if szB > 0
+        startBar := idxB < szB ? array.get(boundaryBars, idxB) : array.get(boundaryBars, szB - 1)
+
+    // reset active state (after finalize which needed the old values)
+    haveActive := false
+    array.clear(activeZones)
+    stU  := 0
+    stL  := 0
+    tchU := false
+    tchL := false
+
+    bool valid = not na(prevH) and not na(prevL) and prevH > prevL and not na(atr14)
+
+    if valid
+        float rng        = prevH - prevL
+        float clusterTol = atr14 * atrMult
+        float minRange   = atr14 * minRangeMult
+        float zoneHalf   = atr14 * zoneHalfMult
+
+        // collect source swings inside the window
+        array<SwingPt> srcHighs = array.new<SwingPt>()
+        array<SwingPt> srcLows  = array.new<SwingPt>()
+        int nAll = array.size(swings)
+        if nAll > 0
+            for i = 0 to nAll - 1
+                sp = array.get(swings, i)
+                if sp.barIdx >= startBar and sp.barIdx < boundaryBar
+                    if sp.isHigh
+                        if array.size(srcHighs) < swingCap
+                            array.push(srcHighs, sp)
+                    else
+                        if array.size(srcLows) < swingCap
+                            array.push(srcLows, sp)
+
+        // build Fibonacci clusters from every valid high/low pair
+        array<FibCluster> clusters = array.new<FibCluster>()
+        int nH = array.size(srcHighs)
+        int nL = array.size(srcLows)
+        if nH > 0 and nL > 0
+            for hi = 0 to nH - 1
+                sh = array.get(srcHighs, hi)
+                for li = 0 to nL - 1
+                    sl = array.get(srcLows, li)
+                    float prng = sh.price - sl.price
+                    if prng >= minRange
+                        array<float> pairLevels = array.new_float()
+                        if useFib236
+                            array.push(pairLevels, sh.price - prng * 0.236)
+                        if useFib382
+                            array.push(pairLevels, sh.price - prng * 0.382)
+                        if useFib500
+                            array.push(pairLevels, sh.price - prng * 0.500)
+                        if useFib618
+                            array.push(pairLevels, sh.price - prng * 0.618)
+                        if useFib786
+                            array.push(pairLevels, sh.price - prng * 0.786)
+                        if useFib1000
+                            array.push(pairLevels, sh.price - prng * 1.000)
+                        int nLevels = array.size(pairLevels)
+                        if nLevels > 0
+                            int nCbefore = array.size(clusters)
+                            array<bool> pairContributed = array.new_bool()
+                            if nCbefore > 0
+                                for k = 0 to nCbefore - 1
+                                    array.push(pairContributed, false)
+                            for lv = 0 to nLevels - 1
+                                float lp = array.get(pairLevels, lv)
+                                int   bestK = -1
+                                float bestDist = clusterTol + 1.0
+                                int   nCurr = array.size(clusters)
+                                if nCurr > 0
+                                    for k = 0 to nCurr - 1
+                                        ck0 = array.get(clusters, k)
+                                        float dist = math.abs(lp - ck0.center)
+                                        if dist <= clusterTol and dist < bestDist
+                                            bestDist := dist
+                                            bestK := k
+                                if bestK >= 0
+                                    ck = array.get(clusters, bestK)
+                                    bool already = array.size(pairContributed) > bestK ? array.get(pairContributed, bestK) : false
+                                    ck.center := (ck.center * ck.strength + lp) / (ck.strength + 1)
+                                    if not already
+                                        ck.strength := ck.strength + 1
+                                        if array.size(pairContributed) > bestK
+                                            array.set(pairContributed, bestK, true)
+                                    array.set(clusters, bestK, ck)
+                                else
+                                    array.push(clusters, FibCluster.new(lp, 1))
+                                    array.push(pairContributed, true)
+
+        // qualify by min strength
+        array<FibCluster> qualified = array.new<FibCluster>()
+        int nRaw = array.size(clusters)
+        if nRaw > 0
+            for k = 0 to nRaw - 1
+                ck = array.get(clusters, k)
+                if ck.strength >= minStr
+                    array.push(qualified, ck)
+
+        // sort descending by strength (bubble)
+        int nQ = array.size(qualified)
+        if nQ > 1
+            for i = 0 to nQ - 2
+                for j = 0 to nQ - 2 - i
+                    ca = array.get(qualified, j)
+                    cb = array.get(qualified, j + 1)
+                    if ca.strength < cb.strength
+                        array.set(qualified, j,     cb)
+                        array.set(qualified, j + 1, ca)
+
+        // select top clusters honoring min separation
+        array<FibCluster> selected = array.new<FibCluster>()
+        float minSep = atr14 * sepMult
+        if nQ > 0
+            for i = 0 to nQ - 1
+                if array.size(selected) >= maxClusters
+                    break
+                cand = array.get(qualified, i)
+                bool overlaps = false
+                int nSel0 = array.size(selected)
+                if nSel0 > 0
+                    for j = 0 to nSel0 - 1
+                        ex = array.get(selected, j)
+                        if math.abs(cand.center - ex.center) < minSep
+                            overlaps := true
+                            break
+                if not overlaps
+                    array.push(selected, cand)
+
+        // ---- draw ----
+        PerDraw pd = PerDraw.new(array.new<box>(), array.new<line>(), array.new<label>())
+
+        int nSel = array.size(selected)
+        if nSel > 0
+            for i = 0 to nSel - 1
+                cl = array.get(selected, i)
+                int   rank = i + 1
+                int   s    = cl.strength
+                float zTop = cl.center + zoneHalf
+                float zBot = cl.center - zoneHalf
+                color baseCol = f_clCol(s)
+                color bordC   = showBorder ? color.new(baseCol, brdTransp) : clearC
+                int   bordW   = showBorder ? 1 : 0
+                box bx = box.new(boundaryBar, zTop, boundaryBar, zBot, bgcolor=color.new(baseCol, boxTransp), border_color=bordC, border_width=bordW, extend=extend.none)
+                line ln = line.new(boundaryBar, cl.center, boundaryBar, cl.center, xloc=xloc.bar_index, color=color.new(baseCol, math.max(0, brdTransp - 10)), style=line.style_dashed, width=1)
+                label lb = na
+                if showLabels
+                    string txt = "#" + str.tostring(rank) + "  " + f_tier(s) + "  STR " + str.tostring(s) + "  @ " + str.tostring(cl.center, format.mintick)
+                    lb := label.new(boundaryBar, cl.center, txt, xloc=xloc.bar_index, color=color.new(color.black, 100), textcolor=colLabel, size=f_lblSize(), style=label.style_label_left)
+                array.push(pd.boxes, bx)
+                array.push(pd.lines, ln)
+                if not na(lb)
+                    array.push(pd.labels, lb)
+                array.push(activeZones, Zone.new(cl.center, zTop, zBot, s, 0, false, bx, ln, lb))
+
+        // golden pocket
+        if showGP
+            float gpTop = prevL + rng * math.max(gpFibLow, gpFibHigh)
+            float gpBot = prevL + rng * math.min(gpFibLow, gpFibHigh)
+            float gpMid = (gpTop + gpBot) / 2.0
+            box bxGP = box.new(boundaryBar, gpTop, boundaryBar, gpBot, bgcolor=color.new(gpColor, gpTransp), border_color=clearC, border_width=0, extend=extend.none)
+            label lbGP = na
+            if showLabels
+                lbGP := label.new(boundaryBar, gpMid, "GOLDEN POCKET  @ " + str.tostring(gpMid, format.mintick), xloc=xloc.bar_index, color=color.new(color.black, 100), textcolor=colLabel, size=f_lblSize(), style=label.style_label_left)
+            array.push(pd.boxes, bxGP)
+            if not na(lbGP)
+                array.push(pd.labels, lbGP)
+            array.push(activeZones, Zone.new(gpMid, gpTop, gpBot, 0, 3, false, bxGP, na, lbGP))
+
+        // equilibrium
+        if showEQ
+            float eqMid = prevL + rng * 0.5
+            line lnEQ = line.new(boundaryBar, eqMid, boundaryBar, eqMid, xloc=xloc.bar_index, color=eqCol, width=1, style=line.style_dotted)
+            label lbEQ = na
+            if showLabels
+                lbEQ := label.new(boundaryBar, eqMid, "EQUILIBRIUM 50%", xloc=xloc.bar_index, color=color.new(color.black, 100), textcolor=eqCol, size=f_lblSize(), style=label.style_label_left)
+            array.push(pd.lines, lnEQ)
+            if not na(lbEQ)
+                array.push(pd.labels, lbEQ)
+            array.push(activeZones, Zone.new(eqMid, eqMid, eqMid, 0, 4, false, na, lnEQ, lbEQ))
+
+        // fibonacci extensions
+        array<float>  extPx   = array.new_float()
+        array<color>  extColA = array.new_color()
+        array<int>    extKindA= array.new_int()
+        array<string> extTagA = array.new_string()
+        if showExt113
+            array.push(extPx, prevH + rng * 0.130)
+            array.push(extColA, colExt1)
+            array.push(extKindA, 1)
+            array.push(extTagA, "EXT 1.13")
+        if showExt127
+            array.push(extPx, prevH + rng * 0.270)
+            array.push(extColA, colExt2)
+            array.push(extKindA, 2)
+            array.push(extTagA, "EXT 1.27")
+        if showExtN013
+            array.push(extPx, prevL - rng * 0.130)
+            array.push(extColA, colExt1)
+            array.push(extKindA, 1)
+            array.push(extTagA, "EXT -0.13")
+        if showExtN027
+            array.push(extPx, prevL - rng * 0.270)
+            array.push(extColA, colExt2)
+            array.push(extKindA, 2)
+            array.push(extTagA, "EXT -0.27")
+        int nExt = array.size(extPx)
+        if nExt > 0
+            for i = 0 to nExt - 1
+                float ep = array.get(extPx, i)
+                color ec = array.get(extColA, i)
+                int   ek = array.get(extKindA, i)
+                string et = array.get(extTagA, i)
+                box bxE = box.new(boundaryBar, ep + zoneHalf, boundaryBar, ep - zoneHalf, bgcolor=color.new(ec, boxTransp), border_color=clearC, border_width=0, extend=extend.none)
+                line lnE = line.new(boundaryBar, ep, boundaryBar, ep, xloc=xloc.bar_index, color=color.new(ec, math.max(0, brdTransp - 10)), style=line.style_dashed, width=1)
+                label lbE = na
+                if showLabels
+                    lbE := label.new(boundaryBar, ep, et + "  @ " + str.tostring(ep, format.mintick), xloc=xloc.bar_index, color=color.new(color.black, 100), textcolor=colLabel, size=f_lblSize(), style=label.style_label_left)
+                array.push(pd.boxes, bxE)
+                array.push(pd.lines, lnE)
+                if not na(lbE)
+                    array.push(pd.labels, lbE)
+                array.push(activeZones, Zone.new(ep, ep + zoneHalf, ep - zoneHalf, 0, ek, false, bxE, lnE, lbE))
+
+        // prior high / low liquidity lines
+        string aName = f_anchorName()
+        if showLiqLines
+            lnHi := line.new(boundaryBar, prevH, boundaryBar, prevH, xloc=xloc.bar_index, color=domHiCol, width=2, style=line.style_solid)
+            lnLo := line.new(boundaryBar, prevL, boundaryBar, prevL, xloc=xloc.bar_index, color=domLoCol, width=2, style=line.style_solid)
+            lbHi := showLabels ? label.new(boundaryBar, prevH, "PREV " + aName + " HIGH  @ " + str.tostring(prevH, format.mintick), xloc=xloc.bar_index, color=color.new(color.black, 100), textcolor=domHiCol, size=f_lblSize(), style=label.style_label_left) : na
+            lbLo := showLabels ? label.new(boundaryBar, prevL, "PREV " + aName + " LOW  @ " + str.tostring(prevL, format.mintick), xloc=xloc.bar_index, color=color.new(color.black, 100), textcolor=domLoCol, size=f_lblSize(), style=label.style_label_left) : na
+            array.push(pd.lines, lnHi)
+            array.push(pd.lines, lnLo)
+            if not na(lbHi)
+                array.push(pd.labels, lbHi)
+            if not na(lbLo)
+                array.push(pd.labels, lbLo)
+        else
+            lnHi := na
+            lnLo := na
+            lbHi := na
+            lbLo := na
+
+        // set active tracking state
+        haveActive := true
+        abLeft := boundaryBar
+        lvHigh := prevH
+        lvLow  := prevL
+        lvSwU  := prevH + atr14 * sweepMult
+        lvBkU  := prevH + atr14 * breakMult
+        lvSwL  := prevL - atr14 * sweepMult
+        lvBkL  := prevL - atr14 * breakMult
+
+        array.push(drawPer, pd)
+        while array.size(drawPer) > maxPer
+            f_delPer(array.shift(drawPer))
+    else
+        lnHi := na
+        lnLo := na
+        lbHi := na
+        lbLo := na
+
+    // remember this boundary, then reset accumulation
+    array.unshift(boundaryBars, boundaryBar)
+    int capB = math.max(sourceLookback, maxPer) + 3
+    while array.size(boundaryBars) > capB
+        array.pop(boundaryBars)
+
+    pHigh := high
+    pLow  := low
+else
+    pHigh := na(pHigh) ? high : math.max(pHigh, high)
+    pLow  := na(pLow)  ? low  : math.min(pLow, low)
+
+// ======================================================= Per-bar tracking ===
+int rightB = bar_index + (barstate.islast ? extRight : 0)
+
+if haveActive
+    // extend active drawings to the right
+    if array.size(activeZones) > 0
+        for z in activeZones
+            if not na(z.bx)
+                box.set_right(z.bx, rightB)
+            if not na(z.ln)
+                line.set_x2(z.ln, rightB)
+            if not na(z.lb)
+                label.set_x(z.lb, rightB)
+    if not na(lnHi)
+        line.set_x2(lnHi, rightB)
+    if not na(lbHi)
+        label.set_x(lbHi, rightB)
+    if not na(lnLo)
+        line.set_x2(lnLo, rightB)
+    if not na(lbLo)
+        label.set_x(lbLo, rightB)
+
+    // touch detection on cluster / ext / GP / EQ zones
+    if array.size(activeZones) > 0
+        for z in activeZones
+            if not z.touched
+                if high >= z.bot and low <= z.top
+                    z.touched := true
+                    evTouch := true
+
+    // touch on prior extremes
+    if high >= lvHigh and low <= lvHigh
+        tchU := true
+    if high >= lvLow and low <= lvLow
+        tchL := true
+
+    // lifecycle state machine on the prior high / low
+    bool sweepU  = high >= lvSwU and close < lvHigh
+    bool sweepL  = low  <= lvSwL and close > lvLow
+    bool acceptU = close > lvBkU
+    bool acceptL = close < lvBkL
+    int prevStU = stU
+    int prevStL = stL
+
+    if acceptU
+        stU := 2
+    else if stU == 2 and close < lvHigh
+        stU := 3
+    else if stU == 0 and sweepU
+        stU := 1
+
+    if acceptL
+        stL := 2
+    else if stL == 2 and close > lvLow
+        stL := 3
+    else if stL == 0 and sweepL
+        stL := 1
+
+    evSweepU := stU == 1 and prevStU == 0
+    evSweepL := stL == 1 and prevStL == 0
+    evAccU   := stU == 2 and prevStU != 2
+    evAccL   := stL == 2 and prevStL != 2
+    evFailU  := stU == 3 and prevStU == 2
+    evFailL  := stL == 3 and prevStL == 2
+
+    if showState and stU != prevStU
+        if not na(lnHi)
+            line.set_color(lnHi, f_stateCol(stU, domHiCol))
+        if not na(lbHi)
+            label.set_text(lbHi, "PREV " + f_anchorName() + " HIGH  ·  " + f_stateTag(stU))
+            label.set_textcolor(lbHi, f_stateCol(stU, domHiCol))
+    if showState and stL != prevStL
+        if not na(lnLo)
+            line.set_color(lnLo, f_stateCol(stL, domLoCol))
+        if not na(lbLo)
+            label.set_text(lbLo, "PREV " + f_anchorName() + " LOW  ·  " + f_stateTag(stL))
+            label.set_textcolor(lbLo, f_stateCol(stL, domLoCol))
+
+    if showMarks
+        if evSweepU
+            array.push(mkArr, label.new(bar_index, high, "SWEEP ▲", xloc=xloc.bar_index, yloc=yloc.price, color=color.new(sweptCol, 20), textcolor=#101010, style=label.style_label_down, size=f_mkSizeF()))
+        if evSweepL
+            array.push(mkArr, label.new(bar_index, low, "SWEEP ▼", xloc=xloc.bar_index, yloc=yloc.price, color=color.new(sweptCol, 20), textcolor=#101010, style=label.style_label_up, size=f_mkSizeF()))
+        if evAccU
+            array.push(mkArr, label.new(bar_index, high, "ACCEPT ▲", xloc=xloc.bar_index, yloc=yloc.price, color=color.new(accCol, 20), textcolor=#F2F2F2, style=label.style_label_down, size=f_mkSizeF()))
+        if evAccL
+            array.push(mkArr, label.new(bar_index, low, "ACCEPT ▼", xloc=xloc.bar_index, yloc=yloc.price, color=color.new(accCol, 20), textcolor=#F2F2F2, style=label.style_label_up, size=f_mkSizeF()))
+        if evFailU
+            array.push(mkArr, label.new(bar_index, high, "FAILED BREAK", xloc=xloc.bar_index, yloc=yloc.price, color=color.new(failCol, 15), textcolor=#F2F2F2, style=label.style_label_down, size=f_mkSizeF()))
+        if evFailL
+            array.push(mkArr, label.new(bar_index, low, "FAILED BREAK", xloc=xloc.bar_index, yloc=yloc.price, color=color.new(failCol, 15), textcolor=#F2F2F2, style=label.style_label_up, size=f_mkSizeF()))
+        while array.size(mkArr) > maxMark
+            omk = array.shift(mkArr)
+            if not na(omk)
+                label.delete(omk)
+
+// magnet update (independent of active period)
+if array.size(magPx) > 0
+    for i = array.size(magPx) - 1 to 0
+        float px = array.get(magPx, i)
+        line   ln = array.get(magLn, i)
+        label  lb = array.get(magLb, i)
+        bool tagged = low <= px and high >= px
+        if tagged
+            evMagTag := true
+            if not na(ln)
+                line.set_x2(ln, bar_index)
+                line.set_color(ln, color.new(magCol, 55))
+            if not na(lb)
+                label.delete(lb)
+            array.remove(magPx, i)
+            array.remove(magLn, i)
+            array.remove(magLb, i)
+        else
+            if not na(ln)
+                line.set_x2(ln, rightB)
+            if not na(lb)
+                label.set_x(lb, rightB)
+
+// timeframe guard
+bool tfTooBig = timeframe.in_seconds() >= timeframe.in_seconds(anchorTf)
+var label warnLb = na
+if barstate.islast
+    if not na(warnLb)
+        label.delete(warnLb)
+        warnLb := na
+    if tfTooBig
+        warnLb := label.new(bar_index, high, "Chart timeframe ≥ " + anchorTf + " anchor —\nswitch to an intra-" + f_anchorName() + " timeframe so clusters can resolve.", xloc=xloc.bar_index, yloc=yloc.price, color=color.new(#7A2B2B, 15), textcolor=#F0F0F0, style=label.style_label_down, size=size.small, textalign=text.align_left)
+
+// ================================================================ Alerts ====
+alertcondition(evTouch,  "Cluster / zone touched", "Price touched a Strong Fibo Clusters zone")
+alertcondition(evSweepU, "Sweep above prior high", "Liquidity sweep above the prior-period high — closed back inside")
+alertcondition(evSweepL, "Sweep below prior low",  "Liquidity sweep below the prior-period low — closed back inside")
+alertcondition(evAccU,   "Acceptance above prior high", "Close accepted above the prior-period high")
+alertcondition(evAccL,   "Acceptance below prior low",  "Close accepted below the prior-period low")
+alertcondition(evFailU,  "Failed break above prior high", "Accepted above the prior high then closed back inside")
+alertcondition(evFailL,  "Failed break below prior low",  "Accepted below the prior low then closed back inside")
+alertcondition(evMagTag, "Virgin magnet tagged", "Price tagged a previously untouched virgin level")

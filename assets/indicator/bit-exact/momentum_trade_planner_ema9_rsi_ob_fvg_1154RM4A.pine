@@ -1,0 +1,291 @@
+//@version=6
+indicator("9 EMA + RSI Signals (SL + 3 TPs) + OB/FVG [15m]", shorttitle = "Premium GOLD Signal", overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500, max_bars_back = 500)
+
+// ───────────── Inputs: Signals ─────────────
+emaLen     = input.int(9, "EMA Length", minval = 1, group = "Signal")
+rsiLen     = input.int(14, "RSI Length", minval = 1, group = "Signal")
+rsiLevel   = input.float(50, "RSI Level", group = "Signal")
+oneAtATime = input.bool(false, "Hide same-direction signals while a trade is active", group = "Signal")
+
+slLookback = input.int(4, "SL Lookback (previous candles)", minval = 1, group = "Risk")
+slBuffer   = input.float(0.0, "SL Buffer (price)", minval = 0, step = 0.1, group = "Risk", tooltip = "Extra distance added beyond the swing low/high. 0 = exactly at the low/high.")
+
+tpStep     = input.float(10.0, "TP Step (price)", minval = 0.01, step = 0.5, group = "Targets", tooltip = "TP1 = entry ± 1×step, TP2 = ± 2×step, TP3 = ± 3×step. For XAUUSD, 10.0 = $10 (4000 → 4010 / 4020 / 4030).")
+
+// ───────────── Inputs: Display ─────────────
+showLevels = input.bool(true, "Show Entry / SL / TP zones", group = "Display")
+showHits   = input.bool(true, "Mark TP / SL hits", group = "Display")
+extBars    = input.int(10, "Extend beyond current bar", minval = 1, maxval = 100, group = "Display")
+zoneTransp = input.int(80, "Zone transparency", minval = 0, maxval = 100, group = "Display")
+fadeBars   = input.int(15, "Fade length on right (bars)", minval = 0, maxval = 100, group = "Display")
+colorBars  = input.bool(true, "Color candles by trend", group = "Display")
+showEma    = input.bool(true, "Show EMA", group = "Display")
+
+slCol      = input.color(#f44336, "Stop Loss color", group = "Colors")
+tpCol      = input.color(#43d443, "Take Profit color", group = "Colors")
+entryCol   = input.color(#9e9e9e, "Entry color", group = "Colors")
+emaCol     = input.color(#2962ff, "EMA color", group = "Colors")
+
+// ───────────── Inputs: Order Blocks ─────────────
+showOB     = input.bool(true, "Show Order Blocks", group = "Order Blocks")
+swingLen   = input.int(10, "Swing length", minval = 2, maxval = 50, group = "Order Blocks", tooltip = "Bars on each side used to confirm a swing high/low. Higher = fewer, stronger OBs.")
+maxOB      = input.int(3, "Max OBs per side", minval = 1, maxval = 20, group = "Order Blocks")
+obBullCol  = input.color(#2962ff, "Bullish OB", group = "Order Blocks")
+obBearCol  = input.color(#e040fb, "Bearish OB", group = "Order Blocks")
+
+// ───────────── Inputs: FVG ─────────────
+showFVG    = input.bool(true, "Show Fair Value Gaps", group = "FVG")
+fvgMinAtr  = input.float(0.25, "Min FVG size (× ATR)", minval = 0, step = 0.05, group = "FVG", tooltip = "Filters out tiny gaps. 0 = show all.")
+maxFVG     = input.int(3, "Max FVGs per side", minval = 1, maxval = 20, group = "FVG")
+fvgBullCol = input.color(#00bcd4, "Bullish FVG", group = "FVG")
+fvgBearCol = input.color(#ff9800, "Bearish FVG", group = "FVG")
+
+removeMitigated = input.bool(true, "Remove mitigated OBs / filled FVGs", group = "OB / FVG")
+
+// ───────────── Calculations ─────────────
+emaVal   = ta.ema(close, emaLen)
+rsiVal   = ta.rsi(close, rsiLen)
+atrVal   = ta.atr(14)
+
+prevLow  = ta.lowest(low, slLookback)[1]
+prevHigh = ta.highest(high, slLookback)[1]
+
+bullCond = close > emaVal and rsiVal > rsiLevel
+bearCond = close < emaVal and rsiVal < rsiLevel
+
+// ───────────── Trade state ─────────────
+var int   dir      = 0      // 1 = long, -1 = short, 0 = flat
+var int   entryBar = na
+var float entry    = na
+var float sl       = na
+var float tp1      = na
+var float tp2      = na
+var float tp3      = na
+var bool  hit1     = false
+var bool  hit2     = false
+var bool  hit3     = false
+
+var array<box>   zoneBoxes  = array.new<box>()
+var array<line>  lvlLines   = array.new<line>()
+var array<label> lvlLabels  = array.new<label>()
+var array<label> markLabels = array.new<label>()
+
+var array<box> bullOBs  = array.new<box>()
+var array<box> bearOBs  = array.new<box>()
+var array<box> bullFVGs = array.new<box>()
+var array<box> bearFVGs = array.new<box>()
+
+FADE_SEGS = 6
+
+// ───────────── Helper functions ─────────────
+clearTrade() =>
+    for b in zoneBoxes
+        box.delete(b)
+    for l in lvlLines
+        line.delete(l)
+    for lb in lvlLabels
+        label.delete(lb)
+    array.clear(zoneBoxes)
+    array.clear(lvlLines)
+    array.clear(lvlLabels)
+
+clearMarks() =>
+    for lb in markLabels
+        label.delete(lb)
+    array.clear(markLabels)
+
+drawZone(int x1, int x2, float top, float bot, color col) =>
+    fadeStart = math.max(x1, x2 - fadeBars)
+    if fadeStart > x1
+        array.push(zoneBoxes, box.new(x1, top, fadeStart, bot, border_color = color(na), border_width = 0, bgcolor = color.new(col, zoneTransp)))
+    span = x2 - fadeStart
+    for i = 0 to FADE_SEGS - 1
+        a = fadeStart + math.round(span * i * 1.0 / FADE_SEGS)
+        b = fadeStart + math.round(span * (i + 1) * 1.0 / FADE_SEGS)
+        if b > a
+            t = zoneTransp + (100.0 - zoneTransp) * (i + 1) / (FADE_SEGS + 1)
+            array.push(zoneBoxes, box.new(a, top, b, bot, border_color = color(na), border_width = 0, bgcolor = color.new(col, t)))
+
+drawLevel(int x1, int x2, float price, color col, string txt) =>
+    array.push(lvlLines, line.new(x1, price, x2, price, color = col, width = 1))
+    array.push(lvlLabels, label.new(x2, price, txt + ": " + str.tostring(price, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small))
+
+drawTrade(int xEnd) =>
+    clearTrade()
+    drawZone(entryBar, xEnd, math.max(entry, sl),  math.min(entry, sl),  slCol)
+    drawZone(entryBar, xEnd, math.max(entry, tp3), math.min(entry, tp3), tpCol)
+    drawLevel(entryBar, xEnd, sl,    slCol,    "Stop Loss")
+    drawLevel(entryBar, xEnd, entry, entryCol, "Entry")
+    drawLevel(entryBar, xEnd, tp1,   tpCol,    "Take Profit 1")
+    drawLevel(entryBar, xEnd, tp2,   tpCol,    "Take Profit 2")
+    drawLevel(entryBar, xEnd, tp3,   tpCol,    "Take Profit 3")
+
+addDot(bool above, color col) =>
+    array.push(markLabels, label.new(bar_index, above ? high : low, "", yloc = above ? yloc.abovebar : yloc.belowbar, style = label.style_circle, color = col, size = size.tiny))
+
+newZone(int x1, float top, float bot, color col, string txt) =>
+    box.new(x1, top, bar_index + extBars, bot, border_color = color.new(col, 40), border_width = 1, bgcolor = color.new(col, 82), text = txt, text_color = col, text_size = size.tiny, text_halign = text.align_left)
+
+pushZone(array<box> arr, box b, int maxN) =>
+    array.push(arr, b)
+    if array.size(arr) > maxN
+        box.delete(array.shift(arr))
+
+// Bull zones break when priceDown goes below the bottom; bear zones when priceUp goes above the top
+updateZones(array<box> arr, bool isBull, float priceDown, float priceUp) =>
+    n = array.size(arr)
+    if n > 0
+        for i = n - 1 to 0
+            b = array.get(arr, i)
+            broken = isBull ? priceDown < box.get_bottom(b) : priceUp > box.get_top(b)
+            if broken
+                array.remove(arr, i)
+                if removeMitigated
+                    box.delete(b)
+                else
+                    box.set_right(b, bar_index)
+            else
+                box.set_right(b, bar_index + extBars)
+
+// ───────────── Order Blocks ─────────────
+ph = ta.pivothigh(high, swingLen, swingLen)
+pl = ta.pivotlow(low, swingLen, swingLen)
+
+var float swHigh     = na
+var int   swHighBar  = na
+var bool  swHighUsed = true
+var float swLow      = na
+var int   swLowBar   = na
+var bool  swLowUsed  = true
+
+if not na(ph)
+    swHigh     := ph
+    swHighBar  := bar_index - swingLen
+    swHighUsed := false
+if not na(pl)
+    swLow     := pl
+    swLowBar  := bar_index - swingLen
+    swLowUsed := false
+
+updateZones(bullOBs, true,  close, close)
+updateZones(bearOBs, false, close, close)
+
+// Bullish OB: close breaks above the last swing high → lowest candle since that swing
+if showOB and not swHighUsed and close > swHigh and barstate.isconfirmed
+    swHighUsed := true
+    span = math.min(bar_index - swHighBar, 200)
+    float obTop = high[1]
+    float obBot = low[1]
+    int   obIdx = 1
+    for i = 1 to span
+        if low[i] < obBot
+            obBot := low[i]
+            obTop := high[i]
+            obIdx := i
+    pushZone(bullOBs, newZone(bar_index - obIdx, obTop, obBot, obBullCol, "Bull OB"), maxOB)
+
+// Bearish OB: close breaks below the last swing low → highest candle since that swing
+if showOB and not swLowUsed and close < swLow and barstate.isconfirmed
+    swLowUsed := true
+    span = math.min(bar_index - swLowBar, 200)
+    float obTop = high[1]
+    float obBot = low[1]
+    int   obIdx = 1
+    for i = 1 to span
+        if high[i] > obTop
+            obTop := high[i]
+            obBot := low[i]
+            obIdx := i
+    pushZone(bearOBs, newZone(bar_index - obIdx, obTop, obBot, obBearCol, "Bear OB"), maxOB)
+
+// ───────────── Fair Value Gaps ─────────────
+updateZones(bullFVGs, true,  low, high)
+updateZones(bearFVGs, false, low, high)
+
+minGap = atrVal * fvgMinAtr
+
+// Bullish FVG: current low above the high from 2 candles ago
+if showFVG and barstate.isconfirmed and low > high[2] and (low - high[2]) >= minGap
+    pushZone(bullFVGs, newZone(bar_index - 2, low, high[2], fvgBullCol, "FVG"), maxFVG)
+
+// Bearish FVG: current high below the low from 2 candles ago
+if showFVG and barstate.isconfirmed and high < low[2] and (low[2] - high) >= minGap
+    pushZone(bearFVGs, newZone(bar_index - 2, low[2], high, fvgBearCol, "FVG"), maxFVG)
+
+// ───────────── Signals ─────────────
+buySignal  = bullCond and not bullCond[1] and barstate.isconfirmed and (not oneAtATime or dir != 1)
+sellSignal = bearCond and not bearCond[1] and barstate.isconfirmed and (not oneAtATime or dir != -1)
+
+// ───────────── TP / SL tracking (bars after entry) ─────────────
+tp1Hit = false
+tp2Hit = false
+tp3Hit = false
+slHit  = false
+
+if dir != 0 and bar_index > entryBar
+    isLong = dir == 1
+    if isLong ? low <= sl : high >= sl
+        slHit := true
+    else
+        if not hit1 and (isLong ? high >= tp1 : low <= tp1)
+            hit1   := true
+            tp1Hit := true
+        if not hit2 and (isLong ? high >= tp2 : low <= tp2)
+            hit2   := true
+            tp2Hit := true
+        if not hit3 and (isLong ? high >= tp3 : low <= tp3)
+            hit3   := true
+            tp3Hit := true
+    if showHits
+        if tp1Hit or tp2Hit or tp3Hit
+            addDot(isLong, tpCol)
+        if slHit
+            addDot(not isLong, slCol)
+    if slHit or hit3
+        dir := 0
+        if showLevels
+            drawTrade(bar_index)
+
+// ───────────── New signals (remove old drawings first) ─────────────
+if buySignal or sellSignal
+    clearTrade()
+    clearMarks()
+    dir      := buySignal ? 1 : -1
+    entryBar := bar_index
+    entry    := close
+    sl       := buySignal ? prevLow - slBuffer : prevHigh + slBuffer
+    tp1      := entry + dir * tpStep
+    tp2      := entry + dir * tpStep * 2
+    tp3      := entry + dir * tpStep * 3
+    hit1     := false
+    hit2     := false
+    hit3     := false
+
+    if buySignal
+        array.push(markLabels, label.new(bar_index, low, "Buy", yloc = yloc.belowbar, style = label.style_label_up, color = color.new(tpCol, 10), textcolor = color.white, size = size.small))
+    else
+        array.push(markLabels, label.new(bar_index, high, "Sell", yloc = yloc.abovebar, style = label.style_label_down, color = color.new(slCol, 10), textcolor = color.white, size = size.small))
+
+    if showLevels
+        drawTrade(bar_index + extBars)
+
+    alert((buySignal ? "BUY " : "SELL ") + syminfo.ticker + " @ " + str.tostring(entry, format.mintick) + " | SL " + str.tostring(sl, format.mintick) + " | TP1 " + str.tostring(tp1, format.mintick) + " | TP2 " + str.tostring(tp2, format.mintick) + " | TP3 " + str.tostring(tp3, format.mintick), alert.freq_once_per_bar_close)
+
+if barstate.islast and dir != 0 and showLevels
+    drawTrade(bar_index + extBars)
+
+// ───────────── Plots ─────────────
+plot(showEma ? emaVal : na, "EMA", color = emaCol, linewidth = 2)
+barcolor(colorBars ? (bullCond ? tpCol : bearCond ? slCol : color.gray) : na)
+
+// ───────────── Alerts ─────────────
+alertcondition(buySignal,  "Buy Signal",  "EMA9 + RSI BUY on {{ticker}} @ {{close}}")
+alertcondition(sellSignal, "Sell Signal", "EMA9 + RSI SELL on {{ticker}} @ {{close}}")
+alertcondition(tp1Hit or tp2Hit or tp3Hit, "TP Hit", "TP hit on {{ticker}}")
+alertcondition(slHit, "SL Hit", "SL hit on {{ticker}}")
+
+// ───────────── Timeframe notice ─────────────
+var table tfWarn = table.new(position.top_right, 1, 1)
+if barstate.islast and timeframe.period != "15"
+    table.cell(tfWarn, 0, 0, "Designed for 15m — current TF: " + timeframe.period, bgcolor = color.new(color.orange, 20), text_color = color.white, text_size = size.small)
+    

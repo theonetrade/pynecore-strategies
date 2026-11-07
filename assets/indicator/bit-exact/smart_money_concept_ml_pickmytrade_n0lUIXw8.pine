@@ -1,0 +1,1451 @@
+//@version=6
+// Historical structure display upgrade — 2026-11-07.
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0
+// at https://mozilla.org/MPL/2.0/
+//
+// Smart Money Concept ML
+//
+// WHAT IT DOES
+// Draws the Smart Money Concepts map (swing and internal breaks of structure
+// and changes of character, order blocks, fair value gaps, equal highs and
+// lows, strong and weak highs and lows, premium and discount) and attaches to
+// it only numbers that are scored against what actually happened on the same
+// chart. Where a number has nothing behind it, the script says so.
+//
+// ABOUT THE NAME
+// "ML" here is one learned component: a two-parameter Bayesian logistic
+// regression, a supervised model that refits the retest and liquidity odds to
+// this chart's own resolved outcomes each time one resolves. There is no
+// neural network, no pattern matching, and nothing in the script forecasts
+// direction. Structure, zones and signals are fixed rules. Until 30 breaks
+// have resolved the table reads LEARNING. Calibration starts with the first
+// resolved sample, with a strong prior pulling estimates toward the formula. Richer learned models (nearest-neighbour votes, multi-feature
+// regressions, a learned time-of-day volatility profile) were tested during
+// development and did not beat that formula out of sample, so they are not
+// used.
+//
+// RETEST ODDS
+// After every swing break: the chance that price trades back to the broken
+// level within the Retest Window. The estimate starts from the probability
+// that a random walk with this chart's current bar-to-bar volatility touches a
+// level that far away in that many bars (the reflection principle). A
+// Bayesian logistic calibration, whose prior is centred on that formula, then
+// adjusts it with the breaks already resolved on this chart. With little
+// history the prior keeps the fit near the formula; the adjustment grows as
+// the chart's own outcomes support it.
+//
+// LIQUIDITY ODDS
+// For the nearest untaken pool above price (equal highs or a swing high) and
+// the nearest below: the chance that each is traded through before the other.
+// It starts from the first-touch probability of a random walk between the two
+// pools (the distance to the far pool over the distance between them) and is
+// calibrated the same way on this chart's resolved setups.
+//
+// CALIBRATION
+// Every retest figure is recorded when its break prints and scored when its
+// window closes. The liquidity figure on the chart follows the live price and
+// is not itself recorded: its calibration uses the same calculation taken at
+// each swing break with a pool on each side, scored when exactly one pool is
+// traded through (both on one bar is left out, and only setups a random walk
+// resolves inside the window are taken). The Calibration row compares the
+// average recorded odds with how often the event happened, with the count.
+// The tooltip adds the Brier skill against the chart's plain base rate and
+// against the uncalibrated formula.
+//
+// EDGE TEST
+// Smart Money Concepts implies that some breaks follow through more often than
+// others. The script checks this on the chart instead of assuming it. Each
+// swing break is followed until it closes one risk unit beyond its break close
+// (the distance back to its protected swing) or closes back through the
+// protected swing; both finish lines are closes, so a random walk scores 50%
+// whatever the size of the leg. A break that does neither within 150 bars is
+// left out. Three splits are tested: BOS against CHoCH, legs that left
+// a fair value gap against legs that did not, and legs that swept liquidity
+// first against legs that did not. A two-proportion z-test with a Bonferroni
+// correction for the three splits (|z| of 2.39 or more) decides whether a
+// split differs by more than chance. When it does not, the row also estimates
+// how many breaks of each kind would be needed to detect the observed gap.
+//
+// SIGNALS
+// BUY comes only from bullish swing structure and SELL only from bearish. The
+// entry is the close of the break bar (Break Close) or the close of the first
+// bar that trades back to the broken level and closes beyond it again within
+// the Retest Window (Level Retest). Adaptive waits for the retest only when
+// the retest odds are at or above its threshold. One signal is open at a
+// time: a new signal in the same direction is skipped and an opposite one
+// closes the open signal at that bar's close. The stop sits beyond the
+// protected swing and both targets are multiples of that risk; a bar that
+// opens beyond a stop or TP2 uses its open for that exit. TP1 is scored
+// at its target level, including gaps; this is a conservative simplification. The Record row
+// scores half the position at TP1 and the rest at TP2, the stop, or the close
+// of the bar where the signal timed out or was reversed, and shows the average
+// R with a 95% interval. All outcomes are hypothetical, with no commission or
+// slippage, and depend on the amount of history loaded. One alert() call
+// carries every entry and exit with its prices, as text or JSON.
+//
+// NON-REPAINTING
+// Every break, signal, outcome and recorded odds figure is fixed when its bar
+// closes. Swing points print Swing Length bars after the bar they mark and
+// never move afterwards. No request.security() call is made and no future
+// data is used. Two figures follow the live price on the last bar and are not
+// recorded: the liquidity odds (labels and row) and the premium / discount
+// percentage in the Bias row. The calibration, the record and the edge test
+// start from the first loaded bar, so they can differ after a reload that
+// loads a different stretch of history. Drawings are rebuilt from the recorded
+// history on the last bar only.
+//
+// ATTRIBUTION
+// Break of structure, change of character, order block, fair value gap, equal
+// highs and lows, premium and discount and liquidity are public Smart Money
+// Concepts terms, implemented independently here; no code from any other
+// Smart Money Concepts script is used. The reflection principle, the
+// gambler's-ruin first-touch probability, logistic calibration and the
+// two-proportion z-test are standard mathematics. The alert layer follows
+// this author's own earlier scripts.
+//
+// Recommended alert setting: "Once Per Bar Close".
+
+indicator("Smart Money Concept ML [PickMyTrade]", "SMC ML",
+     overlay = true, max_boxes_count = 50, max_labels_count = 500, max_lines_count = 500, max_bars_back = 500)
+
+// ── Input Groups ──────────────────────────────────────────────────────────────
+var string G_STR = "Structure"
+var string G_ZON = "Zones & Liquidity"
+var string G_AI  = "Odds Engine"
+var string G_SIG = "Signals & Automation"
+var string G_VIS = "Display"
+var string G_HIS = "Structure History"
+
+// Structure
+i_swing    = input.int  (10,  "Swing Length", group=G_STR, minval=3, maxval=50,
+     tooltip="Bars each side that confirm a swing high or low. A swing point is only known this many bars after the bar it marks, so the pivot is back-marked after confirmation. A break then requires a confirmed close through the standing pivot level. Swing breaks drive the odds, the edge test and the signals.")
+i_int      = input.int  (3,   "Internal Length", group=G_STR, minval=2, maxval=10,
+     tooltip="Bars each side for the internal (minor) structure. It forms the equal highs and lows. Internal breaks are display only.")
+show_int   = input.bool (true, "Show Internal Structure", group=G_STR,
+     tooltip="Dashed minor-structure BOS and CHoCH. These are display only; swing breaks still drive signals and odds.")
+show_swl   = input.bool (false, "Show Swing Labels (HH · HL · LH · LL)", group=G_STR)
+
+// Historical drawings are separate from the latest-break records used by the model.
+i_history = input.string("Historical", "Structure View", options=["Historical", "Recent"], group=G_HIS,
+     tooltip="Historical rebuilds confirmed events in the visible chart window when you scroll or zoom. Recent keeps the original six swing / twenty internal breaks. History is bounded by the limits below and the bars TradingView has loaded. The dashboard and active zones always describe the latest bar; use Bar Replay for an earlier as-of state.")
+i_hist_sw = input.int(120, "Swing breaks in view", minval=10, maxval=180, group=G_HIS,
+     tooltip="Most recent swing breaks whose confirmation bars are inside the visible window. Zoom into an older period to recover its markings. This changes drawings only.")
+i_hist_in = input.int(160, "Internal breaks in view", minval=10, maxval=180, group=G_HIS,
+     tooltip="Most recent minor-structure breaks in the visible window. Identical simultaneous swing/internal breaks are shown once, as swing structure.")
+i_hist_eq = input.int(40, "Equal-high/low pairs in view", minval=5, maxval=60, group=G_HIS,
+     tooltip="Confirmed EQH/EQL pairs remain as dotted links between their two pivots, including after a sweep. These links mark historical formations, not currently resting liquidity. Confirmation must be inside the visible window.")
+i_label_size = input.string("Small", "Swing label size", options=["Tiny", "Small", "Normal"], group=G_HIS)
+i_label_anchor = input.string("Middle of level", "Break label position", options=["Middle of level", "Break bar"], group=G_HIS,
+     tooltip="Middle of level centres text over the broken level. Break bar places it at the confirming close. In either case the event is known only at that close; line origins refer to earlier pivots.")
+i_latest_odds = input.bool(false, "Retest odds beside latest break", group=G_HIS,
+     tooltip="Adds the fixed at-break odds to the latest swing label. Historical labels otherwise stay short; full details and later retest outcomes remain in tooltips and the dashboard.")
+bool hist_view = i_history == "Historical"
+f_inView(int eventTime) =>
+    eventTime >= chart.left_visible_bar_time and eventTime <= chart.right_visible_bar_time
+f_markTime(int firstTime, int breakTime) =>
+    i_label_anchor == "Break bar" ? breakTime : int(math.round((float(firstTime) + float(breakTime)) / 2.0))
+string swing_text_size = i_label_size == "Normal" ? size.normal : i_label_size == "Small" ? size.small : size.tiny
+
+// Zones & Liquidity
+show_ob    = input.bool (true, "Order Blocks", group=G_ZON)
+i_ob_keep  = input.int  (2,   "Order blocks per side", group=G_ZON, minval=1, maxval=10)
+show_fvg   = input.bool (false, "Fair Value Gaps", group=G_ZON)
+i_fvg_min  = input.float(0.3, "Minimum FVG (ATR)", group=G_ZON, minval=0.0, maxval=3.0, step=0.05,
+     tooltip="Smallest gap counted, in ATR. A gap stays drawn until price trades back through it. Gaps are also used by the edge test whether or not they are drawn.")
+show_eq    = input.bool (true, "Equal Highs / Lows", group=G_ZON)
+i_eq_tol   = input.float(0.15, "Equal-high/low tolerance (ATR)", group=G_ZON, minval=0.02, maxval=1.0, step=0.01,
+     tooltip="Two internal swing highs (or lows) within this distance, with no trade beyond them in between, form a liquidity pool. Recent view draws the nearest two active pools per side until swept. Historical view retains confirmed pairs as dotted links between their pivots; these links do not imply the liquidity is still resting.")
+show_sw    = input.bool (true, "Strong / Weak High & Low", group=G_ZON,
+     tooltip="The current dealing range. The extreme protected by the structure is Strong; the one the structure is pointing at is Weak.")
+show_pd    = input.bool (false, "Premium / Discount Zones", group=G_ZON,
+     tooltip="Shades the upper half of the dealing range as premium and the lower half as discount. The table always reports where price sits.")
+
+// Odds Engine
+show_draw  = input.bool (true, "Liquidity Odds", group=G_AI,
+     tooltip="Labels the nearest untaken pool above and below price with the chance that it is traded through before the other one: the random-walk first-touch probability, calibrated on this chart's resolved setups.")
+i_rt_win   = input.int  (20,  "Retest Window (bars)", group=G_AI, minval=3, maxval=200,
+     tooltip="Bars after a swing break in which a return to the broken level counts as a retest. Used by the retest odds and by the Level Retest and Adaptive entries.")
+
+// Signals & Automation
+show_sig   = input.bool  (true, "Show Buy / Sell Signals", group=G_SIG,
+     tooltip="BUY only from bullish swing structure, SELL only from bearish. Each signal carries its entry, stop and two targets, drawn on the chart and sent in the alert message.")
+i_entry    = input.string("Break Close", "Entry", group=G_SIG, options=["Break Close", "Level Retest", "Adaptive"],
+     tooltip="Break Close (default): enter on the close of the break bar. Its signals do not depend on how much history is loaded.\n\nLevel Retest: wait up to the Retest Window for a bar that trades back to the broken level and closes beyond it again; enter on that close. No trade if it does not come, or if the protected swing is closed through first.\n\nAdaptive: Level Retest when the break's retest odds are at or above the threshold below, Break Close otherwise.\n\nThe stop is beyond the protected swing in every mode.")
+i_adapt    = input.float (0.80, "Adaptive: wait for the retest at odds ≥", group=G_SIG, minval=0.50, maxval=0.99, step=0.01,
+     tooltip="Adaptive entry only. When a break's calibrated retest odds are at or above this value, wait for a Level Retest; below it, enter on the break close.")
+i_which    = input.string("CHoCH + BOS", "Breaks That Signal", group=G_SIG, options=["CHoCH + BOS", "CHoCH only", "BOS only"])
+i_sl_buf   = input.float (0.20, "Stop Buffer (ATR x)", group=G_SIG, minval=0.0, maxval=3.0, step=0.05,
+     tooltip="Extra distance beyond the protected swing for the stop, in ATR(14).")
+i_max_r    = input.float (6.0, "Max Risk (ATR x)", group=G_SIG, minval=0.5, maxval=30.0, step=0.5,
+     tooltip="A signal whose stop would sit further than this from entry is skipped.")
+i_tp1      = input.float (1.0, "TP1 (R)", group=G_SIG, minval=0.25, maxval=10.0, step=0.25)
+i_tp2      = input.float (2.0, "TP2 (R)", group=G_SIG, minval=0.5, maxval=20.0, step=0.25,
+     tooltip="Targets as multiples of the risk (entry to stop). Half the position is scored at TP1, the rest at TP2 or the stop. If TP2 is set below TP1 the two are swapped.")
+i_be       = input.bool  (true, "Stop to Entry After TP1", group=G_SIG)
+i_tr_life  = input.int   (150, "Trade Timeout (bars)", group=G_SIG, minval=10, maxval=2000,
+     tooltip="A signal still open after this many bars is closed at that bar's close, and that exit is scored in the Record.")
+i_fmt      = input.string("Text", "Alert Message Format", group=G_SIG, options=["Text", "JSON"],
+     tooltip="For automation, create ONE alert with the condition 'Any alert() function call'. Every entry and exit is then sent with side, symbol, timeframe, price, stop and targets.")
+
+// Targets kept in order whatever the inputs say.
+float TP1R = math.min(i_tp1, i_tp2)
+float TP2R = math.max(i_tp1, i_tp2)
+
+// Display
+bull_col   = input.color(color.new(#246BFF, 0), "Bullish Colour", group=G_VIS)
+bear_col   = input.color(color.new(#FF8A18, 0), "Bearish Colour", group=G_VIS)
+show_table = input.bool (true, "Show Info Table", group=G_VIS)
+i_tbl_pos  = input.string("Top Right", "Info Table Position", group=G_VIS, options=["Top Right", "Bottom Right", "Top Left", "Bottom Left"])
+show_heading = input.bool(false, "Publication heading and key", group=G_VIS,
+     tooltip="Adds a viewport-anchored heading and compact key. For a clean publication cover, hide the info table separately. Does not change calculations or alerts.")
+zen_mode   = input.bool (false, "Zen Mode", group=G_VIS,
+     tooltip="Hides labels and the table. Structure lines, zones and signal levels remain.")
+
+// ── CONSTANTS ─────────────────────────────────────────────────────────────────
+int   CAL_CAP    = 500     // resolved samples kept for calibration
+float CAL_LAMBDA = 50.0    // prior strength pulling the calibration to the formula
+int   CAL_MIN    = 30      // resolved samples before the odds read LIVE
+int   FT_WIN     = 150     // bars a break has to follow through, for the edge test
+int   DRAW_WIN   = 1000    // bars a liquidity setup has to resolve; only setups a random walk resolves inside it are taken
+float Z_BONF     = 2.39    // two-sided 5% over three splits
+int   MARKS_KEEP = 6       // swing breaks drawn
+float OB_MAX_ATR = 3.0     // order blocks taller than this many ATR are not drawn
+float LBL_GAP    = 0.45    // right-edge labels closer than this many ATR are merged
+
+// ── BASE MEASURES ─────────────────────────────────────────────────────────────
+// Every stateful ta.* call is made here, at global scope, on every bar.
+float atr       = ta.atr(14)
+float sd1       = ta.stdev(ta.change(close), 100)
+bool  confirmed = barstate.isconfirmed
+bool  atrOk     = not na(atr) and atr > 0
+int   bar_ms    = math.max(nz(timeframe.in_seconds(timeframe.period), 60), 1) * 1000
+float ph_sw     = ta.pivothigh(high, i_swing, i_swing)
+float pl_sw     = ta.pivotlow (low,  i_swing, i_swing)
+float ph_in     = ta.pivothigh(high, i_int, i_int)
+float pl_in     = ta.pivotlow (low,  i_int, i_int)
+
+// Fair value gap completed on this bar, in either direction.
+bool fvgBull = atrOk and low > high[2] and close[1] > high[2] and (low - high[2]) >= i_fvg_min * atr
+bool fvgBear = atrOk and high < low[2] and close[1] < low[2] and (low[2] - high) >= i_fvg_min * atr
+int  lastFvgBullBar = ta.valuewhen(fvgBull, bar_index, 0)
+int  lastFvgBearBar = ta.valuewhen(fvgBear, bar_index, 0)
+
+f_role(int dir) =>
+    dir == 1 ? bull_col : bear_col
+
+f_px(float p) =>
+    na(p) ? "—" : str.tostring(math.round_to_mintick(p))
+
+f_pct(float v) =>
+    na(v) ? "—" : str.tostring(math.round(v * 100)) + "%"
+
+// Signed number with a fixed pattern, e.g. +0.12 / −0.12.
+f_sgn(float v, string fmt) =>
+    na(v) ? "—" : (v >= 0 ? "+" : "−") + str.tostring(math.abs(v), fmt)
+
+// ── PROBABILITY TOOLS ─────────────────────────────────────────────────────────
+// Standard normal CDF (Abramowitz & Stegun 26.2.17, error below 1e-7).
+f_phi(float x) =>
+    float z = math.abs(x)
+    float t = 1.0 / (1.0 + 0.2316419 * z)
+    float d = 0.3989422804014327 * math.exp(-0.5 * z * z)
+    float p = 1.0 - d * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))))
+    x >= 0 ? p : 1.0 - p
+
+f_clampP(float p) =>
+    math.max(0.005, math.min(0.995, p))
+
+f_logit(float p) =>
+    float q = f_clampP(p)
+    math.log(q / (1.0 - q))
+
+// Chance that a driftless random walk with per-bar deviation `sd` touches a
+// level `d` away within `w` bars (reflection principle).
+f_touch(float d, float sd, int w) =>
+    na(sd) or sd <= 0 or na(d) ? na : f_clampP(2.0 * (1.0 - f_phi(d / (sd * math.sqrt(w)))))
+
+// ── CALIBRATION ───────────────────────────────────────────────────────────────
+// logit(odds) = a + b * logit(formula), fitted by maximum a posteriori with
+// a ~ N(0, 1/λ) and b ~ N(1, 1/λ): with no data it IS the formula. Every
+// sample is scored with the odds it was given when it printed, before its own
+// outcome was known. The liquidity variable is folded (always the nearer
+// pool), so by symmetry its intercept is pinned at 0 and only b is fitted.
+type Cal
+    array<float> x
+    array<int>   y
+    bool  fixA = false   // slope-only fit, a pinned at 0
+    float a   = 0.0
+    float b   = 1.0
+    int   n   = 0      // scored samples
+    int   hit = 0      // samples where the event happened
+    float sp  = 0.0    // sum of the odds shown at print
+    float bsM = 0.0    // Brier score of the odds shown
+    float bsF = 0.0    // Brier score of the formula alone
+    float bsB = 0.0    // Brier score of the running base rate
+    float cut1 = 0.70  // reliability bands: below cut1, cut1 to cut2, cut2 and above
+    float cut2 = 0.90
+    float n1  = 0.0    // per band: samples, events, sum of odds shown
+    float h1  = 0.0
+    float p1  = 0.0
+    float n2  = 0.0
+    float h2  = 0.0
+    float p2  = 0.0
+    float n3  = 0.0
+    float h3  = 0.0
+    float p3  = 0.0
+
+var Cal c_rt = Cal.new(array.new_float(), array.new_int(), cut1 = 0.70, cut2 = 0.90)          // retest odds
+var Cal c_dr = Cal.new(array.new_float(), array.new_int(), true, cut1 = 0.65, cut2 = 0.80)    // liquidity odds, intercept pinned
+
+f_calP(Cal c, float p0) =>
+    na(p0) ? na : 1.0 / (1.0 + math.exp(-(c.a + c.b * f_logit(p0))))
+
+f_calFit(Cal c) =>
+    int n = array.size(c.x)
+    if n > 0
+        float a = c.a
+        float b = c.b
+        for iter = 0 to 3
+            float ga  = CAL_LAMBDA * a
+            float gb  = CAL_LAMBDA * (b - 1.0)
+            float haa = CAL_LAMBDA
+            float hab = 0.0
+            float hbb = CAL_LAMBDA
+            for i = 0 to n - 1
+                float x = array.get(c.x, i)
+                float p = 1.0 / (1.0 + math.exp(-(a + b * x)))
+                float e = p - array.get(c.y, i)
+                float w = p * (1.0 - p)
+                ga  += e
+                gb  += e * x
+                haa += w
+                hab += w * x
+                hbb += w * x * x
+            float det = haa * hbb - hab * hab
+            if c.fixA
+                b -= gb / hbb
+            else if det > 0
+                a -= (hbb * ga - hab * gb) / det
+                b -= (haa * gb - hab * ga) / det
+        c.a := a
+        c.b := b
+    true
+
+f_calScore(Cal c, float pm, float p0, int y) =>
+    float base = c.n > 0 ? float(c.hit) / c.n : 0.5
+    c.bsB += math.pow(base - y, 2)
+    c.bsM += math.pow(pm - y, 2)
+    c.bsF += math.pow(p0 - y, 2)
+    c.sp  += pm
+    c.n   += 1
+    c.hit += y
+    if pm < c.cut1
+        c.n1 += 1
+        c.h1 += y
+        c.p1 += pm
+    else if pm < c.cut2
+        c.n2 += 1
+        c.h2 += y
+        c.p2 += pm
+    else
+        c.n3 += 1
+        c.h3 += y
+        c.p3 += pm
+    array.push(c.x, f_logit(p0))
+    array.push(c.y, y)
+    if array.size(c.x) > CAL_CAP
+        array.shift(c.x)
+        array.shift(c.y)
+    f_calFit(c)
+
+// One reliability band holds up when its realised rate sits within z standard
+// errors of the average odds shown in it; a band under 20 samples is not judged.
+f_bandOk(float n, float h, float p, float z) =>
+    bool ok = true
+    if n >= 20
+        float pr = p / n
+        ok := math.abs(pr - h / n) <= z * math.sqrt(math.max(pr * (1.0 - pr), 0.0025) / n)
+    ok
+
+// Calibrated = the overall average passes at 95%, and so does every band with
+// 20+ samples (2.39 standard errors: 95% after correcting for three bands).
+f_calOk(Cal c) =>
+    bool ok = false
+    if c.n >= CAL_MIN
+        ok := f_bandOk(c.n, c.hit, c.sp, 1.96) and f_bandOk(c.n1, c.h1, c.p1, 2.39) and f_bandOk(c.n2, c.h2, c.p2, 2.39) and f_bandOk(c.n3, c.h3, c.p3, 2.39)
+    ok
+
+// Average odds shown → how often it happened, with ✓ / ✗ once LIVE.
+f_calText(Cal c) =>
+    string s = "—"
+    if c.n > 0
+        s := str.tostring(math.round(c.sp / c.n * 100)) + "→" + f_pct(float(c.hit) / c.n) + (c.n >= CAL_MIN ? (f_calOk(c) ? " ✓" : " ✗") : " (n " + str.tostring(c.n) + ")")
+    s
+
+f_band(string lbl, float n, float h, float p) =>
+    n > 0 ? lbl + " said " + str.tostring(math.round(p / n * 100)) + " → " + f_pct(h / n) + " (n " + str.tostring(n, "#") + ")" : lbl + " —"
+
+// The three reliability bands of one set of odds, for the tooltip.
+f_bands(Cal c) =>
+    string a = str.tostring(math.round(c.cut1 * 100))
+    string b = str.tostring(math.round(c.cut2 * 100))
+    f_band("under " + a + "%:", c.n1, c.h1, c.p1) + "\n   " + f_band(a + "–" + b + "%:", c.n2, c.h2, c.p2) + "\n   " + f_band(b + "%+:", c.n3, c.h3, c.p3)
+
+f_skill(float bs, float ref) =>
+    ref > 0 ? f_sgn(1.0 - bs / ref, "0.000") : "—"
+
+// ── STRUCTURE TRACKER ─────────────────────────────────────────────────────────
+// One tracker per degree of structure. It holds the most recent swing high and
+// low, whether each is still unbroken, and the extreme of the leg running since
+// each printed. f_step() is called once per confirmed bar and leaves a per-bar
+// break event in the ev* fields.
+type Struct
+    int   len     = 10
+    float hi      = na
+    int   hiT     = 0
+    int   hiB     = 0
+    bool  hiOpen  = false
+    float lo      = na
+    int   loT     = 0
+    int   loB     = 0
+    bool  loOpen  = false
+    float prevHi  = na
+    float prevLo  = na
+    int   prevHiT = 0
+    int   prevLoT = 0
+    int   prevHiB = 0
+    int   prevLoB = 0
+    float legLo   = na     // lowest low since the latest swing high printed
+    int   legLoB  = 0
+    int   legLoT  = 0
+    float legHi   = na     // highest high since the latest swing low printed
+    int   legHiB  = 0
+    int   legHiT  = 0
+    int   trend   = 0
+    bool  newHi   = false
+    bool  newLo   = false
+    int   ev      = 0      // 1 bullish break, -1 bearish break, 0 none
+    bool  evChoch = false
+    float evLvl   = na
+    int   evLvlT  = 0
+    float evProt  = na
+    int   evProtB = 0
+    int   evProtT = 0
+    bool  evSweep = false
+
+f_step(Struct s, float ph, float pl) =>
+    s.ev    := 0
+    s.newHi := false
+    s.newLo := false
+    if not na(s.legLo) and low < s.legLo
+        s.legLo  := low
+        s.legLoB := bar_index
+        s.legLoT := time
+    if not na(s.legHi) and high > s.legHi
+        s.legHi  := high
+        s.legHiB := bar_index
+        s.legHiT := time
+    // Breaks are checked against the levels standing at bar open; new pivots
+    // are recorded afterwards, so a close through the old level on the bar a
+    // higher pivot confirms is still a break.
+    if s.hiOpen and close > s.hi
+        s.ev      := 1
+        s.evChoch := s.trend == -1
+        s.trend   := 1
+        s.evLvl   := s.hi
+        s.evLvlT  := s.hiT
+        s.evProt  := na(s.legLo) ? low : s.legLo
+        s.evProtB := na(s.legLo) ? bar_index : s.legLoB
+        s.evProtT := na(s.legLo) ? time : s.legLoT
+        // Liquidity taken first: the leg's low ran below the latest swing low
+        // that stood BEFORE the leg low formed.
+        float rf = s.loB < s.evProtB ? s.lo : s.prevLoB < s.evProtB ? s.prevLo : na
+        s.evSweep := not na(rf) and s.evProt < rf
+        s.hiOpen  := false
+    else if s.loOpen and close < s.lo
+        s.ev      := -1
+        s.evChoch := s.trend == 1
+        s.trend   := -1
+        s.evLvl   := s.lo
+        s.evLvlT  := s.loT
+        s.evProt  := na(s.legHi) ? high : s.legHi
+        s.evProtB := na(s.legHi) ? bar_index : s.legHiB
+        s.evProtT := na(s.legHi) ? time : s.legHiT
+        float rf = s.hiB < s.evProtB ? s.hi : s.prevHiB < s.evProtB ? s.prevHi : na
+        s.evSweep := not na(rf) and s.evProt > rf
+        s.loOpen  := false
+    if not na(ph)
+        s.prevHi  := s.hi
+        s.prevHiT := s.hiT
+        s.prevHiB := s.hiB
+        s.hi      := ph
+        s.hiT    := time[s.len]
+        s.hiB    := bar_index - s.len
+        s.hiOpen := true
+        s.newHi  := true
+        // The leg away from the new swing high is the bars after it.
+        float m  = low
+        int   mb = 0
+        for k = 0 to s.len - 1
+            if low[k] < m
+                m  := low[k]
+                mb := k
+        s.legLo  := m
+        s.legLoB := bar_index - mb
+        s.legLoT := time[mb]
+    if not na(pl)
+        s.prevLo  := s.lo
+        s.prevLoT := s.loT
+        s.prevLoB := s.loB
+        s.lo      := pl
+        s.loT    := time[s.len]
+        s.loB    := bar_index - s.len
+        s.loOpen := true
+        s.newLo  := true
+        float m  = high
+        int   mb = 0
+        for k = 0 to s.len - 1
+            if high[k] > m
+                m  := high[k]
+                mb := k
+        s.legHi  := m
+        s.legHiB := bar_index - mb
+        s.legHiT := time[mb]
+    s
+
+var Struct sw = Struct.new(i_swing)
+var Struct it = Struct.new(i_int)
+
+if confirmed
+    f_step(sw, ph_sw, pl_sw)
+    f_step(it, ph_in, pl_in)
+
+// The current dealing range and where price sits in it.
+float rng_hi  = na(sw.legHi) ? sw.hi : na(sw.hi) ? sw.legHi : math.max(sw.hi, sw.legHi)
+float rng_lo  = na(sw.legLo) ? sw.lo : na(sw.lo) ? sw.legLo : math.min(sw.lo, sw.legLo)
+float rng_pos = na(rng_hi) or na(rng_lo) or rng_hi <= rng_lo ? na : (close - rng_lo) / (rng_hi - rng_lo)
+
+// ── RECORDS ───────────────────────────────────────────────────────────────────
+// Everything drawn is kept as data and rebuilt on the last bar.
+
+// A swing or internal break, as drawn.
+type Mark
+    int    t0
+    int    t1
+    float  lvl
+    int    dir
+    bool   choch
+    float  pr        // retest odds when the break printed
+    int    ret = 0   // 1 retested within the window, -1 not, 0 open
+    string tip = ""
+
+var array<Mark> swMarks = array.new<Mark>()
+var array<Mark> inMarks = array.new<Mark>()
+var array<Mark> swHistory = array.new<Mark>()
+
+// Formation records are independent of active liquidity pools and survive sweeps.
+type EqMark
+    int t0
+    int t1
+    float lvl
+    int side
+    int confirmedAt
+var array<EqMark> eqHistory = array.new<EqMark>()
+f_eqHistory(int t0, int t1, float lvl, int side) =>
+    if hist_view and show_eq and f_inView(time)
+        array.push(eqHistory, EqMark.new(t0, t1, lvl, side, time))
+        while array.size(eqHistory) > i_hist_eq
+            array.shift(eqHistory)
+    true
+
+type SwPt
+    int    t
+    float  p
+    string txt
+    int    dir
+
+var array<SwPt> swPts = array.new<SwPt>()
+
+// A swing break waiting for its two outcomes: the retest and the follow-through.
+type Brk
+    int   dir
+    float lvl
+    float en
+    float prot
+    float r
+    int   bar0
+    bool  choch
+    bool  fvg
+    bool  sweep
+    float p0       // retest formula at print
+    float pm       // retest odds shown at print
+    bool  rtDone = false
+    bool  ftDone = false
+    Mark  mk
+
+var array<Brk> pend = array.new<Brk>()
+
+// A liquidity setup waiting to see which pool is traded through first.
+type Drw
+    float up
+    float dn
+    bool  nUp       // the nearer pool is the one above
+    int   bar0
+    float p0        // formula: nearer pool first
+    float pm        // odds shown at print
+
+var array<Drw> d_pend = array.new<Drw>()
+
+type Zone
+    int   dir
+    float top
+    float bot
+    int   t0
+    int   kind      // 0 order block, 1 fair value gap
+
+var array<Zone> zones = array.new<Zone>()
+
+// Resting liquidity, nearest first on each side: untaken swing highs / lows
+// and equal highs / lows.
+type Liq
+    float lvl
+    int   kind      // 0 swing point, 1 equal highs / lows
+    int   tLine
+    int   tLabel
+
+var array<Liq> liqUp = array.new<Liq>()
+var array<Liq> liqDn = array.new<Liq>()
+
+// Edge test counters, n and followed-through per group:
+// 0 BOS, 2 CHoCH, 4 FVG in the leg, 6 no FVG, 8 sweep first, 10 no sweep.
+var array<int> et = array.new_int(12, 0)
+
+f_etAdd(int k, int y) =>
+    array.set(et, k, array.get(et, k) + 1)
+    array.set(et, k + 1, array.get(et, k + 1) + y)
+    true
+
+f_z(int n1, int w1, int n2, int w2) =>
+    float z = na
+    if n1 >= 10 and n2 >= 10
+        float p  = float(w1 + w2) / (n1 + n2)
+        float se = math.sqrt(p * (1.0 - p) * (1.0 / n1 + 1.0 / n2))
+        z := se > 0 ? (float(w1) / n1 - float(w2) / n2) / se : 0.0
+    z
+
+// ── SIGNALS ───────────────────────────────────────────────────────────────────
+type Trade
+    int    dir    = 0
+    float  entry  = na
+    float  sl0    = na
+    float  sl     = na
+    float  tp1    = na
+    float  tp2    = na
+    int    bar0   = 0
+    int    t0     = 0
+    int    tBE    = 0
+    int    tEnd   = 0
+    float  px     = na
+    bool   tp1hit = false
+    bool   open   = true
+    string res    = ""
+    string how    = ""
+
+var array<Trade> trades = array.new<Trade>()
+// Closed signals, TP1 reached, full stop, sum of R, sum of R squared.
+var array<float> rec = array.from(0.0, 0.0, 0.0, 0.0, 0.0)
+
+f_openDir() =>
+    int d = 0
+    if array.size(trades) > 0
+        Trade t = array.get(trades, array.size(trades) - 1)
+        if t.open
+            d := t.dir
+    d
+
+// `px` is the price the Record books for the event: the entry close, the
+// stop or target level (or the open, when the bar gapped through it), or the
+// close on a timeout or reversal.
+f_msg(string kind, Trade t, float px) =>
+    string side = t.dir == 1 ? "buy" : "sell"
+    string pos  = t.dir == 1 ? "long" : "short"
+    string act  = kind == "entry" ? side : kind == "tp1" ? "partial_close" : "close"
+    i_fmt == "JSON" ? '{"source":"SMC ML","event":"' + kind + '","action":"' + act + '","position":"' + pos + '","side":"' + side + '","symbol":"' + syminfo.ticker + '","timeframe":"' + timeframe.period + '","price":' + f_px(px) + ',"entry":' + f_px(t.entry) + ',"sl":' + f_px(t.sl) + ',"tp1":' + f_px(t.tp1) + ',"tp2":' + f_px(t.tp2) + '}' : kind == "entry" ? "SMC ML: " + str.upper(side) + " " + syminfo.ticker + " @ " + f_px(px) + "  |  SL " + f_px(t.sl) + "  |  TP1 " + f_px(t.tp1) + "  |  TP2 " + f_px(t.tp2) : "SMC ML: " + syminfo.ticker + " " + str.upper(pos) + " " + str.upper(kind) + " @ " + f_px(px) + (kind == "tp1" ? "  |  SL now " + f_px(t.sl) : "")
+
+// R of the whole position: half closed at TP1, the rest at the exit price.
+f_R(Trade t, float px) =>
+    float rk = math.abs(t.entry - t.sl0)
+    float m  = rk > 0 ? t.dir * (px - t.entry) / rk : 0.0
+    t.tp1hit ? 0.5 * TP1R + 0.5 * m : m
+
+// Closes a trade, scores it, and keeps only the latest closed one for drawing.
+f_close(Trade t, string res, float px) =>
+    t.open := false
+    t.res  := res
+    t.tEnd := time
+    t.px   := px
+    float R = f_R(t, px)
+    array.set(rec, 0, array.get(rec, 0) + 1)
+    array.set(rec, 1, array.get(rec, 1) + (t.tp1hit ? 1 : 0))
+    array.set(rec, 2, array.get(rec, 2) + (res == "SL" ? 1 : 0))
+    array.set(rec, 3, array.get(rec, 3) + R)
+    array.set(rec, 4, array.get(rec, 4) + R * R)
+    while array.size(trades) > 1
+        array.shift(trades)
+    true
+
+// ── ZONE AND LIQUIDITY HELPERS ────────────────────────────────────────────────
+// A new zone that overlaps one of the same kind and direction is merged into
+// it, so stacked blocks read as one.
+f_addZone(Zone z) =>
+    int hit = -1
+    if array.size(zones) > 0
+        for i = 0 to array.size(zones) - 1
+            Zone e = array.get(zones, i)
+            bool fits = z.kind == 1 or na(atr) or math.max(e.top, z.top) - math.min(e.bot, z.bot) <= OB_MAX_ATR * atr
+            if hit < 0 and e.kind == z.kind and e.dir == z.dir and z.bot <= e.top and z.top >= e.bot and fits
+                hit := i
+    if hit >= 0
+        Zone e = array.remove(zones, hit)
+        e.top := math.max(e.top, z.top)
+        e.bot := math.min(e.bot, z.bot)
+        e.t0  := math.min(e.t0, z.t0)
+        array.push(zones, e)
+    else
+        array.push(zones, z)
+    true
+
+// Keeps at most `keep` zones of one kind and direction, dropping the oldest.
+f_capZones(int kind, int dir, int keep) =>
+    int n = 0
+    if array.size(zones) > 0
+        for i = array.size(zones) - 1 to 0
+            Zone z = array.get(zones, i)
+            if z.kind == kind and z.dir == dir
+                n += 1
+                if n > keep
+                    array.remove(zones, i)
+    true
+
+// Inserts a pool keeping the side ordered nearest first; the farthest pools
+// beyond twenty are dropped.
+f_addLiq(array<Liq> a, int side, float lvl, int kind, int tLine, int tLabel) =>
+    int pos = array.size(a)
+    if array.size(a) > 0
+        for i = 0 to array.size(a) - 1
+            float v = array.get(a, i).lvl
+            if side == 1 ? lvl < v : lvl > v
+                pos := i
+                break
+    array.insert(a, pos, Liq.new(lvl, kind, tLine, tLabel))
+    while array.size(a) > 20
+        array.pop(a)
+    true
+
+// Removes every pool on one side that this bar traded through; true if an
+// equal highs / lows pool was among them.
+f_sweep(array<Liq> a, int side) =>
+    bool eq   = false
+    bool more = array.size(a) > 0
+    while more
+        Liq l = array.get(a, 0)
+        if side == 1 ? high > l.lvl : low < l.lvl
+            eq := eq or l.kind == 1
+            array.shift(a)
+            more := array.size(a) > 0
+        else
+            more := false
+    eq
+
+// True when no bar after the older swing traded beyond the pair's level.
+f_eqClean(int side, float lv, int fromB) =>
+    int  span = math.min(bar_index - fromB - 1, 299)
+    bool ok   = bar_index - fromB <= 300
+    if ok and span >= 0
+        for k = 0 to span
+            if side == 1 ? high[k] > lv : low[k] < lv
+                ok := false
+                break
+    ok
+
+f_ring(array<Mark> a, Mark m, int cap) =>
+    array.push(a, m)
+    while array.size(a) > cap
+        array.shift(a)
+    true
+
+// ── PER-BAR EVENTS ────────────────────────────────────────────────────────────
+bool   ev_bchoch = false
+bool   ev_schoch = false
+bool   ev_bbos   = false
+bool   ev_sbos   = false
+bool   ev_buy    = false
+bool   ev_sell   = false
+bool   ev_exit   = false
+bool   ev_sweep  = false
+string al_exit   = ""
+string al_entry  = ""
+
+// Level retest waiting to be entered after a swing break.
+var int   rt_dir  = 0
+var int   rt_bar  = 0
+var float rt_lvl  = na
+var float rt_prot = na
+var float rt_p    = na
+
+// ── SIGNAL EXITS ──────────────────────────────────────────────────────────────
+// Checked first on each confirmed bar, from the bar after entry. A bar that
+// touches both the stop and a target is scored as the stop.
+if confirmed and array.size(trades) > 0
+    Trade t = array.get(trades, array.size(trades) - 1)
+    if t.open and bar_index > t.bar0
+        bool L     = t.dir == 1
+        bool hitSL = L ? low <= t.sl : high >= t.sl
+        bool hitT2 = L ? high >= t.tp2 : low <= t.tp2
+        bool hitT1 = not t.tp1hit and (L ? high >= t.tp1 : low <= t.tp1)
+        if hitSL
+            string how  = not t.tp1hit ? "SL" : t.tBE > 0 ? "TP1, then stop at entry" : "TP1, then SL"
+            // A bar that opens beyond the stop fills at its open (session gaps).
+            float  slPx = L ? math.min(open, t.sl) : math.max(open, t.sl)
+            f_close(t, how, slPx)
+            ev_exit := true
+            al_exit := f_msg(t.tBE > 0 ? "stop at entry" : "sl", t, slPx)
+        else if hitT2
+            float t2Px = L ? math.max(open, t.tp2) : math.min(open, t.tp2)
+            t.tp1hit := true
+            f_close(t, "TP2", t2Px)
+            ev_exit := true
+            al_exit := f_msg("tp2", t, t2Px)
+        else
+            if hitT1
+                t.tp1hit := true
+                if i_be
+                    t.sl  := t.entry
+                    t.tBE := time
+                al_exit := f_msg("tp1", t, t.tp1)
+            if bar_index - t.bar0 >= i_tr_life
+                f_close(t, "timeout", close)
+                ev_exit := true
+                al_exit := f_msg("timeout", t, close)
+
+// ── BREAK OUTCOMES ────────────────────────────────────────────────────────────
+// Retest: price trades back to the broken level within the window.
+// Follow-through: price closes one risk unit beyond the break close before it
+// closes back through the protected swing. Both finish lines are closes, one
+// risk unit each way from the break close, so a random walk scores 50%
+// whatever the leg size; failure is checked first on the same bar. A break
+// unresolved after FT_WIN bars is left out of the edge test, not failed.
+if confirmed and array.size(pend) > 0
+    for i = array.size(pend) - 1 to 0
+        Brk b = array.get(pend, i)
+        if bar_index > b.bar0
+            bool L = b.dir == 1
+            if not b.rtDone
+                bool touch = L ? low <= b.lvl : high >= b.lvl
+                if touch or bar_index - b.bar0 >= i_rt_win
+                    b.rtDone := true
+                    b.mk.ret := touch ? 1 : -1
+                    if not na(b.p0)
+                        f_calScore(c_rt, b.pm, b.p0, touch ? 1 : 0)
+            if not b.ftDone
+                bool fail = L ? close < b.prot : close > b.prot
+                bool win  = L ? close >= b.en + b.r : close <= b.en - b.r
+                if fail or win or bar_index - b.bar0 >= FT_WIN
+                    b.ftDone := true
+                    if fail or win
+                        int y = fail ? 0 : 1
+                        f_etAdd(b.choch ? 2 : 0, y)
+                        f_etAdd(b.fvg ? 4 : 6, y)
+                        f_etAdd(b.sweep ? 8 : 10, y)
+            if b.rtDone and b.ftDone
+                array.remove(pend, i)
+
+// ── LIQUIDITY OUTCOMES ────────────────────────────────────────────────────────
+// Resolves when exactly one pool is traded through. Both on one bar, or
+// neither within the window, is not a first-touch outcome and is dropped.
+if confirmed and array.size(d_pend) > 0
+    for i = array.size(d_pend) - 1 to 0
+        Drw w = array.get(d_pend, i)
+        if bar_index > w.bar0
+            bool hu = high > w.up
+            bool hd = low < w.dn
+            if hu or hd or bar_index - w.bar0 >= DRAW_WIN
+                if hu != hd
+                    f_calScore(c_dr, w.pm, w.p0, hu == w.nUp ? 1 : 0)
+                array.remove(d_pend, i)
+
+// ── ZONES: MITIGATION AND NEW GAPS ───────────────────────────────────────────
+// An order block is spent when price closes through it; a gap when price
+// trades back across it.
+if confirmed and array.size(zones) > 0
+    for i = array.size(zones) - 1 to 0
+        Zone z = array.get(zones, i)
+        bool gone = z.kind == 0 ? (z.dir == 1 ? close < z.bot : close > z.top) : (z.dir == 1 ? low <= z.bot : high >= z.top)
+        if gone
+            array.remove(zones, i)
+
+if confirmed and show_fvg and (fvgBull or fvgBear)
+    int d = fvgBull ? 1 : -1
+    f_addZone(Zone.new(d, fvgBull ? low : low[2], fvgBull ? high[2] : high, time[2], 1))
+    f_capZones(1, d, 4)
+
+// ── LIQUIDITY: SWEEPS, NEW SWINGS, EQUAL HIGHS AND LOWS ──────────────────────
+// Swept pools go first, so the pool a break just traded through is never
+// taken as the next one.
+if confirmed
+    bool sU = f_sweep(liqUp, 1)
+    bool sD = f_sweep(liqDn, -1)
+    ev_sweep := sU or sD
+
+if confirmed and atrOk
+    if sw.newHi
+        f_addLiq(liqUp, 1, sw.hi, 0, sw.hiT, sw.hiT)
+    if sw.newLo
+        f_addLiq(liqDn, -1, sw.lo, 0, sw.loT, sw.loT)
+    if it.newHi and not na(it.prevHi) and math.abs(it.hi - it.prevHi) <= i_eq_tol * atr
+        float lv = math.max(it.hi, it.prevHi)
+        if f_eqClean(1, lv, it.prevHiB)
+            f_addLiq(liqUp, 1, lv, 1, it.prevHiT, it.hiT)
+            f_eqHistory(it.prevHiT, it.hiT, lv, 1)
+    if it.newLo and not na(it.prevLo) and math.abs(it.lo - it.prevLo) <= i_eq_tol * atr
+        float lv = math.min(it.lo, it.prevLo)
+        if f_eqClean(-1, lv, it.prevLoB)
+            f_addLiq(liqDn, -1, lv, 1, it.prevLoT, it.loT)
+            f_eqHistory(it.prevLoT, it.loT, lv, -1)
+
+// ── SWING LABELS AND INTERNAL BREAKS (display only) ──────────────────────────
+if confirmed and show_swl and (not hist_view or f_inView(time))
+    if sw.newHi
+        array.push(swPts, SwPt.new(sw.hiT, sw.hi, na(sw.prevHi) ? "H" : sw.hi > sw.prevHi ? "HH" : "LH", 1))
+    if sw.newLo
+        array.push(swPts, SwPt.new(sw.loT, sw.lo, na(sw.prevLo) ? "L" : sw.lo < sw.prevLo ? "LL" : "HL", -1))
+    while array.size(swPts) > (hist_view ? 40 : 30)
+        array.shift(swPts)
+
+if confirmed and show_int and it.ev != 0 and not (sw.ev == it.ev and sw.evLvl == it.evLvl) and (not hist_view or f_inView(time))
+    f_ring(inMarks, Mark.new(it.evLvlT, time, it.evLvl, it.ev, it.evChoch, na), hist_view ? i_hist_in : 20)
+
+// ── SWING BREAKS: ODDS, RECORDS, ORDER BLOCK, SIGNAL ─────────────────────────
+int    sg_dir = 0
+float  sg_en  = na
+float  sg_sl  = na
+string sg_how = ""
+
+if confirmed and atrOk and sw.ev != 0
+    int   d  = sw.ev
+    bool  L  = d == 1
+    float r  = math.abs(close - sw.evProt)
+    float p0 = f_touch(math.abs(close - sw.evLvl), sd1, i_rt_win)
+    float pm = f_calP(c_rt, p0)
+    int   fb = L ? lastFvgBullBar : lastFvgBearBar
+    bool  hasFvg = not na(fb) and fb >= sw.evProtB
+    if sw.evChoch
+        ev_bchoch := L
+        ev_schoch := not L
+    else
+        ev_bbos := L
+        ev_sbos := not L
+
+    string tag = sw.evChoch ? "CHoCH" : "BOS"
+    string tip = tag + (L ? " up" : " down") + " · closed at " + f_px(close) + " through " + f_px(sw.evLvl) + "\nProtected swing " + f_px(sw.evProt) + "\n\n" + (na(pm) ? "Retest odds: not enough bars yet to measure volatility." : "Retest odds " + f_pct(pm) + ": the chance price trades back to " + f_px(sw.evLvl) + " within " + str.tostring(i_rt_win) + " bars. Random-walk formula for this distance and volatility: " + f_pct(p0) + ", calibrated on " + str.tostring(c_rt.n) + " resolved breaks on this chart.")
+    Mark mk = Mark.new(sw.evLvlT, time, sw.evLvl, d, sw.evChoch, pm, 0, tip)
+    f_ring(swMarks, mk, MARKS_KEEP)
+    if hist_view and f_inView(time)
+        f_ring(swHistory, mk, i_hist_sw)
+    if r > 0
+        array.push(pend, Brk.new(d, sw.evLvl, close, sw.evProt, r, bar_index, sw.evChoch, hasFvg, sw.evSweep, p0, pm, false, false, mk))
+
+    // A liquidity setup: the nearest untaken pool above and below, now.
+    float up = array.size(liqUp) > 0 ? array.get(liqUp, 0).lvl : na
+    float dn = array.size(liqDn) > 0 ? array.get(liqDn, 0).lvl : na
+    if not na(up) and not na(dn) and up > close and close > dn and not na(sd1) and sd1 > 0
+        float dU = up - close
+        float dD = close - dn
+        // Only setups a random walk resolves inside DRAW_WIN (under 1% left
+        // unresolved), so dropping the unresolved ones cannot favour the
+        // nearer pool.
+        if dU + dD <= sd1 * math.sqrt(DRAW_WIN)
+            bool  nUp = dU <= dD
+            float q0  = f_clampP((nUp ? dD : dU) / (dU + dD))
+            array.push(d_pend, Drw.new(up, dn, nUp, bar_index, q0, f_calP(c_dr, q0)))
+
+    // Order block: the last opposite candle at the leg's extreme, within three
+    // bars of it; the extreme bar itself if there is none.
+    int back = math.min(math.max(bar_index - sw.evProtB, 0), 400)
+    int ob   = back
+    for k = back to back + 3
+        if L ? close[k] < open[k] : close[k] > open[k]
+            ob := k
+            break
+    if show_ob and high[ob] - low[ob] <= OB_MAX_ATR * atr
+        f_addZone(Zone.new(d, high[ob], low[ob], time[ob], 0))
+        f_capZones(0, d, i_ob_keep)
+
+    // Signal: a break against a waiting retest cancels it; a qualifying
+    // break either enters on its close or arms a level retest.
+    if d != rt_dir
+        rt_dir := 0
+    bool which = i_which == "CHoCH + BOS" or (i_which == "CHoCH only" and sw.evChoch) or (i_which == "BOS only" and not sw.evChoch)
+    bool wait  = i_entry == "Level Retest" or (i_entry == "Adaptive" and not na(pm) and pm >= i_adapt)
+    float slB  = L ? sw.evProt - i_sl_buf * atr : sw.evProt + i_sl_buf * atr
+    if which
+        if wait
+            rt_dir  := d
+            rt_bar  := bar_index
+            rt_lvl  := sw.evLvl
+            rt_prot := sw.evProt
+            rt_p    := pm
+        else
+            rt_dir := 0
+            if f_openDir() != d and math.abs(close - slB) <= i_max_r * atr and math.abs(close - slB) > 0
+                sg_dir := d
+                sg_en  := close
+                sg_sl  := slB
+                sg_how := "break close"
+
+// Level retest: a bar trades back to the broken level and closes beyond it
+// again. Closing through the protected swing, or no retest inside the window,
+// cancels it.
+if confirmed and atrOk and rt_dir != 0 and bar_index > rt_bar and sg_dir == 0
+    bool L = rt_dir == 1
+    if bar_index - rt_bar > i_rt_win or (L ? close < rt_prot : close > rt_prot)
+        rt_dir := 0
+    else if (L ? low <= rt_lvl and close > rt_lvl : high >= rt_lvl and close < rt_lvl) and f_openDir() != rt_dir
+        float slR = L ? rt_prot - i_sl_buf * atr : rt_prot + i_sl_buf * atr
+        if math.abs(close - slR) <= i_max_r * atr and math.abs(close - slR) > 0
+            sg_dir := rt_dir
+            sg_en  := close
+            sg_sl  := slR
+            sg_how := "level retest"
+        rt_dir := 0
+
+if confirmed and sg_dir != 0
+    int od = f_openDir()
+    if od != 0 and od != sg_dir
+        Trade o = array.get(trades, array.size(trades) - 1)
+        f_close(o, "reversed", close)
+        ev_exit := true
+        al_exit := f_msg("reversed", o, close)
+    float R  = math.abs(sg_en - sg_sl)
+    Trade nt = Trade.new(sg_dir, sg_en, sg_sl, sg_sl, sg_en + sg_dir * TP1R * R, sg_en + sg_dir * TP2R * R, bar_index, time)
+    nt.how := sg_how
+    array.push(trades, nt)
+    ev_buy   := sg_dir == 1
+    ev_sell  := sg_dir == -1
+    al_entry := f_msg("entry", nt, sg_en)
+
+// Both messages are only ever set on a confirmed bar, so freq_all still fires
+// once, at the bar's close.
+if al_exit != ""
+    alert(al_exit, alert.freq_all)
+if al_entry != ""
+    alert(al_entry, alert.freq_all)
+
+// ── LIVE LIQUIDITY ODDS ───────────────────────────────────────────────────────
+// Recomputed from the current price: the chance the pool above is traded
+// through before the pool below. na when price is already at or beyond one.
+// Nearest pool on one side that the current bar has not traded through, or
+// -1. Sweeps are applied at bar close, so on the live bar the first pool in
+// the list may already have been taken.
+f_liqIdx(array<Liq> a, int side) =>
+    int idx = -1
+    if array.size(a) > 0
+        for i = 0 to array.size(a) - 1
+            float lv = array.get(a, i).lvl
+            if side == 1 ? high <= lv : low >= lv
+                idx := i
+                break
+    idx
+
+f_liveDraw() =>
+    int   iU  = f_liqIdx(liqUp, 1)
+    int   iD  = f_liqIdx(liqDn, -1)
+    float up  = iU >= 0 ? array.get(liqUp, iU).lvl : na
+    float dn  = iD >= 0 ? array.get(liqDn, iD).lvl : na
+    float pUp = na
+    float q0  = na
+    if not na(up) and not na(dn) and up > close and close > dn
+        float dU  = up - close
+        float dD  = close - dn
+        bool  nUp = dU <= dD
+        q0  := f_clampP((nUp ? dD : dU) / (dU + dD))
+        float pm = f_calP(c_dr, q0)
+        pUp := nUp ? pm : 1.0 - pm
+        q0  := nUp ? q0 : 1.0 - q0
+    [up, dn, pUp, q0]
+
+// ── DRAWING (last bar only) ───────────────────────────────────────────────────
+var array<line>  g_ln = array.new<line>()
+var array<label> g_lb = array.new<label>()
+var array<box>   g_bx = array.new<box>()
+
+f_L(line l) =>
+    array.push(g_ln, l)
+    l
+
+f_B(label b) =>
+    array.push(g_lb, b)
+    b
+
+// Right-edge labels are queued and drawn together: any within LBL_GAP ATR of
+// each other are merged into one label instead of printing on top of each other.
+var array<float>  q_p = array.new_float()
+var array<string> q_t = array.new_string()
+var array<color>  q_c = array.new_color()
+var array<string> q_x = array.new_string()
+
+f_q(float p, string txt, color c, string tip) =>
+    if not na(p)
+        array.push(q_p, p)
+        array.push(q_t, txt)
+        array.push(q_c, c)
+        array.push(q_x, tip)
+    true
+
+f_qFlush(int t) =>
+    int n = array.size(q_p)
+    if n > 0
+        array<int> ix = array.sort_indices(q_p, order.descending)
+        float  gp = na
+        string gt = ""
+        string gx = ""
+        color  gc = na
+        for k = 0 to n
+            bool  last = k == n
+            int   i    = last ? -1 : array.get(ix, k)
+            float p    = last ? na : array.get(q_p, i)
+            bool  join = not last and not na(gp) and math.abs(gp - p) <= LBL_GAP * atr
+            if join
+                gt := gt + "  ·  " + array.get(q_t, i)
+                gx := gx + (array.get(q_x, i) == "" ? "" : (gx == "" ? "" : "\n\n") + array.get(q_x, i))
+            else
+                if not na(gp)
+                    f_B(label.new(t, gp, gt, xloc = xloc.bar_time, style = label.style_label_left,
+                         color = color.new(gc, 88), textcolor = gc, size = size.small, tooltip = gx))
+                if not last
+                    gp := p
+                    gt := array.get(q_t, i)
+                    gx := array.get(q_x, i)
+                    gc := array.get(q_c, i)
+    array.clear(q_p)
+    array.clear(q_t)
+    array.clear(q_c)
+    array.clear(q_x)
+    true
+
+if barstate.islast
+    while array.size(g_ln) > 0
+        line.delete(array.pop(g_ln))
+    while array.size(g_lb) > 0
+        label.delete(array.pop(g_lb))
+    while array.size(g_bx) > 0
+        box.delete(array.pop(g_bx))
+    // Right edge: two bars past the last bar, so line ends and labels stay on
+    // screen with TradingView's default right margin.
+    int tR = time + 2 * bar_ms
+
+    // Order blocks and gaps.
+    for z in zones
+        color c = f_role(z.dir)
+        array.push(g_bx, box.new(z.t0, z.top, tR, z.bot, xloc = xloc.bar_time,
+             border_color = z.kind == 1 ? color.new(c, 100) : color.new(c, 50),
+             bgcolor = color.new(c, z.kind == 1 ? 88 : 85),
+             text = z.kind == 1 ? "FVG" : "OB", text_color = color.new(c, 30), text_size = size.tiny,
+             text_halign = z.kind == 1 ? text.align_right : text.align_left))
+
+    // Historical EQ links stop at the second pivot; they never imply a live pool.
+    if show_eq and hist_view
+        for e in eqHistory
+            color c = e.side == 1 ? bear_col : bull_col
+            f_L(line.new(e.t0, e.lvl, e.t1, e.lvl, xloc = xloc.bar_time, color = color.new(c, 20), style = line.style_dotted))
+            if not zen_mode
+                string tip = "Historical " + (e.side == 1 ? "equal highs" : "equal lows") + " at " + f_px(e.lvl) + ". Confirmed " + str.format_time(e.confirmedAt, "yyyy-MM-dd HH:mm", syminfo.timezone) + " (exchange time), " + str.tostring(i_int) + " bars after the second pivot. Retained after a sweep; not a statement that this pool is still resting."
+                f_B(label.new(e.t1, e.lvl, e.side == 1 ? "EQH" : "EQL", xloc = xloc.bar_time,
+                     style = e.side == 1 ? label.style_label_down : label.style_label_up,
+                     color = color.new(c, 100), textcolor = c, size = size.tiny, tooltip = tip))
+
+    // Recent view: the nearest two active equal highs and lows on each side.
+    if show_eq and not hist_view
+        for side = 0 to 1
+            array<Liq> a  = side == 0 ? liqUp : liqDn
+            int        nd = 0
+            if array.size(a) > 0
+                for i = 0 to array.size(a) - 1
+                    Liq l = array.get(a, i)
+                    // Pools far from price are skipped: they only stretch the
+                    // price scale and squeeze the candles.
+                    if l.kind == 1 and nd < 2 and math.abs(l.lvl - close) <= 8.0 * atr
+                        nd += 1
+                        color c = side == 0 ? bear_col : bull_col
+                        f_L(line.new(l.tLine, l.lvl, tR, l.lvl, xloc = xloc.bar_time, color = color.new(c, 30), style = line.style_dotted))
+                        if not zen_mode
+                            f_B(label.new(l.tLabel, l.lvl, side == 0 ? "EQH" : "EQL", xloc = xloc.bar_time,
+                                 style = side == 0 ? label.style_label_down : label.style_label_up,
+                                 color = color.new(c, 100), textcolor = color.new(c, 20), size = size.tiny))
+
+    // Liquidity odds on the nearest pool each side. A swing-point pool gets
+    // its own dashed line; an equal highs / lows pool already has one.
+    if show_draw
+        [lUp, lDn, pUp, qUp] = f_liveDraw()
+        for side = 0 to 1
+            array<Liq> a  = side == 0 ? liqUp : liqDn
+            int        ix = f_liqIdx(a, side == 0 ? 1 : -1)
+            if ix >= 0
+                Liq   l  = array.get(a, ix)
+                color c  = side == 0 ? bear_col : bull_col
+                float pS = na(pUp) ? na : side == 0 ? pUp : 1.0 - pUp
+                float qS = na(qUp) ? na : side == 0 ? qUp : 1.0 - qUp
+                if l.kind == 0 or not show_eq or hist_view
+                    f_L(line.new(l.tLine, l.lvl, tR, l.lvl, xloc = xloc.bar_time, color = color.new(c, 45), style = line.style_dashed))
+                if not zen_mode
+                    string nm  = (side == 0 ? "BSL " : "SSL ") + f_px(l.lvl)
+                    string ltp = (side == 0 ? "Buy-side liquidity above: " : "Sell-side liquidity below: ") + (l.kind == 1 ? "equal " + (side == 0 ? "highs" : "lows") : "untaken swing " + (side == 0 ? "high" : "low")) + " at " + f_px(l.lvl) + "." + (na(pS) ? "" : "\n\nChance it is traded through before the " + (side == 0 ? "sell-side pool at " + f_px(lDn) : "buy-side pool at " + f_px(lUp)) + ": " + f_pct(pS) + ".\nRandom-walk first-touch formula: " + f_pct(qS) + ", calibrated on " + str.tostring(c_dr.n) + " resolved setups on this chart. Updates with price.")
+                    f_q(l.lvl, nm + (na(pS) ? "" : "  " + f_pct(pS)), c, ltp)
+
+    // Internal breaks, dashed and faint.
+    if show_int
+        for m in inMarks
+            color c = color.new(f_role(m.dir), 20)
+            f_L(line.new(m.t0, m.lvl, m.t1, m.lvl, xloc = xloc.bar_time, color = c, style = line.style_dashed))
+            if not zen_mode
+                f_B(label.new(f_markTime(m.t0, m.t1), m.lvl, m.choch ? "i-CHoCH" : "i-BOS", xloc = xloc.bar_time,
+                     style = m.dir == 1 ? label.style_label_down : label.style_label_up,
+                     color = color.new(c, 100), textcolor = c, size = size.tiny,
+                     tooltip = "Internal " + (m.choch ? "change of character" : "break of structure") + " confirmed at the close of " + str.format_time(m.t1, "yyyy-MM-dd HH:mm", syminfo.timezone) + " (exchange time), through " + f_px(m.lvl) + ". Display only."))
+
+    // Swing breaks. Only the latest carries its retest odds; older ones show
+    // what happened: ↺ came back to the level, → did not.
+    array<Mark> drawnSwings = hist_view ? swHistory : swMarks
+    int nM = array.size(drawnSwings)
+    if nM > 0
+        for j = 0 to nM - 1
+            Mark  m      = array.get(drawnSwings, j)
+            bool  latest = array.size(swMarks) > 0 and m.t1 == array.last(swMarks).t1
+            color c      = f_role(m.dir)
+            f_L(line.new(m.t0, m.lvl, m.t1, m.lvl, xloc = xloc.bar_time, color = color.new(c, latest ? 0 : 15), width = m.choch ? 2 : 1))
+            if not zen_mode
+                string g   = hist_view ? "" : m.ret == 1 ? " ↺" : m.ret == -1 ? " →" : ""
+                string txt = (m.choch ? "CHoCH" : "BOS") + (latest and i_latest_odds and not na(m.pr) ? " · retest " + f_pct(m.pr) : "") + g
+                string out = m.ret == 1 ? "\n\nOutcome: price came back to the level ↺" : m.ret == -1 ? "\n\nOutcome: price did not come back within the window →" : "\n\nOutcome: open"
+                f_B(label.new(f_markTime(m.t0, m.t1), m.lvl, txt, xloc = xloc.bar_time,
+                     style = m.dir == 1 ? label.style_label_down : label.style_label_up,
+                     color = latest ? color.new(c, 80) : color.new(c, 100), textcolor = c,
+                     size = swing_text_size, tooltip = m.tip + "\nBreak confirmed: " + str.format_time(m.t1, "yyyy-MM-dd HH:mm", syminfo.timezone) + " (exchange time)." + out + "\nRetest outcome is evaluated after the break, through the latest loaded bar."))
+
+    if show_swl and not zen_mode
+        for s in swPts
+            color c = s.dir == 1 ? bear_col : bull_col
+            f_B(label.new(s.t, s.p, s.txt, xloc = xloc.bar_time, style = s.dir == 1 ? label.style_label_down : label.style_label_up,
+                 color = color.new(c, 100), textcolor = c, size = size.tiny))
+
+    // Signals: levels of the open trade and the last closed one.
+    if show_sig
+        for t in trades
+            color tc = f_role(t.dir)
+            color sc = f_role(-t.dir)
+            int   te = t.open ? tR : t.tEnd
+            f_L(line.new(t.t0, t.entry, te, t.entry, xloc = xloc.bar_time, color = color.new(color.gray, 0), style = line.style_dashed))
+            f_L(line.new(t.t0, t.sl0, t.tBE > 0 ? t.tBE : te, t.sl0, xloc = xloc.bar_time, color = sc, width = 2))
+            if t.tBE > 0
+                f_L(line.new(t.tBE, t.entry, te, t.entry, xloc = xloc.bar_time, color = sc, width = 2, style = line.style_dotted))
+            f_L(line.new(t.t0, t.tp1, te, t.tp1, xloc = xloc.bar_time, color = color.new(tc, 30)))
+            f_L(line.new(t.t0, t.tp2, te, t.tp2, xloc = xloc.bar_time, color = tc, width = 2))
+            if not zen_mode
+                if t.open
+                    if t.tBE == 0
+                        f_q(t.entry, (t.dir == 1 ? "BUY " : "SELL ") + f_px(t.entry), color.new(color.gray, 0), "Entry, " + t.how + ".")
+                    f_q(t.sl, t.tBE > 0 ? "SL at entry " + f_px(t.sl) : "SL " + f_px(t.sl), sc, "Stop beyond the protected swing.")
+                    f_q(t.tp1, "TP1 " + f_px(t.tp1), tc, str.tostring(i_tp1) + " R")
+                    f_q(t.tp2, "TP2 " + f_px(t.tp2), tc, str.tostring(i_tp2) + " R")
+                else
+                    bool   win = t.res == "TP2" or t.res == "TP1, then stop at entry"
+                    color  c   = t.res == "SL" ? sc : tc
+                    string rt  = t.res == "TP2" ? "TP2" : t.res == "SL" ? "SL" : t.res
+                    f_B(label.new(t.tEnd, t.px, rt, xloc = xloc.bar_time, style = label.style_label_left,
+                         color = color.new(c, win ? 20 : 70), textcolor = win ? color.white : c, size = size.small))
+
+    // Dealing range: strong / weak extremes and premium / discount.
+    if not na(rng_hi) and not na(rng_lo)
+        int tE  = tR
+        int tHi = sw.legHi >= nz(sw.hi, -1e20) and not na(sw.legHi) ? sw.legHiT : sw.hiT
+        int tLo = sw.legLo <= nz(sw.lo, 1e20) and not na(sw.legLo) ? sw.legLoT : sw.loT
+        if show_sw
+            f_L(line.new(tHi, rng_hi, tE, rng_hi, xloc = xloc.bar_time, color = color.new(bear_col, 30)))
+            f_L(line.new(tLo, rng_lo, tE, rng_lo, xloc = xloc.bar_time, color = color.new(bull_col, 30)))
+            // Labelled at the swing itself, clear of the stop and target tags.
+            if not zen_mode
+                f_B(label.new(tHi, rng_hi, sw.trend == -1 ? "Strong High" : "Weak High", xloc = xloc.bar_time, style = label.style_label_down, color = color.new(bear_col, 100), textcolor = color.new(bear_col, 20), size = size.tiny))
+                f_B(label.new(tLo, rng_lo, sw.trend == 1 ? "Strong Low" : "Weak Low", xloc = xloc.bar_time, style = label.style_label_up, color = color.new(bull_col, 100), textcolor = color.new(bull_col, 20), size = size.tiny))
+        if show_pd
+            int   tL  = math.min(tHi, tLo)
+            float mid = (rng_hi + rng_lo) / 2.0
+            array.push(g_bx, box.new(tL, rng_hi, tE, mid, xloc = xloc.bar_time, border_color = color.new(bear_col, 100), bgcolor = color.new(bear_col, 92), text = "Premium", text_color = color.new(bear_col, 30), text_size = size.small, text_halign = text.align_right, text_valign = text.align_top))
+            array.push(g_bx, box.new(tL, mid, tE, rng_lo, xloc = xloc.bar_time, border_color = color.new(bull_col, 100), bgcolor = color.new(bull_col, 92), text = "Discount", text_color = color.new(bull_col, 30), text_size = size.small, text_halign = text.align_right, text_valign = text.align_bottom))
+            f_L(line.new(tL, mid, tE, mid, xloc = xloc.bar_time, color = color.new(color.gray, 30), style = line.style_dotted))
+
+    // Right-edge labels last, merged where they would overlap.
+    f_qFlush(tR)
+
+// ── INFO TABLE ────────────────────────────────────────────────────────────────
+var table tbl = table.new(i_tbl_pos == "Bottom Right" ? position.bottom_right : i_tbl_pos == "Top Left" ? position.top_left : i_tbl_pos == "Bottom Left" ? position.bottom_left : position.top_right, 2, 12,
+     bgcolor = color.new(color.black, 75), border_color = color.new(color.gray, 60), border_width = 1,
+     frame_color = color.new(color.gray, 50), frame_width = 1)
+
+f_cell(int row, string k, string v, color vc, string tip) =>
+    table.cell(tbl, 0, row, k, text_color = color.new(color.white, 0), text_size = size.small, text_halign = text.align_left)
+    table.cell(tbl, 1, row, v, text_color = vc, text_size = size.small, text_halign = text.align_left, tooltip = tip)
+    row + 1
+
+if barstate.islast and show_table and not zen_mode
+    table.clear(tbl, 0, 0, 1, 11)
+    color gry = color.new(color.gray, 20)
+    color wht = color.new(color.white, 0)
+    bool  live = c_rt.n >= CAL_MIN
+    bool  cOk  = f_calOk(c_rt) and (not show_draw or c_dr.n < CAL_MIN or f_calOk(c_dr))
+
+    Trade ot = na
+    if array.size(trades) > 0
+        Trade lt = array.get(trades, array.size(trades) - 1)
+        if lt.open
+            ot := lt
+
+    // Header: engine status.
+    string st  = not live ? "● LEARNING  " + str.tostring(c_rt.n) + " / " + str.tostring(CAL_MIN) + " resolved breaks" : "● LIVE  ·  " + str.tostring(c_rt.n) + " breaks scored  ·  " + (cOk ? "calibrated" : "check calibration")
+    color stc = not live ? color.new(color.yellow, 0) : cOk ? color.new(color.lime, 0) : color.new(bear_col, 0)
+    table.cell(tbl, 0, 0, "SMC ML", text_color = color.new(color.gray, 0), text_size = size.small, bgcolor = color.new(color.black, 60), text_halign = text.align_left)
+    table.cell(tbl, 1, 0, st, text_color = stc, text_size = size.small, bgcolor = color.new(color.black, 60), text_halign = text.align_left,
+         tooltip = "Every odds figure starts from random-walk probability and is recalibrated on this chart's resolved outcomes (Bayesian logistic calibration, prior centred on the formula). Every break, signal and recorded figure is fixed at bar close; the liquidity odds and the premium / discount % follow the live price. Swings confirm" + str.tostring(i_swing) + " bars after the bar they mark.")
+
+    // Bias.
+    int    bdir   = sw.trend
+    string zoneS  = na(rng_pos) ? "" : "  ·  " + (rng_pos > 0.5 ? "PREMIUM " : "DISCOUNT ") + str.tostring(math.round(rng_pos * 100)) + "%"
+    string biasTx = bdir == 1 ? "▲  BULLISH structure" + zoneS : bdir == -1 ? "▼  BEARISH structure" + zoneS : "—  NO STRUCTURE YET"
+    color  biasBg = bdir == 0 ? color.new(color.gray, 70) : color.new(f_role(bdir), 25)
+    table.cell(tbl, 0, 1, "Bias", text_color = wht, text_size = size.normal, bgcolor = biasBg, text_halign = text.align_left)
+    table.cell(tbl, 1, 1, biasTx, text_color = color.white, text_size = size.normal, bgcolor = biasBg, text_halign = text.align_left,
+         tooltip = "Swing structure direction. Premium / discount is where price sits in the current dealing range (0% = its low, 100% = its high).")
+    int row = 2
+
+    // Now: what the script is waiting for, in plain words.
+    string act = "Waiting for swing structure"
+    int    acd = bdir
+    string nowTip = ""
+    if not na(ot)
+        acd    := ot.dir
+        act    := (ot.dir == 1 ? "LONG " : "SHORT ") + f_px(ot.entry) + "  ·  SL " + f_px(ot.sl) + "  ·  TP1 " + f_px(ot.tp1) + "  ·  TP2 " + f_px(ot.tp2) + "  ·  " + (ot.tp1hit ? "holding for TP2" : "holding for TP1")
+        nowTip := "Entered on the " + ot.how + ". Half the position is scored at TP1, the rest at TP2 or the stop."
+    else if rt_dir != 0
+        acd := rt_dir
+        act := (rt_dir == 1 ? "BUY" : "SELL") + " if price comes back to " + f_px(rt_lvl) + " and closes " + (rt_dir == 1 ? "above" : "below") + " it  ·  " + str.tostring(math.max(i_rt_win - (bar_index - rt_bar), 0)) + " bars left"
+    else if sw.trend == 1
+        act := "Next BOS above " + (sw.hiOpen ? f_px(sw.hi) : "the next swing high") + "  ·  CHoCH below " + (sw.loOpen ? f_px(sw.lo) : "the next swing low")
+    else if sw.trend == -1
+        act := "Next BOS below " + (sw.loOpen ? f_px(sw.lo) : "the next swing low") + "  ·  CHoCH above " + (sw.hiOpen ? f_px(sw.hi) : "the next swing high")
+    if na(ot) and array.size(trades) > 0
+        Trade lt = array.get(trades, array.size(trades) - 1)
+        nowTip := "Last signal: " + (lt.dir == 1 ? "BUY" : "SELL") + " → " + lt.res + "."
+    row := f_cell(row, "Now", act, acd == 0 ? gry : f_role(acd), nowTip)
+
+    // Retest odds of the latest swing break.
+    string rTx = "—"
+    color  rCl = gry
+    int    nM  = array.size(swMarks)
+    if nM > 0
+        Mark m = array.get(swMarks, nM - 1)
+        rCl := f_role(m.dir)
+        rTx := na(m.pr) ? "measuring volatility" : (m.ret == 0 ? f_pct(m.pr) + " that price comes back to " + f_px(m.lvl) + " within " + str.tostring(i_rt_win) + " bars" : f_px(m.lvl) + (m.ret == 1 ? " retested ↺" : " not retested →") + "  ·  odds were " + f_pct(m.pr)) + "  (n " + str.tostring(c_rt.n) + ")"
+    row := f_cell(row, "Retest", rTx, rCl, "Chance that price trades back to the latest broken swing level within the Retest Window. ↺ = it came back, → = it did not. n = resolved breaks the odds are calibrated on.")
+
+    // Liquidity odds, live.
+    if show_draw
+        [lUp, lDn, pUp, qUp] = f_liveDraw()
+        string dTx = na(lUp) or na(lDn) ? "needs a pool on both sides" : na(pUp) ? "price is at a pool" : "▲ BSL " + f_px(lUp) + " " + f_pct(pUp) + "  ·  ▼ SSL " + f_px(lDn) + " " + f_pct(1.0 - pUp)
+        color  dCl = na(pUp) ? gry : pUp >= 0.5 ? bull_col : bear_col
+        row := f_cell(row, "Liquidity", dTx, dCl, "Chance that each nearest untaken pool is traded through before the other, from the current price. Random-walk first-touch probability" + (na(qUp) ? "" : " (" + f_pct(qUp) + " for the pool above)") + ", calibrated on " + str.tostring(c_dr.n) + " resolved setups here. Distance alone accounts for most of it.")
+
+    // Record, with a 95% interval on the average R.
+    float nC    = array.get(rec, 0)
+    string recT = "—"
+    string recP = "Hypothetical outcomes of the signals on the loaded history only: half the position at TP1, the rest at TP2, the stop, or the close of the bar where the signal timed out or was reversed. No commission or slippage. They change with the amount of history loaded and say nothing about future results."
+    if nC > 0
+        float mR = array.get(rec, 3) / nC
+        float sd = nC > 1 ? math.sqrt(math.max(array.get(rec, 4) - nC * mR * mR, 0.0) / (nC - 1)) : na
+        // Student-t quantile for the 95% interval (Cornish-Fisher expansion of 1.96).
+        float nu = nC - 1.0
+        float tq = nC >= 10 ? 1.96 + (math.pow(1.96, 3) + 1.96) / (4.0 * nu) + (5.0 * math.pow(1.96, 5) + 16.0 * math.pow(1.96, 3) + 3.0 * 1.96) / (96.0 * nu * nu) : na
+        float ci = na(sd) or na(tq) ? na : tq * sd / math.sqrt(nC)
+        recT := str.tostring(nC, "#") + " hypothetical  ·  avg " + f_sgn(mR, "0.00") + "R" + (na(ci) ? "" : " ± " + str.tostring(ci, "0.00")) + (nC < 30 ? "  ·  too few to judge" : math.abs(mR) <= ci ? "  ·  interval covers 0" : "  ·  interval excludes 0")
+        recP := recP + "\n\nTP1 reached " + f_pct(array.get(rec, 1) / nC) + "  ·  full stop " + f_pct(array.get(rec, 2) / nC) + ". The ± is a 95% interval on the average; when it covers zero the average is not distinguishable from no edge. No verdict is given below 30 signals."
+    row := f_cell(row, "Record", recT, wht, recP)
+
+    // Edge test: the split with the largest |z|.
+    array<string> nmA = array.from("BOS", "FVG", "sweep")
+    array<string> nmB = array.from("CHoCH", "no FVG", "no sweep")
+    float  bz  = na
+    int    bk  = -1
+    for k = 0 to 2
+        int   o = k * 4
+        float z = f_z(array.get(et, o), array.get(et, o + 1), array.get(et, o + 2), array.get(et, o + 3))
+        if not na(z) and (na(bz) or math.abs(z) > math.abs(bz))
+            bz := z
+            bk := k
+    int    nAll = array.get(et, 0) + array.get(et, 2)
+    string eTx  = "collecting  ·  " + str.tostring(nAll) + " breaks resolved"
+    color  eCl  = gry
+    string eTip = ""
+    if bk >= 0
+        int   o  = bk * 4
+        float pa = float(array.get(et, o + 1)) / array.get(et, o)
+        float pb = float(array.get(et, o + 3)) / array.get(et, o + 2)
+        float pp = float(array.get(et, o + 1) + array.get(et, o + 3)) / (array.get(et, o) + array.get(et, o + 2))
+        float dd = math.abs(pa - pb)
+        float need = dd > 0.005 ? math.pow(Z_BONF + 0.84, 2) * 2.0 * pp * (1.0 - pp) / (dd * dd) : na
+        bool  sig = math.abs(bz) >= Z_BONF
+        eTx := array.get(nmA, bk) + " " + f_pct(pa) + " / " + array.get(nmB, bk) + " " + f_pct(pb) + "  ·  z " + f_sgn(bz, "0.0") + "  ·  " + (sig ? "beyond chance" : "within chance")
+        eTip := "\n\nShown split: " + array.get(nmA, bk) + " n " + str.tostring(array.get(et, o)) + ", " + array.get(nmB, bk) + " n " + str.tostring(array.get(et, o + 2)) + "." + (sig or na(need) ? "" : " Detecting a gap this size at the corrected level would need about " + str.tostring(math.round(need)) + " breaks of each kind.")
+        eCl := sig ? wht : gry
+    float fAll = nAll > 0 ? float(array.get(et, 1) + array.get(et, 3)) / nAll : na
+    row := f_cell(row, "Edge test", eTx, eCl, "Share of swing breaks that closed one risk unit beyond the break before closing back through the protected swing (" + f_pct(fAll) + " of " + str.tostring(nAll) + " resolved here; breaks unresolved after 150 bars are not counted), split three ways: BOS / CHoCH, leg left a fair value gap or not, leg swept liquidity first or not. Shown: the split with the largest z. A split counts only at |z| ≥ 2.39 (5% after correcting for three tests)." + eTip)
+
+    // Calibration of both odds.
+    string cTx = "retest " + f_calText(c_rt) + (show_draw ? "  ·  liquidity " + f_calText(c_dr) : "")
+    row := f_cell(row, "Calibration", cTx, gry, "Average odds shown → how often the event happened, scored with the odds each sample had when it printed (retest n " + str.tostring(c_rt.n) + ", liquidity n " + str.tostring(c_dr.n) + "). ✓ = the overall average and every band with 20+ samples sit inside a 95% interval (bands corrected for three tests).\n\nRetest odds by band:\n   " + f_bands(c_rt) + "\nLiquidity odds by band:\n   " + f_bands(c_dr) + "\n\nBrier skill, retest odds: vs base rate " + f_skill(c_rt.bsM, c_rt.bsB) + ", vs formula alone " + f_skill(c_rt.bsM, c_rt.bsF) + ".\nBrier skill, liquidity odds: vs base rate " + f_skill(c_dr.bsM, c_dr.bsB) + ", vs formula alone " + f_skill(c_dr.bsM, c_dr.bsF) + ".\nAbove zero = better than that reference. Consecutive samples overlap in time, so the intervals are somewhat optimistic.")
+    row := f_cell(row, "Structure view", hist_view ? "visible window · " + str.tostring(array.size(swHistory)) + "/" + str.tostring(i_hist_sw) + " swing · " + str.tostring(array.size(inMarks)) + "/" + str.tostring(i_hist_in) + " internal · " + str.tostring(array.size(eqHistory)) + "/" + str.tostring(i_hist_eq) + " EQ" : "recent · 6 swing / 20 internal max", gry,
+         "Historical counts / display limits. At a limit, older drawings in the window are omitted; zoom into that period to rebuild them. Solid = swing, dashed = internal, dotted = EQH/EQL formation. Blue = bullish structure, orange = bearish structure. The rest of this dashboard and active zones describe the latest loaded bar, even when you pan back.")
+    if not chart.is_standard
+        row := f_cell(row, "Note", "synthetic chart · OHLC is not traded price", color.new(color.yellow, 0), "")
+
+// ── SIGNAL MARKERS ────────────────────────────────────────────────────────────
+// Evaluated on confirmed bars only.
+plotshape(show_sig and ev_buy,  "BUY",  shape.triangleup,   location.belowbar, bull_col, size = size.tiny, text = "", textcolor = bull_col)
+plotshape(show_sig and ev_sell, "SELL", shape.triangledown, location.abovebar, bear_col, size = size.tiny, text = "", textcolor = bear_col)
+
+// ── ALERTS ────────────────────────────────────────────────────────────────────
+// For automation use ONE alert on "Any alert() function call": every entry and
+// exit arrives with side, symbol, price, stop and targets. The conditions below
+// are the same events without prices.
+alertcondition(ev_buy,    "BUY signal",       "SMC ML: BUY signal on {{ticker}} at {{close}}.")
+alertcondition(ev_sell,   "SELL signal",      "SMC ML: SELL signal on {{ticker}} at {{close}}.")
+alertcondition(ev_exit,   "Signal closed",    "SMC ML: the open signal on {{ticker}} closed at {{close}}.")
+alertcondition(ev_bchoch, "Bullish CHoCH",    "SMC ML: bullish change of character on {{ticker}} at {{close}}.")
+alertcondition(ev_schoch, "Bearish CHoCH",    "SMC ML: bearish change of character on {{ticker}} at {{close}}.")
+alertcondition(ev_bbos,   "Bullish BOS",      "SMC ML: bullish break of structure on {{ticker}} at {{close}}.")
+alertcondition(ev_sbos,   "Bearish BOS",      "SMC ML: bearish break of structure on {{ticker}} at {{close}}.")
+alertcondition(ev_sweep,  "Liquidity swept",  "SMC ML: price traded through a liquidity pool on {{ticker}} at {{close}}.")
+
+// History budgets: at most 180 swing + 180 internal + 60 EQ + 40 pivot labels.
+// Remaining headroom is reserved for active pools, signals and dealing-range labels.
+
+// Publication presentation. Independent from every calculation and event.
+var table cover_title = table.new(position.top_center, 1, 3)
+var table cover_key = table.new(position.bottom_center, 1, 3)
+if barstate.islast
+    table.clear(cover_title, 0, 0, 0, 2)
+    table.clear(cover_key, 0, 0, 0, 2)
+    if show_heading and not zen_mode
+        table.cell(cover_title, 0, 0, "", height=3, bgcolor=color.new(color.black, 100))
+        table.cell(cover_title, 0, 1, "SMART MONEY CONCEPT ML", text_size=42, text_color=#E2E8F2, bgcolor=color.new(color.black, 100))
+        table.cell(cover_title, 0, 2, "v2  ·  Historical structure  ·  Outcome-calibrated estimates", text_size=15, text_color=#A5B3C8, bgcolor=color.new(color.black, 100))
+        table.cell(cover_key, 0, 0, "BLUE  bullish structure     ORANGE  bearish structure", text_size=13, text_color=#DCE6F2, bgcolor=#101C2C)
+        table.cell(cover_key, 0, 1, "SOLID  swing BOS / CHoCH     DASHED  internal     DOTTED  EQH / EQL", text_size=12, text_color=#A5B3C8, bgcolor=#101C2C)
+        table.cell(cover_key, 0, 2, "Confirmed-bar events · pivots marked after confirmation · estimates, not guarantees", text_size=11, text_color=#A5B3C8, bgcolor=#101C2C)

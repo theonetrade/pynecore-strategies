@@ -1,0 +1,144 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © BackQuant
+
+//@version=6
+indicator("Aroon Trend Trail [BackQuant]", shorttitle="Aroon Trail [BackQuant]", overlay=true)
+
+// Constants
+const string calc = "Aroon Calculation"
+const string rail = "Trend Rail Settings"
+const string ui = "Plotting and Coloring"
+const color GREEN = #00ff00
+const color RED = #ff0000
+
+// Inputs
+int aroonLen = input.int(25, "Aroon Length", minval=2, group=calc)
+float flipThreshold = input.float(0.15, "Bias Threshold", minval=0.0, maxval=1.0, step=0.01, group=calc, tooltip="Minimum Aroon bias required to establish the opposite trend.")
+
+int atrLen = input.int(14, "ATR Length", minval=1, group=rail, inline="ATR")
+float atrFactor = input.float(1.8, "Base Width", minval=0.1, step=0.05, group=rail, inline="ATR")
+float strongWidth = input.float(0.65, "Strong Trend Width", minval=0.1, maxval=3.0, step=0.05, group=rail, inline="WIDTH")
+float weakWidth = input.float(1.25, "Weak Trend Width", minval=0.1, maxval=3.0, step=0.05, group=rail, inline="WIDTH")
+bool breakOnFlip = input.bool(true, "Break Rail On Flips", group=rail)
+
+color longCol = input.color(GREEN, "Bullish", group=ui, inline="COL")
+color shortCol = input.color(RED, "Bearish", group=ui, inline="COL")
+int lineW = input.int(3, "Line Width", minval=1, maxval=6, group=ui)
+bool showFill = input.bool(true, "Gradient Fill", group=ui)
+bool showGlow = input.bool(true, "Rail Glow", group=ui)
+bool showAroon = input.bool(false, "Show Aroon Values", group=ui)
+bool paintCandles = input.bool(true, "Color Candles", group=ui)
+
+// Aroon
+int sinceHigh = math.abs(ta.highestbars(high, aroonLen))
+int sinceLow = math.abs(ta.lowestbars(low, aroonLen))
+
+float aroonUp = 100.0 * (aroonLen - sinceHigh) / aroonLen
+float aroonDown = 100.0 * (aroonLen - sinceLow) / aroonLen
+
+float aroonBias = (aroonUp - aroonDown) / 100.0
+float aroonStrength = math.min(math.abs(aroonBias), 1.0)
+
+// Trend State
+var int trend = 0
+
+if trend == 0
+    trend := aroonBias >= 0.0 ? 1 : -1
+else if trend != 1 and aroonBias > flipThreshold
+    trend := 1
+else if trend != -1 and aroonBias < -flipThreshold
+    trend := -1
+
+bool bullFlip = trend == 1 and trend[1] == -1
+bool bearFlip = trend == -1 and trend[1] == 1
+bool trendFlip = bullFlip or bearFlip
+
+color trendCol = trend == 1 ? longCol : shortCol
+
+// Adaptive Rail Width
+float atr = ta.atr(atrLen)
+float widthScale = weakWidth + (strongWidth - weakWidth) * aroonStrength
+float railWidth = atr * atrFactor * widthScale
+
+float rawLower = hl2 - railWidth
+float rawUpper = hl2 + railWidth
+
+// Ratcheting Rail
+var float lowerRail = na
+var float upperRail = na
+
+if na(lowerRail)
+    lowerRail := rawLower
+    upperRail := rawUpper
+else
+    if trend == 1
+        lowerRail := bullFlip ? rawLower : math.max(lowerRail[1], rawLower)
+    else
+        lowerRail := rawLower
+
+    if trend == -1
+        upperRail := bearFlip ? rawUpper : math.min(upperRail[1], rawUpper)
+    else
+        upperRail := rawUpper
+
+float activeRail = trend == 1 ? lowerRail : upperRail
+float plottedRail = breakOnFlip and trendFlip ? na : activeRail
+
+// Visual Strength
+float railDistance = math.abs(close - activeRail)
+float distanceStrength = railWidth > 0.0 ? math.min(railDistance / railWidth, 1.0) : 0.0
+float trendStrength = math.min(aroonStrength * 0.75 + distanceStrength * 0.25, 1.0)
+
+int strengthBoost = int(math.round(trendStrength * 14.0))
+
+// Gradient
+bool fillReady = showFill and not na(plottedRail)
+bool priceAbove = close >= activeRail
+
+float grad1 = activeRail + (close - activeRail) * 0.15
+float grad2 = activeRail + (close - activeRail) * 0.35
+float grad3 = activeRail + (close - activeRail) * 0.60
+float grad4 = activeRail + (close - activeRail) * 0.82
+
+pRail = plot(plottedRail, "Aroon Trend Rail", trendCol, lineW, plot.style_linebr)
+pPrice = plot(fillReady ? close : na, "Price Ref", display=display.none, editable=false)
+pGrad1 = plot(fillReady ? grad1 : na, "Gradient Ref 1", display=display.none, editable=false)
+pGrad2 = plot(fillReady ? grad2 : na, "Gradient Ref 2", display=display.none, editable=false)
+pGrad3 = plot(fillReady ? grad3 : na, "Gradient Ref 3", display=display.none, editable=false)
+pGrad4 = plot(fillReady ? grad4 : na, "Gradient Ref 4", display=display.none, editable=false)
+
+fill(pRail, pGrad1, priceAbove ? grad1 : activeRail, priceAbove ? activeRail : grad1, fillReady ? color.new(trendCol, 82) : na, fillReady ? color.new(trendCol, math.max(28, 55 - strengthBoost)) : na, title="Gradient Layer 1")
+fill(pGrad1, pGrad2, priceAbove ? grad2 : grad1, priceAbove ? grad1 : grad2, fillReady ? color.new(trendCol, 90) : na, fillReady ? color.new(trendCol, 68) : na, title="Gradient Layer 2")
+fill(pGrad2, pGrad3, priceAbove ? grad3 : grad2, priceAbove ? grad2 : grad3, fillReady ? color.new(trendCol, 94) : na, fillReady ? color.new(trendCol, 79) : na, title="Gradient Layer 3")
+fill(pGrad3, pGrad4, priceAbove ? grad4 : grad3, priceAbove ? grad3 : grad4, fillReady ? color.new(trendCol, 97) : na, fillReady ? color.new(trendCol, 88) : na, title="Gradient Layer 4")
+fill(pGrad4, pPrice, priceAbove ? close : grad4, priceAbove ? grad4 : close, fillReady ? color.new(trendCol, 99) : na, fillReady ? color.new(trendCol, 95) : na, title="Gradient Layer 5")
+
+// Glow
+float glow = atr * (0.045 + trendStrength * 0.025)
+float outerGlow = glow * 2.3
+
+pGlowOuterLower = plot(showGlow ? activeRail - outerGlow : na, "Outer Glow Lower", display=display.none, editable=false)
+pGlowOuterUpper = plot(showGlow ? activeRail + outerGlow : na, "Outer Glow Upper", display=display.none, editable=false)
+pGlowLower = plot(showGlow ? activeRail - glow : na, "Glow Lower", display=display.none, editable=false)
+pGlowUpper = plot(showGlow ? activeRail + glow : na, "Glow Upper", display=display.none, editable=false)
+
+fill(pGlowOuterLower, pGlowOuterUpper, showGlow ? color.new(trendCol, 95) : na, title="Outer Rail Glow")
+fill(pGlowLower, pGlowUpper, showGlow ? color.new(trendCol, math.max(60, 84 - strengthBoost)) : na, title="Inner Rail Glow")
+
+// Candles
+plotcandle(open, high, low, close, "Trend Candles", trendCol, trendCol, true, bordercolor=trendCol, display=paintCandles ? display.all : display.none)
+
+// Data Window
+plot(aroonUp, "Aroon Up", display=display.data_window)
+plot(aroonDown, "Aroon Down", display=display.data_window)
+plot(aroonBias, "Aroon Bias", display=display.data_window)
+plot(aroonStrength * 100.0, "Aroon Strength", display=display.data_window)
+plot(railWidth, "Active Rail Width", display=display.data_window)
+
+plot(showAroon ? aroonUp : na, "Aroon Up Diagnostic", display=display.data_window)
+plot(showAroon ? aroonDown : na, "Aroon Down Diagnostic", display=display.data_window)
+
+// Alerts
+alertcondition(bullFlip, "Aroon Rail Bullish", "Aroon Trend Rail turned bullish on {{ticker}}")
+alertcondition(bearFlip, "Aroon Rail Bearish", "Aroon Trend Rail turned bearish on {{ticker}}")
+alertcondition(trendFlip, "Aroon Rail Flip", "Aroon Trend Rail changed direction on {{ticker}}")

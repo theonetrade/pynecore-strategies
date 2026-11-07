@@ -1,0 +1,149 @@
+//  /$$$$$$   /$$                                                         /$$                                            
+// /$$__  $$ | $$                                                        | $$                                            
+//| $$  \__//$$$$$$    /$$$$$$  /$$    /$$ /$$$$$$   /$$$$$$   /$$$$$$$ /$$$$$$    /$$$$$$  /$$    /$$ /$$$$$$   /$$$$$$$
+//|  $$$$$$|_  $$_/   /$$__  $$|  $$  /$$//$$__  $$ /$$__  $$ /$$_____/|_  $$_/   /$$__  $$|  $$  /$$//$$__  $$ /$$_____/
+// \____  $$ | $$    | $$$$$$$$ \  $$/$$/| $$$$$$$$| $$  \__/|  $$$$$$   | $$    | $$$$$$$$ \  $$/$$/| $$$$$$$$|  $$$$$$ 
+// /$$  \ $$ | $$ /$$| $$_____/  \  $$$/ | $$_____/| $$       \____  $$  | $$ /$$| $$_____/  \  $$$/ | $$_____/ \____  $$
+//|  $$$$$$/ |  $$$$/|  $$$$$$$   \  $/  |  $$$$$$$| $$       /$$$$$$$/  |  $$$$/|  $$$$$$$   \  $/  |  $$$$$$$ /$$$$$$$/
+// \______/   \___/   \_______/    \_/    \_______/|__/      |_______/    \___/   \_______/    \_/    \_______/|_______/ 
+
+//       ___________________
+//      /                   \
+//     /  _____        _____ \
+//    /  /     \      /     \  \
+// __/__/       \____/       \__\_____
+//|           ___________           ____|
+// \_________/           \_________/
+//            \  /////// /
+//             \/////////
+// © Steversteves
+//@version=5
+indicator("EMA 9/21 with Target Price [SS]", overlay=true)
+
+arraylookback =     input.float(500, "ATR Lookback Length")
+showlbls =          input.bool(true, "Show Target Price Labels")
+
+
+
+ema9 = ta.ema(close, 9) 
+ema21 = ta.ema(close, 21) 
+
+// determine the crossover points
+ema9_cross_ema21 = ta.crossover(ema9, ema21)
+ema21_cross_ema9 = ta.crossover(ema21, ema9)
+
+// plot arrows on the chart at the crossover points
+plotshape(ema9_cross_ema21 ? close : na, title="Up Arrow", location=location.belowbar, style=shape.triangleup, size=size.small, color=color.green)
+plotshape(ema21_cross_ema9 ? close : na, title="Down Arrow", location=location.abovebar, style=shape.triangledown, size=size.small, color=color.red)
+
+// sentiment 
+
+bool bullish = close >= ema9 and close >= ema21 
+bool bearish = close <= ema9 and close <= ema21 
+bool neutral = close < ema9 and close > ema21 
+
+// define colours 
+
+bull =          color.new(color.lime, 50)
+bear =          color.new(color.red, 50) 
+white =         color.white 
+neutralcolor = color.new(color.gray, 50) 
+
+crossovercolor = color.new(color.purple, 75)
+crossundercolor = color.new(color.orange, 75) 
+
+color pallette = bullish ? bull : bearish ? bear : neutralcolor
+color emacolor = ema9_cross_ema21 ? crossovercolor : ema21_cross_ema9 ? crossundercolor : pallette 
+
+filla = plot(ema9, color=emacolor, linewidth=1) 
+fillb = plot(ema21, color=emacolor, linewidth=1)
+
+fill(filla, fillb, color=pallette)
+
+bool above_ema = close >= ema9 and close >= ema21 
+bool below_ema = close < ema9 and close <= ema21 
+bool crossover = ema9_cross_ema21 
+bool crossunder = ema21_cross_ema9 
+
+bull_a = array.new_float() 
+open_a = array.new_float() 
+crossover_a = array.new_float() 
+crossunder_a = array.new_float() 
+bear_a = array.new_float() 
+
+
+for i = 0 to arraylookback 
+    if above_ema[i] 
+        array.push(bull_a, close[i]) 
+    if crossover[i] 
+        array.push(crossover_a, close[i])
+        array.push(open_a, open[i]) 
+    if below_ema[i] 
+        array.push(bear_a, close[i]) 
+    if crossunder[i] 
+        array.push(crossunder_a, close[i]) 
+
+    
+max_above = array.max(bull_a) 
+crossover_avg = array.avg(crossover_a) 
+max_below = array.min(bear_a) 
+crossunder_avg = array.avg(crossunder_a) 
+
+bull_dif1 = (max_above - crossover_avg) / 2 
+bull_dif2 = (max_above - crossover_avg) 
+bear_dif1 = (crossunder_avg - max_below) / 2 
+bear_dif2 = (crossunder_avg - max_below) 
+
+float op = 0.0 
+float bull_tgt = 0.0 
+float bull_tgt_2 = 0.0 
+float bear_tgt = 0.0 
+float bear_tgt_2 = 0.0 
+var label bull_tgt_1_lbl = na 
+var label bull_tgt_2_lbl = na 
+var label bear_tgt_1_lbl = na 
+var label bear_tgt_2_lbl = na 
+var line bull_tgt_lin = na
+var line bull_tgt_lin_2 = na 
+var line bear_tgt_lin = na 
+var line bear_tgt_lin_2 = na 
+
+if crossover 
+    if array.size(open_a) > 0
+        op := array.get(open_a, 0) 
+    bull_tgt := op + bull_dif1
+    bull_tgt_2 := op + bull_dif2  
+if crossunder 
+    if array.size(open_a) > 0 
+        op := array.get(open_a, 0) 
+    bear_tgt := op - bear_dif1 
+    bear_tgt_2 := op - bear_dif2 
+
+  
+if crossover and barstate.isconfirmed
+    line.delete(bull_tgt_lin) 
+    line.delete(bull_tgt_lin_2) 
+    label.delete(bull_tgt_1_lbl)
+    label.delete(bull_tgt_2_lbl) 
+    bull_tgt_lin := line.new(bar_index[1], y1 = bull_tgt, x2= bar_index, y2 = bull_tgt, extend = extend.right, color = bull, width=3)
+    bull_tgt_lin_2 := line.new(bar_index[1], y1 = bull_tgt_2, x2= bar_index, y2 = bull_tgt_2, extend = extend.right, color = bull, width=3)
+    if showlbls 
+        bull_tgt_1_lbl := label.new(bar_index[1], y = bull_tgt, text = "Bull Target 1 \n" + str.tostring(math.round(bull_tgt,2)), color = bull, textcolor = white)
+        bull_tgt_2_lbl := label.new(bar_index[1], y = bull_tgt_2, text = "Bull Target 2 \n" + str.tostring(math.round(bull_tgt_2,2)), color = bull, textcolor = white)
+
+if crossunder and barstate.isconfirmed
+    line.delete(bear_tgt_lin) 
+    line.delete(bear_tgt_lin_2)
+    label.delete(bear_tgt_1_lbl) 
+    label.delete(bear_tgt_2_lbl) 
+    bear_tgt_lin := line.new(bar_index[1], y1 = bear_tgt, x2= bar_index, y2 = bear_tgt, extend = extend.right, color = bear, width=3) 
+    bear_tgt_lin_2 := line.new(bar_index[1], y1 = bear_tgt_2, x2= bar_index, y2 = bear_tgt_2, extend = extend.right, color = bear, width=3)
+    if showlbls  
+        bear_tgt_1_lbl := label.new(bar_index[1], y = bear_tgt, text = "Bear Target 1 \n" + str.tostring(math.round(bear_tgt,2)), color = bear, style=label.style_label_up, textcolor = white)
+        bear_tgt_2_lbl := label.new(bar_index[1], y = bear_tgt_2, text = "Bear Target 2 \n" + str.tostring(math.round(bear_tgt_2,2)), color = bear, style=label.style_label_up, textcolor = white)
+
+
+
+
+alertcondition(crossover, "EMA 9/21 Crossover", "Bullish Cross") 
+alertcondition(crossunder, "EMA 9/21 Crossunder", "Bearish Cross")

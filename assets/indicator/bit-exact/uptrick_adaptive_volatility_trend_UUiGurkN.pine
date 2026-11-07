@@ -1,0 +1,1166 @@
+// This work is licensed under an Attribution-ShareAlike 4.0 International License (CC BY-SA 4.0)
+// https://creativecommons.org/licenses/by-sa/4.0/
+// © Uptrick
+
+//@version=6
+
+//    ██╗   ██╗██████╗ ████████╗██████╗ ██╗ ██████╗██╗  ██╗
+//    ██║   ██║██╔══██╗╚══██╔══╝██╔══██╗██║██╔════╝██║ ██╔╝
+//    ██║   ██║██████╔╝   ██║   ██████╔╝██║██║     █████╔╝
+//    ██║   ██║██╔═══╝    ██║   ██╔══██╗██║██║     ██╔═██╗
+//    ╚██████╔╝██║        ██║   ██║  ██║██║╚██████╗██║  ██╗
+//     ╚═════╝ ╚═╝        ╚═╝   ╚═╝  ╚═╝╚═╝ ╚═════╝╚═╝  ╚═╝
+
+
+indicator(
+     "Uptrick: Adaptive Volatility Trend",
+     shorttitle="Adaptive Vol Trend",
+     overlay=true,
+     max_labels_count=500
+)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 01 · COLOR SCHEME
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+gColors = "01 · Color Scheme"
+
+bullColor = input.color(
+     #00FFE5,
+     "Bullish Color",
+     group=gColors
+)
+
+bearColor = input.color(
+     #FF00B5,
+     "Bearish Color",
+     group=gColors
+)
+
+signalTextBull = input.color(
+     #000000,
+     "Buy Text",
+     group=gColors
+)
+
+signalTextBear = input.color(
+     #FFFFFF,
+     "Sell Text",
+     group=gColors
+)
+
+tpColor = input.color(
+     #FFFFFF,
+     "TP X Color",
+     group=gColors
+)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 02 · ADAPTIVE ENGINE
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+gEngine = "02 · Adaptive Engine"
+
+efficiencyLength = input.int(
+     12,
+     "Efficiency Length",
+     group=gEngine
+)
+
+volatilityLength = input.int(
+     18,
+     "Volatility Regime Length",
+     group=gEngine
+)
+
+adaptSmooth = input.int(
+     3,
+     "Adaptation Smoothing",
+     group=gEngine
+)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 03 · ADAPTIVE TREND
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+gTrend = "03 · Adaptive Trend"
+
+atrLength = input.int(
+     10,
+     "ATR Length",
+     group=gTrend
+)
+
+minATRMultiplier = input.float(
+     1.4,
+     "Minimum ATR Multiplier",
+     step=0.1,
+     group=gTrend
+)
+
+maxATRMultiplier = input.float(
+     3.0,
+     "Maximum ATR Multiplier",
+     step=0.1,
+     group=gTrend
+)
+
+volatilityInfluence = input.float(
+     0.50,
+     "Volatility Influence",
+     step=0.05,
+     group=gTrend
+)
+
+efficiencyInfluence = input.float(
+     0.85,
+     "Efficiency Influence",
+     step=0.05,
+     group=gTrend
+)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 04 · ADAPTIVE BASIS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+gBasis = "04 · Adaptive Basis"
+
+basisLength = input.int(
+     8,
+     "Basis Length",
+     group=gBasis
+)
+
+basisFastFactor = input.float(
+     0.40,
+     "Fast Regime Factor",
+     step=0.05,
+     group=gBasis
+)
+
+basisSlowFactor = input.float(
+     1.35,
+     "Slow Regime Factor",
+     step=0.05,
+     group=gBasis
+)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 05 · SIGNALS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+gSignals = "05 · Signals"
+
+showSignals = input.bool(
+     true,
+     "Show Buy / Sell",
+     group=gSignals
+)
+
+signalATRDistance = input.float(
+     1.0,
+     "Signal Trail Distance",
+     step=0.1,
+     group=gSignals
+)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 06 · TAKE PROFITS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+gTP = "06 · Take Profits"
+
+tpMode = input.string(
+     "Static",
+     "TP Mode",
+     options=[
+         "Off",
+         "Static",
+         "Dynamic",
+         "Both"
+     ],
+     group=gTP
+)
+
+staticTP1ATR = input.float(
+     1.0,
+     "TP1 ATR",
+     inline="ST1",
+     step=0.1,
+     group=gTP
+)
+
+staticTP2ATR = input.float(
+     2.5,
+     "TP2 ATR",
+     inline="ST2",
+     step=0.1,
+     group=gTP
+)
+
+staticTP3ATR = input.float(
+     3.0,
+     "TP3 ATR",
+     inline="ST3",
+     step=0.1,
+     group=gTP
+)
+
+tpXDistanceATR = input.float(
+     0.75,
+     "TP X Distance",
+     step=0.05,
+     group=gTP,
+     tooltip=
+         "Long TP X = high + ATR distance.\n" +
+         "Short TP X = low - ATR distance."
+)
+
+rsiLength = input.int(
+     14,
+     "Dynamic RSI Length",
+     group=gTP
+)
+
+rsiUpper = input.float(
+     75,
+     "Long Exhaustion",
+     inline="RSI",
+     step=1,
+     group=gTP
+)
+
+rsiLower = input.float(
+     25,
+     "Short Exhaustion",
+     inline="RSI",
+     step=1,
+     group=gTP
+)
+
+showStaticTPXs = input.bool(
+     true,
+     "Static TP Xs",
+     group=gTP
+)
+
+showDynamicTPXs = input.bool(
+     true,
+     "Dynamic TP Xs",
+     group=gTP
+)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 07 · DISPLAY
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+gDisplay = "07 · Display"
+
+showTrendLine = input.bool(
+     true,
+     "Show Adaptive Trail",
+     group=gDisplay
+)
+
+trendLineWidth = input.int(
+     1,
+     "Trail Width",
+     group=gDisplay
+)
+
+trendLineTransparency = input.int(
+     35,
+     "Trail Transparency",
+     group=gDisplay
+)
+
+showBasis = input.bool(
+     false,
+     "Show Adaptive Basis",
+     group=gDisplay
+)
+
+basisTransparency = input.int(
+     80,
+     "Basis Transparency",
+     group=gDisplay
+)
+
+showGradient = input.bool(
+     true,
+     "Vertical Price Gradient",
+     group=gDisplay
+)
+
+gradientTrailTransparency = input.int(
+     70,
+     "Gradient At Trail",
+     group=gDisplay
+)
+
+showCandles = input.bool(
+     true,
+     "Trend Candles",
+     group=gDisplay
+)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SAFE LENGTHS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+safeEfficiencyLength =
+     math.max(
+         efficiencyLength,
+         1
+     )
+
+safeVolatilityLength =
+     math.max(
+         volatilityLength,
+         1
+     )
+
+safeAdaptSmooth =
+     math.max(
+         adaptSmooth,
+         1
+     )
+
+safeATRLength =
+     math.max(
+         atrLength,
+         1
+     )
+
+safeBasisLength =
+     math.max(
+         basisLength,
+         1
+     )
+
+safeRSILength =
+     math.max(
+         rsiLength,
+         1
+     )
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TREND EFFICIENCY
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+directionalMove =
+     math.abs(
+         close -
+         close[safeEfficiencyLength]
+     )
+
+totalMove =
+     math.sum(
+         math.abs(
+             close -
+             close[1]
+         ),
+         safeEfficiencyLength
+     )
+
+efficiency =
+     totalMove != 0 ?
+     directionalMove /
+     totalMove :
+     0.0
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// VOLATILITY REGIME
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+atr =
+     ta.atr(
+         safeATRLength
+     )
+
+averageATR =
+     ta.sma(
+         atr,
+         safeVolatilityLength
+     )
+
+volatilityRatio =
+     averageATR != 0 ?
+     atr /
+     averageATR :
+     1.0
+
+volExpansion =
+     math.max(
+         volatilityRatio -
+         1.0,
+         0.0
+     )
+
+volScoreRaw =
+     volExpansion /
+     (
+         1.0 +
+         volExpansion
+     )
+
+volScore =
+     ta.ema(
+         volScoreRaw,
+         safeAdaptSmooth
+     )
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ADAPTIVE REGIME
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+inefficiency =
+     1.0 -
+     efficiency
+
+rawRegimeScore =
+     inefficiency *
+     efficiencyInfluence +
+     volScore *
+     volatilityInfluence
+
+regimeScore =
+     ta.ema(
+         rawRegimeScore,
+         safeAdaptSmooth
+     )
+
+normalizedRegime =
+     math.max(
+         math.min(
+             regimeScore,
+             1.0
+         ),
+         0.0
+     )
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ADAPTIVE MULTIPLIER
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+adaptiveMultiplier =
+     minATRMultiplier +
+     (
+         maxATRMultiplier -
+         minATRMultiplier
+     ) *
+     normalizedRegime
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ADAPTIVE BASIS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+adaptiveBasisFactor =
+     basisFastFactor +
+     (
+         basisSlowFactor -
+         basisFastFactor
+     ) *
+     normalizedRegime
+
+adaptiveBasisLength =
+     math.max(
+         int(
+             math.round(
+                 safeBasisLength *
+                 adaptiveBasisFactor
+             )
+         ),
+         1
+     )
+
+basisAlpha =
+     2.0 /
+     (
+         adaptiveBasisLength +
+         1.0
+     )
+
+var float adaptiveBasis = na
+
+adaptiveBasis :=
+     na(adaptiveBasis[1]) ?
+     hl2 :
+     adaptiveBasis[1] +
+     basisAlpha *
+     (
+         hl2 -
+         adaptiveBasis[1]
+     )
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// BASIC BANDS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+upperBasic =
+     adaptiveBasis +
+     atr *
+     adaptiveMultiplier
+
+lowerBasic =
+     adaptiveBasis -
+     atr *
+     adaptiveMultiplier
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SUPERTREND MEMORY
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+var float finalUpper = na
+var float finalLower = na
+
+finalUpper :=
+     na(finalUpper[1]) ?
+     upperBasic :
+     upperBasic < finalUpper[1] or
+     close[1] > finalUpper[1] ?
+     upperBasic :
+     finalUpper[1]
+
+finalLower :=
+     na(finalLower[1]) ?
+     lowerBasic :
+     lowerBasic > finalLower[1] or
+     close[1] < finalLower[1] ?
+     lowerBasic :
+     finalLower[1]
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TREND STATE
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+var int trend = na
+
+if na(trend)
+
+    trend :=
+         close >= adaptiveBasis ?
+         1 :
+         -1
+
+previousTrend =
+     trend
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// CONFIRMED TREND FLIPS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+bullFlip =
+     barstate.isconfirmed and
+     trend == -1 and
+     close > finalUpper
+
+bearFlip =
+     barstate.isconfirmed and
+     trend == 1 and
+     close < finalLower
+
+if barstate.isconfirmed
+
+    if bullFlip
+        trend := 1
+
+    else if bearFlip
+        trend := -1
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SIGNALS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+buySignal =
+     previousTrend == -1 and
+     trend == 1
+
+sellSignal =
+     previousTrend == 1 and
+     trend == -1
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ACTIVE TRAIL
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+activeTrendLine =
+     trend == 1 ?
+     finalLower :
+     finalUpper
+
+trendColor =
+     trend == 1 ?
+     bullColor :
+     bearColor
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TRADE STATE
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+var int tradeDirection = 0
+var int signalBar = na
+
+var float entryPrice = na
+var float entryATR = na
+
+var float staticTP1 = na
+var float staticTP2 = na
+var float staticTP3 = na
+
+var bool staticTP1Hit = false
+var bool staticTP2Hit = false
+var bool staticTP3Hit = false
+
+var bool dynamicTPHit = false
+var bool longRSIArmed = false
+var bool shortRSIArmed = false
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// NEW LONG
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+if buySignal
+
+    tradeDirection := 1
+    signalBar := bar_index
+
+    entryPrice := close
+    entryATR := atr
+
+    staticTP1 :=
+         entryPrice +
+         entryATR *
+         staticTP1ATR
+
+    staticTP2 :=
+         entryPrice +
+         entryATR *
+         staticTP2ATR
+
+    staticTP3 :=
+         entryPrice +
+         entryATR *
+         staticTP3ATR
+
+    staticTP1Hit := false
+    staticTP2Hit := false
+    staticTP3Hit := false
+
+    dynamicTPHit := false
+    longRSIArmed := false
+    shortRSIArmed := false
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// NEW SHORT
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+if sellSignal
+
+    tradeDirection := -1
+    signalBar := bar_index
+
+    entryPrice := close
+    entryATR := atr
+
+    staticTP1 :=
+         entryPrice -
+         entryATR *
+         staticTP1ATR
+
+    staticTP2 :=
+         entryPrice -
+         entryATR *
+         staticTP2ATR
+
+    staticTP3 :=
+         entryPrice -
+         entryATR *
+         staticTP3ATR
+
+    staticTP1Hit := false
+    staticTP2Hit := false
+    staticTP3Hit := false
+
+    dynamicTPHit := false
+    longRSIArmed := false
+    shortRSIArmed := false
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// STATIC TPs
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+staticEnabled =
+     tpMode == "Static" or
+     tpMode == "Both"
+
+canCheckTP =
+     barstate.isconfirmed and
+     not na(signalBar) and
+     bar_index > signalBar
+
+longStaticTP1Hit =
+     staticEnabled and
+     canCheckTP and
+     tradeDirection == 1 and
+     not staticTP1Hit and
+     high >= staticTP1
+
+longStaticTP2Hit =
+     staticEnabled and
+     canCheckTP and
+     tradeDirection == 1 and
+     not staticTP2Hit and
+     high >= staticTP2
+
+longStaticTP3Hit =
+     staticEnabled and
+     canCheckTP and
+     tradeDirection == 1 and
+     not staticTP3Hit and
+     high >= staticTP3
+
+shortStaticTP1Hit =
+     staticEnabled and
+     canCheckTP and
+     tradeDirection == -1 and
+     not staticTP1Hit and
+     low <= staticTP1
+
+shortStaticTP2Hit =
+     staticEnabled and
+     canCheckTP and
+     tradeDirection == -1 and
+     not staticTP2Hit and
+     low <= staticTP2
+
+shortStaticTP3Hit =
+     staticEnabled and
+     canCheckTP and
+     tradeDirection == -1 and
+     not staticTP3Hit and
+     low <= staticTP3
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TP X POSITIONS
+//
+// LONG  = HIGH + 0.75 ATR
+// SHORT = LOW  - 0.75 ATR
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+longTPX =
+     high +
+     atr *
+     tpXDistanceATR
+
+shortTPX =
+     low -
+     atr *
+     tpXDistanceATR
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// STATIC TP X SERIES
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+staticTP1X =
+     longStaticTP1Hit ?
+     longTPX :
+     shortStaticTP1Hit ?
+     shortTPX :
+     na
+
+staticTP2X =
+     longStaticTP2Hit ?
+     longTPX :
+     shortStaticTP2Hit ?
+     shortTPX :
+     na
+
+staticTP3X =
+     longStaticTP3Hit ?
+     longTPX :
+     shortStaticTP3Hit ?
+     shortTPX :
+     na
+
+plotchar(
+     showStaticTPXs ?
+     staticTP1X :
+     na,
+     "Static TP1",
+     char="X",
+     location=location.absolute,
+     color=tpColor,
+     size=size.tiny
+)
+
+plotchar(
+     showStaticTPXs ?
+     staticTP2X :
+     na,
+     "Static TP2",
+     char="X",
+     location=location.absolute,
+     color=tpColor,
+     size=size.tiny
+)
+
+plotchar(
+     showStaticTPXs ?
+     staticTP3X :
+     na,
+     "Static TP3",
+     char="X",
+     location=location.absolute,
+     color=tpColor,
+     size=size.tiny
+)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// LOCK STATIC TPs
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+if barstate.isconfirmed
+
+    if longStaticTP1Hit or shortStaticTP1Hit
+        staticTP1Hit := true
+
+    if longStaticTP2Hit or shortStaticTP2Hit
+        staticTP2Hit := true
+
+    if longStaticTP3Hit or shortStaticTP3Hit
+        staticTP3Hit := true
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// DYNAMIC RSI TP
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+dynamicEnabled =
+     tpMode == "Dynamic" or
+     tpMode == "Both"
+
+rsi =
+     ta.rsi(
+         close,
+         safeRSILength
+     )
+
+if barstate.isconfirmed and
+   dynamicEnabled and
+   not dynamicTPHit
+
+    if tradeDirection == 1 and
+       rsi >= rsiUpper
+
+        longRSIArmed := true
+
+    if tradeDirection == -1 and
+       rsi <= rsiLower
+
+        shortRSIArmed := true
+
+rsiCrossDown =
+     ta.crossunder(
+         rsi,
+         rsiUpper
+     )
+
+rsiCrossUp =
+     ta.crossover(
+         rsi,
+         rsiLower
+     )
+
+longDynamicTP =
+     dynamicEnabled and
+     canCheckTP and
+     tradeDirection == 1 and
+     longRSIArmed and
+     not dynamicTPHit and
+     rsiCrossDown
+
+shortDynamicTP =
+     dynamicEnabled and
+     canCheckTP and
+     tradeDirection == -1 and
+     shortRSIArmed and
+     not dynamicTPHit and
+     rsiCrossUp
+     
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// DYNAMIC TP X
+//
+// SAME 0.75 ATR OFFSET
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+dynamicTPX =
+     longDynamicTP ?
+     longTPX :
+     shortDynamicTP ?
+     shortTPX :
+     na
+
+plotchar(
+     showDynamicTPXs ?
+     dynamicTPX :
+     na,
+     "Dynamic TP",
+     char="X",
+     location=location.absolute,
+     color=tpColor,
+     size=size.tiny
+)
+
+if barstate.isconfirmed and
+   (
+       longDynamicTP or
+       shortDynamicTP
+   )
+
+    dynamicTPHit := true
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TRAIL
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+pTrend = plot(
+     showTrendLine ?
+     activeTrendLine :
+     na,
+     "Adaptive Volatility Trail",
+     color=color.new(
+         trendColor,
+         trendLineTransparency
+     ),
+     linewidth=trendLineWidth,
+     style=plot.style_linebr
+)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// OPTIONAL BASIS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+plot(
+     showBasis ?
+     adaptiveBasis :
+     na,
+     "Adaptive Basis",
+     color=color.new(
+         trendColor,
+         basisTransparency
+     ),
+     linewidth=1
+)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PRICE ANCHOR
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+pPrice = plot(
+     close,
+     "Price Anchor",
+     color=color.new(
+         trendColor,
+         100
+     ),
+     display=display.none
+)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// VERTICAL GRADIENT
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+gradientTop =
+     math.max(
+         close,
+         activeTrendLine
+     )
+
+gradientBottom =
+     math.min(
+         close,
+         activeTrendLine
+     )
+
+priceAboveTrail =
+     close >= activeTrendLine
+
+trailGradientColor =
+     color.new(
+         trendColor,
+         gradientTrailTransparency
+     )
+
+priceGradientColor =
+     color.new(
+         trendColor,
+         100
+     )
+
+gradientTopColor =
+     priceAboveTrail ?
+     priceGradientColor :
+     trailGradientColor
+
+gradientBottomColor =
+     priceAboveTrail ?
+     trailGradientColor :
+     priceGradientColor
+
+fill(
+     pTrend,
+     pPrice,
+     gradientTop,
+     gradientBottom,
+     showGradient ?
+     gradientTopColor :
+     na,
+     showGradient ?
+     gradientBottomColor :
+     na,
+     title="Adaptive Price Gradient"
+)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TREND CANDLES
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+plotcandle(
+     showCandles ?
+     open :
+     na,
+
+     showCandles ?
+     high :
+     na,
+
+     showCandles ?
+     low :
+     na,
+
+     showCandles ?
+     close :
+     na,
+
+     "Adaptive Trend Candles",
+
+     color=trendColor,
+     wickcolor=trendColor,
+     bordercolor=trendColor
+)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SIGNAL ANCHORS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+buySignalAnchor =
+     finalLower -
+     atr *
+     signalATRDistance
+
+sellSignalAnchor =
+     finalUpper +
+     atr *
+     signalATRDistance
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// BUY
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+if showSignals and buySignal
+
+    label.new(
+         bar_index,
+         buySignalAnchor,
+         "𝓑𝓾𝔂",
+         yloc=yloc.price,
+         style=label.style_label_up,
+         color=bullColor,
+         textcolor=signalTextBull,
+         size=size.normal
+    )
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SELL
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+if showSignals and sellSignal
+
+    label.new(
+         bar_index,
+         sellSignalAnchor,
+         "𝓢𝓮𝓵𝓵",
+         yloc=yloc.price,
+         style=label.style_label_down,
+         color=bearColor,
+         textcolor=signalTextBear,
+         size=size.normal
+    )
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// DATA WINDOW
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+plot(
+     adaptiveMultiplier,
+     "Adaptive ATR Multiplier",
+     display=display.data_window
+)
+
+plot(
+     efficiency,
+     "Trend Efficiency",
+     display=display.data_window
+)
+
+plot(
+     volatilityRatio,
+     "Volatility Ratio",
+     display=display.data_window
+)
+
+plot(
+     normalizedRegime,
+     "Adaptive Regime Score",
+     display=display.data_window
+)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ALERTS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+alertcondition(
+     buySignal,
+     "Adaptive Volatility Buy",
+     "Uptrick Adaptive Volatility Trend switched bullish on {{ticker}}"
+)
+
+alertcondition(
+     sellSignal,
+     "Adaptive Volatility Sell",
+     "Uptrick Adaptive Volatility Trend switched bearish on {{ticker}}"
+)
+
+alertcondition(
+     longStaticTP1Hit or shortStaticTP1Hit,
+     "Static TP1",
+     "Static TP1 reached on {{ticker}}"
+)
+
+alertcondition(
+     longStaticTP2Hit or shortStaticTP2Hit,
+     "Static TP2",
+     "Static TP2 reached on {{ticker}}"
+)
+
+alertcondition(
+     longStaticTP3Hit or shortStaticTP3Hit,
+     "Static TP3",
+     "Static TP3 reached on {{ticker}}"
+)
+
+alertcondition(
+     longDynamicTP or shortDynamicTP,
+     "Dynamic RSI TP",
+     "Dynamic RSI target triggered on {{ticker}}"
+)

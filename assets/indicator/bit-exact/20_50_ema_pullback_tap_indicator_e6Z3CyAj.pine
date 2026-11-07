@@ -1,0 +1,503 @@
+//@version=6
+indicator("20/50 EMA Pullback + MTF Supertrend", overlay=true, max_labels_count=500)
+
+//====================================================
+// EMA SETTINGS
+//====================================================
+grpEMA = "EMA Settings"
+
+emaTimeframe = input.timeframe(
+     "",
+     "EMA Timeframe",
+     group=grpEMA,
+     tooltip="Timeframe used to calculate the 20/50 EMAs. Leave blank to use the current chart timeframe.")
+
+fastLength = input.int(
+     20,
+     "Fast EMA",
+     minval=1,
+     group=grpEMA)
+
+slowLength = input.int(
+     50,
+     "Slow EMA",
+     minval=1,
+     group=grpEMA)
+
+
+//====================================================
+// SETUP SETTINGS
+//====================================================
+grpSetup = "Setup Rules"
+
+setupExpiry = input.int(
+     30,
+     "Setup Expiry (Candles)",
+     minval=1,
+     group=grpSetup,
+     tooltip="Number of chart candles allowed for price to touch the 20 EMA after the crossover.")
+
+showSetupLabels = input.bool(
+     true,
+     "Show Setup Labels",
+     group=grpSetup)
+
+showExpiry = input.bool(
+     true,
+     "Show Expiry Labels",
+     group=grpSetup)
+
+showEMAs = input.bool(
+     true,
+     "Show 20/50 EMAs",
+     group=grpSetup)
+
+
+//====================================================
+// SUPERTREND SETTINGS
+//====================================================
+grpST = "Supertrend Filter"
+
+stTimeframe = input.timeframe(
+     "15",
+     "Supertrend Timeframe",
+     group=grpST,
+     tooltip="Timeframe used to calculate the Supertrend. It is projected onto the current chart.")
+
+stFactor = input.float(
+     3.0,
+     "Supertrend Factor",
+     minval=0.1,
+     step=0.1,
+     group=grpST)
+
+stATRPeriod = input.int(
+     10,
+     "Supertrend ATR Period",
+     minval=1,
+     group=grpST)
+
+showSupertrend = input.bool(
+     true,
+     "Show Supertrend",
+     group=grpST)
+
+showSTShading = input.bool(
+     true,
+     "Show Supertrend Shading",
+     group=grpST)
+
+stShadeTransparency = input.int(
+     90,
+     "Shading Transparency",
+     minval=0,
+     maxval=100,
+     group=grpST)
+
+
+//====================================================
+// EMA CALCULATION
+//====================================================
+// Blank timeframe = current chart timeframe.
+// Otherwise calculate the EMAs on the selected
+// timeframe and project them onto the chart.
+//====================================================
+
+ema20 = request.security(
+     syminfo.tickerid,
+     emaTimeframe == "" ? timeframe.period : emaTimeframe,
+     ta.ema(close, fastLength),
+     lookahead=barmerge.lookahead_off)
+
+ema50 = request.security(
+     syminfo.tickerid,
+     emaTimeframe == "" ? timeframe.period : emaTimeframe,
+     ta.ema(close, slowLength),
+     lookahead=barmerge.lookahead_off)
+
+
+//====================================================
+// EMA CROSSOVER
+//====================================================
+bullCross = ta.crossover(ema20, ema50)
+bearCross = ta.crossunder(ema20, ema50)
+
+
+//====================================================
+// MULTI-TIMEFRAME SUPERTREND
+//====================================================
+[supertrend, direction] = request.security(
+     syminfo.tickerid,
+     stTimeframe,
+     ta.supertrend(stFactor, stATRPeriod),
+     lookahead=barmerge.lookahead_off)
+
+
+// TradingView Supertrend direction:
+// direction < 0 = bullish
+// direction > 0 = bearish
+
+supertrendBullish = direction < 0
+supertrendBearish = direction > 0
+
+
+//====================================================
+// SETUP STATE
+//
+// 0  = No setup
+// 1  = Bullish setup armed
+// -1 = Bearish setup armed
+//
+// Once a signal fires, that setup is finished.
+// A new signal requires a NEW EMA crossover.
+//====================================================
+var int setupState = 0
+var int setupBar = na
+
+var bool priceEstablishedAbove = false
+var bool priceEstablishedBelow = false
+
+
+//====================================================
+// ARM BULLISH SETUP
+//====================================================
+if bullCross
+    setupState := 1
+    setupBar := bar_index
+    priceEstablishedAbove := false
+    priceEstablishedBelow := false
+
+
+//====================================================
+// ARM BEARISH SETUP
+//====================================================
+if bearCross
+    setupState := -1
+    setupBar := bar_index
+    priceEstablishedAbove := false
+    priceEstablishedBelow := false
+
+
+//====================================================
+// PRICE MUST ESTABLISH ON CORRECT SIDE OF 20 EMA
+//====================================================
+if setupState == 1 and bar_index > setupBar and close > ema20
+    priceEstablishedAbove := true
+
+if setupState == -1 and bar_index > setupBar and close < ema20
+    priceEstablishedBelow := true
+
+
+//====================================================
+// SETUP AGE
+//====================================================
+setupAge =
+     setupState != 0 and not na(setupBar)
+     ? bar_index - setupBar
+     : na
+
+
+//====================================================
+// SETUP EXPIRY
+//====================================================
+bullExpired =
+     setupState == 1 and
+     setupAge >= setupExpiry
+
+bearExpired =
+     setupState == -1 and
+     setupAge >= setupExpiry
+
+
+if bullExpired
+    setupState := 0
+    setupBar := na
+    priceEstablishedAbove := false
+
+
+if bearExpired
+    setupState := 0
+    setupBar := na
+    priceEstablishedBelow := false
+
+
+//====================================================
+// 20 EMA PULLBACK TOUCH
+//
+// LONG:
+// Price establishes above 20 EMA.
+// Then candle LOW touches/crosses 20 EMA.
+//
+// SHORT:
+// Price establishes below 20 EMA.
+// Then candle HIGH touches/crosses 20 EMA.
+//====================================================
+longTap =
+     setupState == 1 and
+     priceEstablishedAbove and
+     bar_index > setupBar and
+     low <= ema20
+
+shortTap =
+     setupState == -1 and
+     priceEstablishedBelow and
+     bar_index > setupBar and
+     high >= ema20
+
+
+//====================================================
+// FINAL SIGNAL
+//
+// LONG:
+// 20/50 bullish setup
+// +
+// 20 EMA pullback
+// +
+// MTF Supertrend bullish
+//
+// SHORT:
+// 20/50 bearish setup
+// +
+// 20 EMA pullback
+// +
+// MTF Supertrend bearish
+//====================================================
+longSignal =
+     longTap and
+     supertrendBullish
+
+shortSignal =
+     shortTap and
+     supertrendBearish
+
+
+//====================================================
+// COMPLETE SETUP AFTER SIGNAL
+//
+// Guarantees one signal per crossover.
+//====================================================
+if longSignal
+    setupState := 0
+    setupBar := na
+    priceEstablishedAbove := false
+
+if shortSignal
+    setupState := 0
+    setupBar := na
+    priceEstablishedBelow := false
+
+
+//====================================================
+// EMA PLOTS
+//====================================================
+plot(
+     showEMAs ? ema20 : na,
+     title="20 EMA",
+     color=color.orange,
+     linewidth=2)
+
+plot(
+     showEMAs ? ema50 : na,
+     title="50 EMA",
+     color=color.blue,
+     linewidth=2)
+
+
+//====================================================
+// SUPERTREND PLOTS
+//====================================================
+stBullPlot =
+     showSupertrend and supertrendBullish
+     ? supertrend
+     : na
+
+stBearPlot =
+     showSupertrend and supertrendBearish
+     ? supertrend
+     : na
+
+plot(
+     stBullPlot,
+     title="Bullish Supertrend",
+     color=color.green,
+     linewidth=2,
+     style=plot.style_linebr)
+
+plot(
+     stBearPlot,
+     title="Bearish Supertrend",
+     color=color.red,
+     linewidth=2,
+     style=plot.style_linebr)
+
+
+//====================================================
+// SUPERTREND SHADING
+//
+// BULLISH:
+// Fill from candle LOW down to Supertrend.
+//
+// BEARISH:
+// Fill from candle HIGH up to Supertrend.
+//====================================================
+
+//----------------------------------------------------
+// Bullish candle boundary
+//----------------------------------------------------
+bullPriceLowPlot = plot(
+     showSTShading and supertrendBullish
+     ? low
+     : na,
+     title="Bullish Candle Boundary",
+     display=display.none)
+
+
+//----------------------------------------------------
+// Bullish Supertrend boundary
+//----------------------------------------------------
+bullSTFillPlot = plot(
+     showSTShading and supertrendBullish
+     ? supertrend
+     : na,
+     title="Bullish Supertrend Fill Boundary",
+     display=display.none)
+
+
+//----------------------------------------------------
+// Bullish fill
+//----------------------------------------------------
+fill(
+     bullPriceLowPlot,
+     bullSTFillPlot,
+     color=color.new(color.green, stShadeTransparency),
+     title="Bullish Supertrend Shading")
+
+
+//----------------------------------------------------
+// Bearish candle boundary
+//----------------------------------------------------
+bearPriceHighPlot = plot(
+     showSTShading and supertrendBearish
+     ? high
+     : na,
+     title="Bearish Candle Boundary",
+     display=display.none)
+
+
+//----------------------------------------------------
+// Bearish Supertrend boundary
+//----------------------------------------------------
+bearSTFillPlot = plot(
+     showSTShading and supertrendBearish
+     ? supertrend
+     : na,
+     title="Bearish Supertrend Fill Boundary",
+     display=display.none)
+
+
+//----------------------------------------------------
+// Bearish fill
+//----------------------------------------------------
+fill(
+     bearPriceHighPlot,
+     bearSTFillPlot,
+     color=color.new(color.red, stShadeTransparency),
+     title="Bearish Supertrend Shading")
+
+
+//====================================================
+// EMA CROSSOVER LABELS
+//====================================================
+plotshape(
+     showSetupLabels and bullCross,
+     title="Bullish Cross",
+     style=shape.labelup,
+     location=location.belowbar,
+     color=color.green,
+     textcolor=color.white,
+     text="20/50\nARMED",
+     size=size.small)
+
+plotshape(
+     showSetupLabels and bearCross,
+     title="Bearish Cross",
+     style=shape.labeldown,
+     location=location.abovebar,
+     color=color.red,
+     textcolor=color.white,
+     text="20/50\nARMED",
+     size=size.small)
+
+
+//====================================================
+// FINAL BUY SIGNAL
+//====================================================
+plotshape(
+     longSignal,
+     title="BUY",
+     style=shape.labelup,
+     location=location.belowbar,
+     color=color.lime,
+     textcolor=color.white,
+     text="BUY",
+     size=size.normal)
+
+
+//====================================================
+// FINAL SELL SIGNAL
+//====================================================
+plotshape(
+     shortSignal,
+     title="SELL",
+     style=shape.labeldown,
+     location=location.abovebar,
+     color=color.red,
+     textcolor=color.white,
+     text="SELL",
+     size=size.normal)
+
+
+//====================================================
+// EXPIRY LABELS
+//====================================================
+plotshape(
+     showExpiry and bullExpired,
+     title="Bullish Setup Expired",
+     style=shape.xcross,
+     location=location.abovebar,
+     color=color.gray,
+     text="EXPIRED",
+     size=size.tiny)
+
+plotshape(
+     showExpiry and bearExpired,
+     title="Bearish Setup Expired",
+     style=shape.xcross,
+     location=location.belowbar,
+     color=color.gray,
+     text="EXPIRED",
+     size=size.tiny)
+
+
+//====================================================
+// ALERTS
+//====================================================
+alertcondition(
+     bullCross,
+     title="20/50 Bullish Cross",
+     message="20 EMA crossed ABOVE 50 EMA — bullish setup armed. Waiting for 20 EMA pullback.")
+
+alertcondition(
+     bearCross,
+     title="20/50 Bearish Cross",
+     message="20 EMA crossed BELOW 50 EMA — bearish setup armed. Waiting for 20 EMA pullback.")
+
+alertcondition(
+     longSignal,
+     title="20/50 BUY + MTF Supertrend Bullish",
+     message="BUY — 20/50 EMA pullback confirmed with bullish Multi-Timeframe Supertrend.")
+
+alertcondition(
+     shortSignal,
+     title="20/50 SELL + MTF Supertrend Bearish",
+     message="SELL — 20/50 EMA pullback confirmed with bearish Multi-Timeframe Supertrend.")

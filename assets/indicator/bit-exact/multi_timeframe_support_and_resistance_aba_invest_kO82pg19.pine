@@ -1,0 +1,74 @@
+// This work is licensed under a Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0) https://creativecommons.org/licenses/by-nc-sa/4.0/
+// © ABA Invest
+
+//@version = 5
+indicator(title="Multi Timeframe Support and Resistance [ABA Invest]", shorttitle = "MTF SnR [ABA Invest]", overlay = true)
+
+// SnR Levels
+bars                    = input.int(15, title = "Pivot")
+tipe                    = input.string("Body", title = "Type", options = ["Wick", "Body"])
+
+show_c                = input.bool(true, title = "Current Timeframe", group = "Timeframes")
+
+show_5m                 = input.bool(false, title = "M5", group = "Timeframes")
+show_15m                = input.bool(false, title = "M15", group = "Timeframes")
+show_30m                = input.bool(false, title = "M30", group = "Timeframes")
+show_1h                 = input.bool(false, title = "H1", group = "Timeframes")
+show_4h                 = input.bool(false, title = "H4", group = "Timeframes")
+show_d                  = input.bool(false, title = "Daily", group = "Timeframes")
+show_w                  = input.bool(false, title = "Weekly", group = "Timeframes")
+
+pivot_high_5m           = fixnan(request.security(syminfo.tickerid, "5", ta.pivothigh(tipe == "Wick" ? high : close, bars, bars)[1]))
+pivot_high_15m          = fixnan(request.security(syminfo.tickerid, "15", ta.pivothigh(tipe == "Wick" ? high : close, bars, bars)[1]))
+pivot_high_30m          = fixnan(request.security(syminfo.tickerid, "30", ta.pivothigh(tipe == "Wick" ? high : close, bars, bars)[1]))
+pivot_high_1h           = fixnan(request.security(syminfo.tickerid, "60", ta.pivothigh(tipe == "Wick" ? high : close, bars, bars)[1]))
+pivot_high_4h           = fixnan(request.security(syminfo.tickerid, "240", ta.pivothigh(tipe == "Wick" ? high : close, bars, bars)[1]))
+pivot_high_d            = fixnan(request.security(syminfo.tickerid, "D", ta.pivothigh(tipe == "Wick" ? high : close, bars, bars)[1]))
+pivot_high_w            = fixnan(request.security(syminfo.tickerid, "W", ta.pivothigh(tipe == "Wick" ? high : close, bars, bars)[1]))
+pivot_high_c            = fixnan(ta.pivothigh(tipe == "Wick" ? high : close, bars, bars)[1])
+
+pivot_low_5m           = fixnan(request.security(syminfo.tickerid, "5", ta.pivotlow(tipe == "Wick" ? low : close, bars, bars)[1]))
+pivot_low_15m          = fixnan(request.security(syminfo.tickerid, "15", ta.pivotlow(tipe == "Wick" ? low : close, bars, bars)[1]))
+pivot_low_30m          = fixnan(request.security(syminfo.tickerid, "30", ta.pivotlow(tipe == "Wick" ? low : close, bars, bars)[1]))
+pivot_low_1h           = fixnan(request.security(syminfo.tickerid, "60", ta.pivotlow(tipe == "Wick" ? low : close, bars, bars)[1]))
+pivot_low_4h           = fixnan(request.security(syminfo.tickerid, "240", ta.pivotlow(tipe == "Wick" ? low : close, bars, bars)[1]))
+pivot_low_d            = fixnan(request.security(syminfo.tickerid, "D", ta.pivotlow(tipe == "Wick" ? low : close, bars, bars)[1]))
+pivot_low_w            = fixnan(request.security(syminfo.tickerid, "W", ta.pivotlow(tipe == "Wick" ? low : close, bars, bars)[1]))
+pivot_low_c            = fixnan(ta.pivotlow(tipe == "Wick" ? low : close, bars, bars)[1])
+
+resistance_high_5m     = plot(show_5m ? pivot_high_5m : na, color=ta.change(pivot_high_5m) ? na : #00aeff, offset = -bars - 1,  linewidth=2, title="Resistance M5")
+resistance_low_5m     = plot(show_5m ? pivot_low_5m : na, color=ta.change(pivot_low_5m) ? na : #ffbf00, offset = -bars - 1, linewidth=2, title="Support M5")
+
+resistance_high_15m    = plot(show_15m ? pivot_high_15m : na, color=ta.change(pivot_high_15m) ? na : #00aeffdd, offset = -bars - 1, linewidth=2, title="Resistance M15")
+resistance_low_15m    = plot(show_15m ? pivot_low_15m : na, color=ta.change(pivot_low_15m) ? na : #ffbf00dd, offset = -bars - 1, linewidth=2, title="Support M15")
+
+resistance_high_30m    = plot(show_30m ? pivot_high_30m : na, color=ta.change(pivot_high_30m) ? na : #00aeffbb, offset = -bars - 1, linewidth=2, title="Resistance M30")
+resistance_low_30m    = plot(show_30m ? pivot_low_30m : na, color=ta.change(pivot_low_30m) ? na : #ffbf00bb, offset = -bars - 1, linewidth=2, title="Support M30")
+
+resistance_high_1h     = plot(show_1h ? pivot_high_1h : na, color=ta.change(pivot_high_1h) ? na : #00aeff90, offset = -bars - 1, linewidth=2, title="Resistance H1")
+resistance_low_1h     = plot(show_1h ? pivot_low_1h : na, color=ta.change(pivot_low_1h) ? na : #ffbf0090, offset = -bars - 1, linewidth=2, title="Support H1")
+
+resistance_high_4h     = plot(show_4h ? pivot_high_4h : na, color=ta.change(pivot_high_4h) ? na : #00aeff70, offset = -bars - 1, linewidth=2, title="Resistance H4")
+resistance_low_4h     = plot(show_4h ? pivot_low_4h : na, color=ta.change(pivot_low_4h) ? na : #ffbf0070, offset = -bars - 1, linewidth=2, title="Support H4")
+
+resistance_high_d      = plot(show_d ? pivot_high_d : na, color=ta.change(pivot_high_d) ? na : #00aeff50, offset = -bars - 1, linewidth=2, title="Resistance Daily")
+resistance_low_d      = plot(show_d ? pivot_low_d : na, color=ta.change(pivot_low_d) ? na : #ffbf0050, offset = -bars - 1, linewidth=2, title="Support Daily")
+
+resistance_high_w      = plot(show_w ? pivot_high_w : na, color=ta.change(pivot_high_w) ? na : #00aeff30, offset = -bars - 1, linewidth=2, title="Resistance Weekly")
+resistance_low_w      = plot(show_w ? pivot_low_w : na, color=ta.change(pivot_low_w) ? na : #ffbf0030, offset = -bars - 1, linewidth=2, title="Support Weekly")
+
+resistance_high_c      = plot(show_c ? pivot_high_c : na, color=ta.change(pivot_high_c) ? na : #ff0040, offset = -bars - 1, linewidth=2, title="Resistance Current Timeframe")
+resistance_low_c      = plot(show_c ? pivot_low_c : na, color=ta.change(pivot_low_c) ? na : #6aff00, offset = -bars - 1, linewidth=2, title="Support Current Timeframe")
+
+// Adaptive Moving Average
+plot_ama                = input.bool(false, title = "Adaptive Moving Average")
+ama_length              = input.int(15, title = "Line Length")
+amarc                 = close
+float ama               = 0
+hh                      = math.max(math.sign(ta.change(ta.highest(ama_length))),0)
+ll                      = math.max(math.sign(ta.change(ta.lowest(ama_length))*-1),0)
+tc                      = math.pow(ta.sma(hh or ll ? 1 : 0,ama_length),2)
+
+ama := nz(ama[1]+tc*(amarc-ama[1]),amarc)
+
+garis_ama               = plot(plot_ama ? ama : na,"Adaptive Moving Average",#ffffff,2)

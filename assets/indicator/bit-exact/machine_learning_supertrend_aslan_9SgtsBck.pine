@@ -1,0 +1,736 @@
+//@version=6
+indicator("Machine Learning Supertrend [Aslan]", "Machine Learning Supertrend [Aslan]", overlay = true,
+     max_bars_back = 2000, max_labels_count = 500, max_lines_count = 500, max_boxes_count = 500)
+ 
+// ═══════════════════════════════════════════════════════════════════════════════════
+//  0 · PALETTE
+// ═══════════════════════════════════════════════════════════════════════════════════
+grpCol = "◇ 0 · Palette"
+bullCol   = input.color(color.teal, "Bull",    group = grpCol, inline = "p1")
+bearCol   = input.color(color.red,  "Bear",    group = grpCol, inline = "p1")
+accentCol = input.color(#4d9fff,    "Accent",  group = grpCol, inline = "p1", tooltip = "Used for low-volatility and grid-confidence readouts on the dashboard.")
+neutCol   = input.color(#787b86,    "Neutral", group = grpCol, inline = "p1")
+ 
+// ═══════════════════════════════════════════════════════════════════════════════════
+//  1 · SIGNAL ENGINE
+// ═══════════════════════════════════════════════════════════════════════════════════
+grpSig = "◆ 1 · Signal Engine"
+sigMode      = input.string("Reversal", "Mode", options = ["Reversal", "Breakout"], group = grpSig, tooltip = "Reversal: fires when a trend exhausts at a fresh extreme and the band flips. Breakout: fires when price pushes into a new extreme WITH the trend. Opposite premises - pick one and tune for it.")
+pivotWin     = input.int(30, "Pivot Window", minval = 5, maxval = 400, group = grpSig, tooltip = "Bars scanned for new highs and lows. Lower reacts to minor swings, higher only to structural moves.")
+needFresh    = input.bool(true, "Require Fresh Pivot", group = grpSig, tooltip = "Reversal mode only. Demands a genuine new extreme during the trend before a flip counts as a signal.")
+sigSpacing   = input.int(10, "Min Bars Between Signals", minval = 1, maxval = 500, group = grpSig)
+confirmOnly  = input.bool(true, "Confirmed Bars Only", group = grpSig, tooltip = "ON: signals only latch on bar close, nothing repaints intrabar. OFF: signals appear live and can vanish. Leave ON unless you have a reason.")
+showSigLabel = input.bool(true, "Show Signal Labels", group = grpSig)
+ 
+// ═══════════════════════════════════════════════════════════════════════════════════
+//  2 · VOLATILITY ENVELOPE
+// ═══════════════════════════════════════════════════════════════════════════════════
+grpEnv = "◆ 2 · Volatility Envelope"
+baseAtrLen  = input.int(24, "ATR Period", minval = 5, maxval = 300, group = grpEnv)
+baseMult    = input.float(1.4, "Band Width (xATR)", minval = 0.3, maxval = 6.0, step = 0.05, group = grpEnv, tooltip = "The single most impactful setting. Wider bands flip less often and give fewer, higher-conviction signals.")
+srcType     = input.string("hlcc4", "Price Basis", options = ["close", "hl2", "hlc3", "ohlc4", "hlcc4"], group = grpEnv)
+useRMA      = input.bool(true, "RMA Smoothing", group = grpEnv, tooltip = "OFF switches to EMA - faster reaction to volatility spikes, noisier bands.")
+showTrendLn = input.bool(true, "Show Trend Line", group = grpEnv)
+ 
+// ═══════════════════════════════════════════════════════════════════════════════════
+//  3 · FILTERS
+// ═══════════════════════════════════════════════════════════════════════════════════
+grpFlt = "◆ 3 · Filters"
+useRSI    = input.bool(true, "Momentum Filter", group = grpFlt, tooltip = "In Reversal mode a long needs RSI to have been recently oversold. In Breakout mode the polarity inverts - a long needs RSI to have been recently HOT, because you are buying strength, not exhaustion.")
+rsiLen    = input.int(14, "  RSI Length", minval = 2, maxval = 50, group = grpFlt)
+rsiHi     = input.int(70, "  Hot / Cold Level", minval = 55, maxval = 90, group = grpFlt, inline = "rl")
+rsiLo     = input.int(30, "", minval = 10, maxval = 45, group = grpFlt, inline = "rl")
+rsiMem    = input.int(50, "  Zone Memory (bars)", minval = 1, maxval = 400, group = grpFlt, tooltip = "How far back RSI must have visited the hot or cold zone for the filter to pass.")
+useVol    = input.bool(false, "Require Volume Surge", group = grpFlt, tooltip = "Cuts signal count hard. Useless on synthetic symbols and most FX feeds, where volume is a tick count.")
+volLen    = input.int(3, "  Baseline Depth", minval = 1, maxval = 300, group = grpFlt)
+volMult   = input.float(1.2, "  Surge Threshold", minval = 0.1, maxval = 5.0, step = 0.1, group = grpFlt)
+useMajor  = input.bool(false, "Key Levels Only", group = grpFlt, tooltip = "Only allows signals where the pivot-window range spans a large ATR multiple. Swing-trader setting.")
+majorATR  = input.float(4.5, "  Key Level Depth (xATR)", minval = 1.0, maxval = 20.0, step = 0.1, group = grpFlt)
+useBias   = input.bool(false, "Require Trend Alignment", group = grpFlt, tooltip = "Blocks counter-trend signals using the 200 EMA. In Reversal mode this is self-contradictory by construction and will suppress most turning points. Intended for Breakout mode.")
+ 
+// ═══════════════════════════════════════════════════════════════════════════════════
+//  4 · ADAPTIVE CORE
+// ═══════════════════════════════════════════════════════════════════════════════════
+grpAdp = "◆ 4 · Adaptive Core"
+adaptOn     = input.bool(true, "Enable Auto-Tune", group = grpAdp, tooltip = "OFF: a conventional fixed-parameter supertrend using your inputs verbatim, fully reproducible. ON: the probe engine drifts band width, ATR period, stop and target from rolling probe outcomes.")
+reactivity  = input.int(10, "Reactivity (1-20)", minval = 1, maxval = 20, group = grpAdp, tooltip = "Meta-dial. Sets per-update caps, deadband and blend alpha in one move. 1 = glacial, 20 = twitchy.")
+learnRate   = input.float(0.25, "Step Size", minval = 0.01, maxval = 0.5, step = 0.01, group = grpAdp)
+rollN       = input.int(30, "Probe Memory (per side)", minval = 5, maxval = 500, group = grpAdp, tooltip = "Rolling window of probe outcomes feeding win rate, mean return and Sortino. Longer is more stable and slower to react.")
+winHi       = input.float(0.62, "Win Ceiling", minval = 0.50, maxval = 1.00, step = 0.01, group = grpAdp, inline = "w")
+winLo       = input.float(0.38, "Floor", minval = 0.00, maxval = 0.50, step = 0.01, group = grpAdp, inline = "w")
+updEvery    = input.int(3, "Update Cooldown (bars)", minval = 1, maxval = 100, group = grpAdp)
+deadband    = input.float(0.01, "Deadband", minval = 0, maxval = 0.2, step = 0.005, group = grpAdp, tooltip = "A proposed band-width change must exceed this before it is applied. Kills micro-jitter.")
+revertEvery = input.int(200, "Anchor Revert Interval", minval = 10, maxval = 5000, group = grpAdp, tooltip = "Every N bars the adapted parameters are pulled a fraction back toward your base inputs. Stops unbounded drift.")
+revertStep  = input.float(0.02, "Anchor Revert Strength", minval = 0.001, maxval = 0.2, step = 0.001, group = grpAdp)
+ 
+// ═══════════════════════════════════════════════════════════════════════════════════
+//  5 · CONTEXT MEMORY
+// ═══════════════════════════════════════════════════════════════════════════════════
+grpCtx = "◆ 5 · Context Memory"
+useGrid   = input.bool(true, "Enable Regime Grid", group = grpCtx, tooltip = "2D map of (trend regime x volatility). Remembers which parameter shifts worked in each cell and reapplies them when the market returns to a familiar state.")
+gridX     = input.int(8, "Regime Bins", minval = 4, maxval = 16, group = grpCtx, inline = "g")
+gridY     = input.int(8, "Vol Bins", minval = 4, maxval = 16, group = grpCtx, inline = "g")
+gridSigma = input.float(0.8, "Neighbour Blend", minval = 0.2, maxval = 2.0, step = 0.05, group = grpCtx, tooltip = "Gaussian sigma in bin units. Higher smooths across sparse neighbouring cells.")
+gridHalf  = input.int(50, "Decay Half-Life (probes)", minval = 10, maxval = 400, group = grpCtx)
+gridConfN = input.int(20, "Confidence Ramp (probes)", minval = 5, maxval = 200, group = grpCtx, tooltip = "Probes needed for a cell to reach roughly 63% confidence.")
+gridMaxW  = input.float(0.65, "Max Grid Influence", minval = 0.1, maxval = 0.9, step = 0.05, group = grpCtx)
+volCeil   = input.float(2.5, "Vol Ratio Ceiling", minval = 1.0, maxval = 5.0, step = 0.1, group = grpCtx)
+regEvery  = input.int(7, "Regime Refresh (bars)", minval = 1, maxval = 50, group = grpCtx, tooltip = "The Hurst and entropy loops are the most expensive thing in this script. Refreshing every bar buys almost nothing.")
+ 
+// ═══════════════════════════════════════════════════════════════════════════════════
+//  6 · OVERLAYS
+// ═══════════════════════════════════════════════════════════════════════════════════
+grpVis = "◆ 6 · Overlays"
+showCloud  = input.bool(true, "Trend Cloud", group = grpVis, inline = "v1")
+cloudFade  = input.int(78, "", minval = 40, maxval = 95, group = grpVis, inline = "v1", tooltip = "Transparency of the densest cloud layer. The gradient fades upward from here.")
+showBarCol = input.bool(true, "Gradient Bar Colour", group = grpVis, tooltip = "Bar tint scales with distance from the trend line in ATR units. Driven by the same supertrend state, so it is part of the trend display rather than a separate overlay.")
+showRails    = input.bool(true, "Pivot Rails", group = grpVis, inline = "r1", tooltip = "Plots pivHi[pivBack] and pivLo[pivBack] - the exact two levels newHigh and newLow test against. These lag the running extreme by pivBack bars, which is what makes them crossable. The un-offset ta.highest/ta.lowest series can never be broken by definition, so it is not what is drawn here.")
+railFade     = input.int(30, "", minval = 0, maxval = 90, group = grpVis, inline = "r1")
+railDim      = input.bool(true,  "    Dim Dormant Side", group = grpVis, tooltip = "Only one rail is armed at a time. In BOTH modes the upper rail is live during an uptrend and the lower during a downtrend - topLatch requires trendUp, botLatch requires not trendUp, and Breakout mode gates rawLong/rawShort identically. The dormant rail fades rather than disappears so you can still see where it sits.")
+showRailFill = input.bool(false, "    Key-Level Channel", group = grpVis, tooltip = "Shades the pivot range, tinted when pivHi - pivLo clears majorATR x ATR. That span is an UPPER BOUND on the two per-side spans Key Levels Only actually tests, so grey means neither side can pass and tinted means one might. Only informative with that filter on.")
+showRailDot  = input.bool(true,  "    Mark Raw Breaks", group = grpVis, tooltip = "Dots every newHigh / newLow - the raw trigger BEFORE the section 3 filters run. A dot with no signal label means a filter vetoed it.")
+showRailTag  = input.bool(true,  "    Price Tags", group = grpVis)
+
+// ═══════════════════════════════════════════════════════════════════════════════════
+//  7 · DASHBOARD
+// ═══════════════════════════════════════════════════════════════════════════════════
+grpDsh = "◆ 7 · Dashboard"
+showDash = input.bool(true, "Show Dashboard", group = grpDsh)
+dashPos  = input.string("Bottom Right", "Position", options = ["Top Right", "Middle Right", "Bottom Right", "Bottom Left", "Top Left"], group = grpDsh)
+dashSize = input.string("Small", "Text Size", options = ["Tiny", "Small", "Normal"], group = grpDsh)
+ 
+// ═══════════════════════════════════════════════════════════════════════════════════
+//  8 · UTILITIES
+// ═══════════════════════════════════════════════════════════════════════════════════
+clamp(v, lo, hi) => math.max(lo, math.min(hi, v))
+qz(x, s)         => s <= 0 ? x : math.round(x / s) * s
+nz0(x)           => na(x) ? 0.0 : x
+ 
+// Variable-length RMA / EMA. Required because ta.atr() will not accept a series
+// length, and the adaptive engine mutates the ATR period every few bars.
+rmaV(x, len) =>
+    float a = 1.0 / math.max(1.0, len)
+    var float y = na
+    y := na(y[1]) ? x : y[1] + a * (x - y[1])
+    y
+ 
+emaV(x, len) =>
+    float a = 2.0 / (math.max(1.0, len) + 1.0)
+    var float y = na
+    y := na(y[1]) ? x : a * x + (1.0 - a) * y[1]
+    y
+ 
+rollPush(arr, v, cap) =>
+    array.push(arr, v)
+    while array.size(arr) > cap
+        array.shift(arr)
+    0
+ 
+rollWin(arr) =>
+    int n = array.size(arr)
+    float w = 0.0
+    if n > 0
+        for i = 0 to n - 1
+            w += array.get(arr, i) > 0 ? 1 : 0
+    n == 0 ? 0.5 : w / n
+ 
+rollAvg(arr) =>
+    int n = array.size(arr)
+    float s = 0.0
+    if n > 0
+        for i = 0 to n - 1
+            s += array.get(arr, i)
+    n == 0 ? 0.0 : s / n
+ 
+rollSortino(arr) =>
+    int n = array.size(arr)
+    float out = na
+    if n > 2
+        float m = 0.0
+        float dd = 0.0
+        int dc = 0
+        for i = 0 to n - 1
+            v = array.get(arr, i)
+            m += v
+            if v < 0
+                dd += v * v
+                dc += 1
+        m /= n
+        float d = dc > 0 ? math.sqrt(dd / dc) : na
+        out := na(d) or d == 0 ? na : m / d
+    out
+ 
+bucket(x, bins) => clamp(int(math.floor(x * bins)), 0, bins - 1)
+ 
+meter(v, n) =>
+    int f = clamp(int(math.round(v * n)), 0, n)
+    str.repeat("█", f) + str.repeat("░", n - f)
+ 
+// ═══════════════════════════════════════════════════════════════════════════════════
+//  9 · GLOBAL SERIES
+// ═══════════════════════════════════════════════════════════════════════════════════
+src = switch srcType
+    "close" => close
+    "hl2"   => hl2
+    "hlc3"  => hlc3
+    "ohlc4" => ohlc4
+    => hlcc4
+ 
+atr14  = ta.atr(14)
+atrAvg = ta.sma(atr14, 100)
+ema200 = ta.ema(close, 200)
+rsiVal = ta.rsi(close, rsiLen)
+volAvg = ta.sma(volume, volLen)
+[_dip, _dim, adxRaw] = ta.dmi(14, 14)
+ 
+const int REG_LEN = 64
+regMean = ta.sma(close, REG_LEN)
+regStd  = ta.stdev(close, REG_LEN)
+regDev  = close - regMean
+ 
+barsColdRSI = ta.barssince(rsiVal < rsiLo)
+barsHotRSI  = ta.barssince(rsiVal > rsiHi)
+ 
+pivHi = ta.highest(high, pivotWin)
+pivLo = ta.lowest(low, pivotWin)
+pivBack = math.max(1, int(pivotWin / 10))
+ 
+// ═══════════════════════════════════════════════════════════════════════════════════
+//  10 · REGIME DETECTION
+//  Trend regime = blend of (1 - directional entropy), rescaled-range Hurst and ADX.
+// ═══════════════════════════════════════════════════════════════════════════════════
+hurstRS() =>
+    float cum = 0.0
+    float mx  = 0.0
+    float mn  = 0.0
+    for i = 0 to REG_LEN - 1
+        cum += nz0(regDev[i])
+        mx := math.max(mx, cum)
+        mn := math.min(mn, cum)
+    float R = mx - mn
+    na(regStd) or regStd == 0 ? 0.5 : clamp(math.log(math.max(R, 1e-10) / regStd) / math.log(REG_LEN), 0.0, 1.0)
+ 
+dirEntropy() =>
+    float u = 0.0
+    float d = 0.0
+    for i = 1 to REG_LEN
+        diff = nz0(close[i - 1] - close[i])
+        u += diff > 0 ? 1 : 0
+        d += diff < 0 ? 1 : 0
+    float t = u + d
+    float H = 1.0
+    if t > 0
+        float p1 = u / t
+        float p2 = d / t
+        float e = 0.0
+        e += p1 > 0 ? -p1 * math.log(p1) : 0.0
+        e += p2 > 0 ? -p2 * math.log(p2) : 0.0
+        H := clamp(e / math.log(2), 0, 1)
+    H
+ 
+var float regimeScore = 0.5
+var float hurstV      = 0.5
+var float entropyV    = 1.0
+if barstate.isfirst or bar_index % regEvery == 0
+    hurstV   := hurstRS()
+    entropyV := dirEntropy()
+    float adxN = na(adxRaw) ? 0.5 : clamp(adxRaw / 50.0, 0, 1)
+    regimeScore := clamp(0.35 * (1 - entropyV) + 0.35 * clamp((hurstV - 0.5) * 2, 0, 1) + 0.30 * adxN, 0, 1)
+ 
+volRatio = na(atrAvg) or atrAvg == 0 ? 1.0 : atr14 / atrAvg
+volNorm  = clamp(volRatio / volCeil, 0.0, 1.0)
+ 
+// ═══════════════════════════════════════════════════════════════════════════════════
+//  11 · REGIME GRID
+// ═══════════════════════════════════════════════════════════════════════════════════
+type GCell
+    float mean
+    int   count
+    float conf
+    float dMult
+    float dLen
+ 
+var array<GCell> grid = array.new<GCell>()
+var bool gridReady = false
+if not gridReady
+    for i = 0 to gridX * gridY - 1
+        array.push(grid, GCell.new(0.0, 0, 0.0, 0.0, 0.0))
+    gridReady := true
+ 
+cellIdx(ix, iy)  => ix * gridY + iy
+gauss(dx, dy, s) => math.exp(-(dx * dx + dy * dy) / (2 * s * s))
+ 
+gridWrite(ix, iy, ret, dM, dL) =>
+    int idx = cellIdx(ix, iy)
+    if idx >= 0 and idx < array.size(grid)
+        c = array.get(grid, idx)
+        float a = 1.0 - math.exp(-math.log(2.0) / gridHalf)
+        c.mean  := c.mean  * (1 - a) + ret * a
+        c.count := c.count + 1
+        c.conf  := 1.0 - math.exp(-c.count / float(gridConfN))
+        c.dMult := c.dMult * (1 - a) + dM * a
+        c.dLen  := c.dLen  * (1 - a) + dL * a
+        array.set(grid, idx, c)
+    0
+ 
+gridRead(ix, iy) =>
+    float ws = 0.0
+    float wc = 0.0
+    float mM = 0.0
+    float mL = 0.0
+    for dx = -1 to 1
+        for dy = -1 to 1
+            int nx = clamp(ix + dx, 0, gridX - 1)
+            int ny = clamp(iy + dy, 0, gridY - 1)
+            int idx = cellIdx(nx, ny)
+            if idx >= 0 and idx < array.size(grid)
+                c = array.get(grid, idx)
+                if c.count > 0
+                    float w = gauss(dx, dy, gridSigma)
+                    ws += w
+                    wc += w * c.conf
+                    mM += w * c.conf * c.dMult
+                    mL += w * c.conf * c.dLen
+    float den = wc == 0 ? (ws == 0 ? 1.0 : ws) : wc
+    float oM = ws == 0 ? 0.0 : mM / den
+    float oL = ws == 0 ? 0.0 : mL / den
+    float oC = ws == 0 ? 0.0 : clamp(wc / ws, 0, 1)
+    [oM, oL, oC]
+ 
+// ═══════════════════════════════════════════════════════════════════════════════════
+//  12 · PROBE ENGINE
+//  A rolling 5-long / 5-short book of synthetic fixed-horizon positions. Each probe
+//  opens at the bar open, is held HOLD bars, and records its ATR-normalised return
+//  plus a genuinely tracked maximum adverse excursion. These outcomes are the only
+//  data the optimizer ever sees.
+// ═══════════════════════════════════════════════════════════════════════════════════
+const int HOLD  = 5
+const int SLOTS = 5
+ 
+type Probe
+    float entry
+    int   bar
+    int   dir
+    bool  live
+    float atr0
+    float mae
+ 
+var array<Probe> bookL = array.new<Probe>()
+var array<Probe> bookS = array.new<Probe>()
+var array<float> retL  = array.new_float()
+var array<float> retS  = array.new_float()
+var array<float> maeRoll = array.new_float()
+ 
+probeTouch(bk) =>
+    if array.size(bk) > 0
+        for i = 0 to array.size(bk) - 1
+            p = array.get(bk, i)
+            if p.live
+                float adverse = p.dir == 1 ? p.entry - low : high - p.entry
+                p.mae := math.max(p.mae, math.max(0.0, adverse))
+                array.set(bk, i, p)
+    0
+ 
+probeOpen(bk, dir, a0) =>
+    int free = na
+    if array.size(bk) > 0
+        for i = 0 to array.size(bk) - 1
+            if not array.get(bk, i).live
+                free := i
+                break
+    if na(free)
+        array.push(bk, Probe.new(open, bar_index, dir, true, a0, 0.0))
+    else
+        p = array.get(bk, free)
+        p.entry := open
+        p.bar   := bar_index
+        p.dir   := dir
+        p.live  := true
+        p.atr0  := a0
+        p.mae   := 0.0
+        array.set(bk, free, p)
+    0
+ 
+probeLive(bk) =>
+    int c = 0
+    if array.size(bk) > 0
+        for i = 0 to array.size(bk) - 1
+            c += array.get(bk, i).live ? 1 : 0
+    c
+ 
+probeMature(bk) =>
+    float ret  = na
+    float mae  = na
+    int   pick = na
+    int   oldest = 999999999
+    if array.size(bk) > 0
+        for i = 0 to array.size(bk) - 1
+            p = array.get(bk, i)
+            if p.live and (bar_index - p.bar + 1) >= HOLD and p.bar < oldest
+                oldest := p.bar
+                pick := i
+        if not na(pick)
+            q = array.get(bk, pick)
+            float raw = (close - q.entry) * q.dir
+            ret := q.atr0 != 0 ? raw / q.atr0 : 0.0
+            mae := q.atr0 != 0 ? q.mae / q.atr0 : 0.0
+            q.live := false
+            array.set(bk, pick, q)
+    [ret, mae]
+ 
+// ═══════════════════════════════════════════════════════════════════════════════════
+//  13 · ADAPTIVE PARAMETERS
+// ═══════════════════════════════════════════════════════════════════════════════════
+var float aMult = baseMult
+var float aLen  = float(baseAtrLen)
+var int   lastUpdBar = na
+var int   nLong  = 0
+var int   nShort = 0
+ 
+dialCaps(K) =>
+    float k = (K - 1.0) / 19.0
+    [0.02 + 0.10 * k,
+     0.5 + 2.5 * k,
+     math.max(0.003, deadband * (1 - 0.6 * k)),
+     clamp(0.20 + 0.45 * k, 0.20, 0.65)]
+ 
+[capM, capL, dbM, alphaEff] = dialCaps(reactivity)
+ 
+// The stop and target channels were removed with the TP/SL system. Maximum adverse
+// excursion still feeds band width - a probe book that keeps bleeding before it
+// resolves is evidence the envelope is too tight, regardless of whether anything
+// downstream places a stop.
+propose(wr, avgRet, sortino, avgMae, n) =>
+    float dM = 0.0
+    float dL = 0.0
+    if adaptOn and n >= 5
+        float conf = 1.0 / math.sqrt(math.max(1.0, float(n)))
+        float step = learnRate * conf
+        bool weak   = wr < winLo and avgRet < 0
+        bool strong = wr > winHi and avgRet > 0
+        if weak
+            dM += 0.30 * step
+            dL += 0.25 * step
+        if strong
+            dM -= 0.20 * step
+            dL -= 0.15 * step
+        if avgMae > 0.60
+            dM += 0.15 * step
+        if not na(sortino)
+            dM += sortino < 0 ? 0.18 * step : 0.0
+            dM -= sortino > 1.2 ? 0.14 * step : 0.0
+    [dM, dL]
+ 
+if adaptOn and barstate.isconfirmed
+    probeTouch(bookL)
+    probeTouch(bookS)
+ 
+    [rL, mL] = probeMature(bookL)
+    [rS, mS] = probeMature(bookS)
+ 
+    if not na(rL)
+        rollPush(retL, rL, rollN)
+        rollPush(maeRoll, mL, rollN * 2)
+    if not na(rS)
+        rollPush(retS, rS, rollN)
+        rollPush(maeRoll, mS, rollN * 2)
+ 
+    if probeLive(bookL) < SLOTS
+        probeOpen(bookL, 1, atr14)
+    if probeLive(bookS) < SLOTS
+        probeOpen(bookS, -1, atr14)
+ 
+    float avgMae = rollAvg(maeRoll)
+    [dML, dLL] = propose(rollWin(retL), rollAvg(retL), rollSortino(retL), avgMae, array.size(retL))
+    [dMS, dLS] = propose(rollWin(retS), rollAvg(retS), rollSortino(retS), avgMae, array.size(retS))
+ 
+    float netM = clamp(dML + dMS, -capM, capM)
+    float netL = clamp(dLL + dLS, -capL, capL)
+ 
+    int ix = bucket(regimeScore, gridX)
+    int iy = bucket(volNorm, gridY)
+    [gM, gL, gConf] = gridRead(ix, iy)
+    float wG = useGrid ? clamp(gConf, 0.0, gridMaxW) : 0.0
+ 
+    float tgtM = (baseMult          * (1 + gM)) * wG + (aMult * (1 + netM)) * (1 - wG)
+    float tgtL = (float(baseAtrLen) + gL)       * wG + (aLen  + netL)       * (1 - wG)
+ 
+    bool cool = na(lastUpdBar) or bar_index - lastUpdBar >= updEvery
+    if cool and (math.abs(tgtM - aMult) > dbM or math.abs(tgtL - aLen) > 0.25)
+        float nM = clamp(qz(tgtM, 0.05), 0.3, 6.0)
+        float nL = clamp(math.round(tgtL), 5, 300)
+        aMult := aMult + (nM - aMult) * alphaEff
+        aLen  := aLen  + (nL - aLen)  * alphaEff
+        lastUpdBar := bar_index
+ 
+    if revertEvery > 0 and bar_index % revertEvery == 0
+        aMult := aMult + (baseMult - aMult) * revertStep
+        aLen  := aLen  + (float(baseAtrLen) - aLen) * revertStep
+ 
+    if useGrid
+        int ixc = bucket(regimeScore, gridX)
+        int iyc = bucket(volNorm, gridY)
+        if not na(rL)
+            gridWrite(ixc, iyc, rL, netM, netL)
+        if not na(rS)
+            gridWrite(ixc, iyc, rS, netM, netL)
+ 
+effMult = adaptOn ? aMult : baseMult
+effLen  = adaptOn ? aLen  : float(baseAtrLen)
+ 
+// ═══════════════════════════════════════════════════════════════════════════════════
+//  14 · ADAPTIVE SUPERTREND
+//  One call site only. The plotted line IS the signal line. Showing one band while
+//  firing signals off another is a design defect, not a safety feature.
+// ═══════════════════════════════════════════════════════════════════════════════════
+aslanmlST(s, m, l, rmaOn) =>
+    float trR = rmaV(ta.tr(true), l)
+    float trE = emaV(ta.tr(true), l)
+    float trv = rmaOn ? trR : trE
+    float lb = s - m * trv
+    float ub = s + m * trv
+    lb := close[1] > nz(lb[1], lb) ? math.max(lb, nz(lb[1], lb)) : lb
+    ub := close[1] < nz(ub[1], ub) ? math.min(ub, nz(ub[1], ub)) : ub
+    var int t = 1
+    t := t == -1 and close > nz(ub[1], ub) ? 1 : t == 1 and close < nz(lb[1], lb) ? -1 : t
+    [t, t == 1 ? lb : ub, trv]
+ 
+[trendDir, stLine, atrAdp] = aslanmlST(src, effMult, effLen, useRMA)
+bool trendUp = trendDir == 1
+bool flipUp  = trendDir == 1 and trendDir[1] == -1
+bool flipDn  = trendDir == -1 and trendDir[1] == 1
+ 
+// ═══════════════════════════════════════════════════════════════════════════════════
+//  15 · SIGNAL GENERATION
+// ═══════════════════════════════════════════════════════════════════════════════════
+bool newHigh = not na(pivHi[pivBack]) and pivHi != pivHi[pivBack] and close > nz(pivHi[pivBack], close)
+bool newLow  = not na(pivLo[pivBack]) and pivLo != pivLo[pivBack] and close < nz(pivLo[pivBack], close)
+ 
+float majorSpan = atrAdp * majorATR
+bool freshHigh = useMajor ? (newHigh and (high - pivLo) > majorSpan) : newHigh
+bool freshLow  = useMajor ? (newLow  and (pivHi - low)  > majorSpan) : newLow
+ 
+// Latches update on EVERY bar. The source gated them behind the spacing check, which
+// left the flag stale through the cooldown and silently dropped valid setups.
+var int topLatch = 0
+var int botLatch = 0
+topLatch := not trendUp ? 0 : (freshHigh ? 1 : nz(topLatch[1]))
+botLatch := trendUp ? 0 : (freshLow ? 1 : nz(botLatch[1]))
+ 
+bool rsiCold = not useRSI or barsColdRSI < rsiMem
+bool rsiHot  = not useRSI or barsHotRSI  < rsiMem
+bool volOK   = not useVol or volume > volMult * nz(volAvg, volume)
+bool biasUp  = not useBias or close > ema200
+bool biasDn  = not useBias or close < ema200
+ 
+bool isRev = sigMode == "Reversal"
+ 
+// Momentum polarity inverts with mode: reversal buys exhaustion, breakout buys strength.
+bool longFilters  = (isRev ? rsiCold : rsiHot) and volOK and biasUp
+bool shortFilters = (isRev ? rsiHot : rsiCold) and volOK and biasDn
+ 
+var int lastSigBar = -100000
+bool spaced   = bar_index - lastSigBar >= sigSpacing
+bool barReady = not confirmOnly or barstate.isconfirmed
+ 
+bool rawLong  = false
+bool rawShort = false
+if isRev
+    rawLong  := (nz(botLatch[1]) == 1 and botLatch == 0) or (not needFresh and flipUp)
+    rawShort := (nz(topLatch[1]) == 1 and topLatch == 0) or (not needFresh and flipDn)
+else
+    // The source assigned a SELL to a new high in an uptrend and a BUY to a new low in
+    // a downtrend, which contradicts its own "riding momentum" description. Corrected.
+    rawLong  := freshHigh and trendUp
+    rawShort := freshLow and not trendUp
+ 
+bool sigLong  = false
+bool sigShort = false
+if barReady and spaced
+    if rawLong and longFilters
+        sigLong := true
+    else if rawShort and shortFilters
+        sigShort := true
+ 
+if sigLong or sigShort
+    lastSigBar := bar_index
+ 
+bool gradeLong  = close > ema200 and regimeScore > 0.5
+bool gradeShort = close < ema200 and regimeScore > 0.5
+ 
+if sigLong
+    nLong += 1
+if sigShort
+    nShort += 1
+ 
+// ═════════════════════════════════════════════════════════════════════════════════
+//  16 · SIGNAL LABELS
+// ═════════════════════════════════════════════════════════════════════════════════
+if showSigLabel and sigLong
+    label.new(bar_index, low, gradeLong ? "▲ Buy" : "▲ Buy", xloc.bar_index, yloc.belowbar,
+         bullCol, label.style_label_up, color.white, size.normal,
+         tooltip = "ML Supertrenmd [Aslan] Long\nRegime " + str.tostring(regimeScore * 100, "#") + "%   Vol " + str.tostring(volRatio, "#.00") + "x\nBand " + str.tostring(effMult, "#.00") + "  ATR " + str.tostring(effLen, "#"))
+ 
+if showSigLabel and sigShort
+    label.new(bar_index, high, gradeShort ? "▼ Sell" : "▼ Sell", xloc.bar_index, yloc.abovebar,
+         bearCol, label.style_label_down, color.white, size.normal,
+         tooltip = "ML Supertrenmd [Aslan] Short\nRegime " + str.tostring(regimeScore * 100, "#") + "%   Vol " + str.tostring(volRatio, "#.00") + "x\nBand " + str.tostring(effMult, "#.00") + "  ATR " + str.tostring(effLen, "#"))
+ // ═══════════════════════════════════════════════════════════════════════════════════
+//  17 · TREND CLOUD (layered gradient)
+// ═══════════════════════════════════════════════════════════════════════════════════
+//  Six bands. Boundary plots are hidden and carry no colour argument, so they cost
+//  one plot count each; the fills use a series colour and cost two each. This block
+//  is 7 + 12 = 19 of the 64-plot budget, script total ~35.
+color cloudBase = trendUp ? bullCol : bearCol
+float cloudSpan = close - stLine
+
+// Fade ramps from the densest layer at the trend line to the faintest at price.
+// Step 3 across six layers spans 15 transparency points - close to the total range
+// the old three-layer / step-7 version covered, just resolved finer.
+int fadeStep = 3
+
+c0 = plot(showCloud ? stLine : na,                        "cloud0", display = display.none, editable = false)
+c1 = plot(showCloud ? stLine + cloudSpan * 0.1667 : na,   "cloud1", display = display.none, editable = false)
+c2 = plot(showCloud ? stLine + cloudSpan * 0.3333 : na,   "cloud2", display = display.none, editable = false)
+c3 = plot(showCloud ? stLine + cloudSpan * 0.5000 : na,   "cloud3", display = display.none, editable = false)
+c4 = plot(showCloud ? stLine + cloudSpan * 0.6667 : na,   "cloud4", display = display.none, editable = false)
+c5 = plot(showCloud ? stLine + cloudSpan * 0.8333 : na,   "cloud5", display = display.none, editable = false)
+c6 = plot(showCloud ? close : na,                         "cloud6", display = display.none, editable = false)
+
+fill(c0, c1, color.new(cloudBase, math.min(99, cloudFade)),                "Cloud L1")
+fill(c1, c2, color.new(cloudBase, math.min(99, cloudFade + fadeStep)),     "Cloud L2")
+fill(c2, c3, color.new(cloudBase, math.min(99, cloudFade + fadeStep * 2)), "Cloud L3")
+fill(c3, c4, color.new(cloudBase, math.min(99, cloudFade + fadeStep * 3)), "Cloud L4")
+fill(c4, c5, color.new(cloudBase, math.min(99, cloudFade + fadeStep * 4)), "Cloud L5")
+fill(c5, c6, color.new(cloudBase, math.min(99, cloudFade + fadeStep * 5)), "Cloud L6")
+
+plot(showTrendLn and trendUp ? stLine : na, "Trend ▲", color.new(bullCol, 0), 2, plot.style_linebr)
+plot(showTrendLn and not trendUp ? stLine : na, "Trend ▼", color.new(bearCol, 0), 2, plot.style_linebr)
+// ═══════════════════════════════════════════════════════════════════════════════════
+//  17b · PIVOT RAILS
+// ═══════════════════════════════════════════════════════════════════════════════════
+float railHi = pivHi[pivBack]
+float railLo = pivLo[pivBack]
+
+bool hiArmed = trendUp
+bool loArmed = not trendUp
+
+// Breaking the upper rail ARMS a short in Reversal mode but FIRES a long in Breakout
+// mode, so each rail's semantic colour flips with sigMode.
+color railHiBase = isRev ? bearCol : bullCol
+color railLoBase = isRev ? bullCol : bearCol
+
+int   dormFade  = math.min(92, railFade + 45)
+color railHiCol = color.new(railHiBase, not railDim or hiArmed ? railFade : dormFade)
+color railLoCol = color.new(railLoBase, not railDim or loArmed ? railFade : dormFade)
+
+bool  railMajor   = (pivHi - pivLo) > atrAdp * majorATR
+color railFillCol = not showRailFill ? color.new(neutCol, 100) : color.new(railMajor ? accentCol : neutCol, railMajor ? 90 : 94)
+
+pRailHi = plot(showRails ? railHi : na, "Rail ▲", railHiCol, 1, plot.style_stepline)
+pRailLo = plot(showRails ? railLo : na, "Rail ▼", railLoCol, 1, plot.style_stepline)
+fill(pRailHi, pRailLo, railFillCol, "Rail Channel")
+
+plotshape(showRails and showRailDot and newHigh ? railHi : na, "Break ▲", shape.xcross, location.abovebar, railHiBase, size = size.tiny)
+plotshape(showRails and showRailDot and newLow  ? railLo : na, "Break ▼", shape.xcross, location.belowbar, railLoBase, size = size.tiny)
+
+var label tagHi = na
+var label tagLo = na
+if showRails and showRailTag and barstate.islast
+    label.delete(tagHi)
+    label.delete(tagLo)
+    tagHi := label.new(bar_index + 2, railHi, str.tostring(railHi, format.mintick), xloc.bar_index, yloc.price,
+         color.new(railHiBase, hiArmed ? 15 : 62), label.style_label_left, color.white, size.small)
+    tagLo := label.new(bar_index + 2, railLo, str.tostring(railLo, format.mintick), xloc.bar_index, yloc.price,
+         color.new(railLoBase, loArmed ? 15 : 62), label.style_label_left, color.white, size.small)
+// ═══════════════════════════════════════════════════════════════════════════════════
+//  18 · BAR COLOUR
+// ═══════════════════════════════════════════════════════════════════════════════════
+float distN = atrAdp == 0 or na(atrAdp) ? 0.0 : clamp(math.abs(close - stLine) / (atrAdp * 2.5), 0, 1)
+color barCol = color.from_gradient(distN, 0, 1,
+     color.new(trendUp ? bullCol : bearCol, 62), color.new(trendUp ? bullCol : bearCol, 0))
+barcolor(showBarCol ? barCol : na, title = "Gradient Bars")
+ 
+// ═══════════════════════════════════════════════════════════════════════════════════
+//  19 · DASHBOARD
+// ═══════════════════════════════════════════════════════════════════════════════════
+posOf(p) =>
+    switch p
+        "Top Right"    => position.top_right
+        "Middle Right" => position.middle_right
+        "Bottom Right" => position.bottom_right
+        "Bottom Left"  => position.bottom_left
+        => position.top_left
+ 
+sizeOf(s) =>
+    switch s
+        "Tiny"   => size.tiny
+        "Normal" => size.normal
+        => size.small
+ 
+var table dash = na
+if showDash and barstate.islast and na(dash)
+    dash := table.new(posOf(dashPos), 2, 9,
+         border_color = color.new(neutCol, 72), border_width = 1,
+         frame_color = color.new(neutCol, 55), frame_width = 1)
+ 
+rowKV(t, r, k, v, vc) =>
+    table.cell(t, 0, r, k, text_color = color.new(neutCol, 12), text_size = sizeOf(dashSize), text_halign = text.align_left, bgcolor = color.new(#0d1117, 10))
+    table.cell(t, 1, r, v, text_color = vc, text_size = sizeOf(dashSize), text_halign = text.align_right, bgcolor = color.new(#0d1117, 10))
+    0
+ 
+if showDash and barstate.islast and not na(dash)
+    color hdr = trendUp ? bullCol : bearCol
+    table.cell(dash, 0, 0, "  ML Supertrend [Aslan]  ", text_color = color.white, text_size = sizeOf(dashSize), text_halign = text.align_left, bgcolor = color.new(hdr, 20))
+    table.cell(dash, 1, 0, trendUp ? "▲ BULLISH  " : "▼ BEARISH  ", text_color = color.white, text_size = sizeOf(dashSize), text_halign = text.align_right, bgcolor = color.new(hdr, 20))
+ 
+    string regTxt = regimeScore >= 0.66 ? "TRENDING" : regimeScore >= 0.36 ? "TRANSITION" : "RANGING"
+    color  regClr = regimeScore >= 0.66 ? bullCol : regimeScore >= 0.36 ? neutCol : bearCol
+    rowKV(dash, 1, "Regime", meter(regimeScore, 8) + "  " + regTxt, regClr)
+ 
+    string volTxt = volRatio >= 1.8 ? "EXTREME" : volRatio >= 1.25 ? "HIGH" : volRatio >= 0.75 ? "NORMAL" : "LOW"
+    color  volClr = volRatio >= 1.8 ? bearCol : volRatio >= 1.25 ? color.new(bearCol, 30) : volRatio >= 0.75 ? neutCol : accentCol
+    rowKV(dash, 2, "Volatility", meter(volNorm, 8) + "  " + volTxt, volClr)
+ 
+    rowKV(dash, 3, "Hurst / Entropy", str.tostring(hurstV, "#.00") + "  /  " + str.tostring(entropyV, "#.00"), color.new(neutCol, 8))
+ 
+    color mDrift = effMult > baseMult ? bearCol : effMult < baseMult ? bullCol : neutCol
+    rowKV(dash, 4, "Band Width", str.tostring(baseMult, "#.00") + " → " + str.tostring(effMult, "#.00"), mDrift)
+    rowKV(dash, 5, "ATR Period", str.tostring(baseAtrLen) + " → " + str.tostring(effLen, "#"), color.new(neutCol, 8))
+ 
+    float wrL = rollWin(retL)
+    float wrS = rollWin(retS)
+    rowKV(dash, 6, "Probe WR L / S", str.tostring(wrL * 100, "#") + "%  /  " + str.tostring(wrS * 100, "#") + "%", (wrL + wrS) / 2 >= 0.5 ? bullCol : bearCol)
+ 
+    int ixd = bucket(regimeScore, gridX)
+    int iyd = bucket(volNorm, gridY)
+    [_m, _l, gcf] = gridRead(ixd, iyd)
+    rowKV(dash, 7, "Grid Cell / Conf", "[" + str.tostring(ixd) + "," + str.tostring(iyd) + "]  " + str.tostring(gcf * 100, "#") + "%", useGrid ? color.new(accentCol, 8) : color.new(neutCol, 55))
+ 
+    rowKV(dash, 8, "Signals L / S", str.tostring(nLong) + "  /  " + str.tostring(nShort), color.new(neutCol, 8))
+ 
+// ═══════════════════════════════════════════════════════════════════════════════════
+//  20 · ALERTS
+// ═══════════════════════════════════════════════════════════════════════════════════
+// alertcondition() counts against the 64 plot budget - one count each. The target
+// and stop alerts went with the TP/SL system. Trend flips get named entries now
+// that there is budget for them.
+alertcondition(sigLong,  "ML Supertrenmd [Aslan] Long",      "ML Supertrenmd [Aslan] Long signal on {{ticker}} @ {{close}}")
+alertcondition(sigShort, "ML Supertrenmd [Aslan] Short",     "ML Supertrenmd [Aslan] Short signal on {{ticker}} @ {{close}}")
+alertcondition(flipUp,   "ML Supertrenmd [Aslan] Flip Up",   "ML Supertrenmd [Aslan] trend flipped bullish on {{ticker}}")
+alertcondition(flipDn,   "ML Supertrenmd [Aslan] Flip Down", "ML Supertrenmd [Aslan] trend flipped bearish on {{ticker}}")
+ 
+// Richer dynamic messages. To receive these, create an alert on this script and
+// choose "Any alert() function call" as the condition.
+if sigLong
+    alert("ML Supertrenmd [Aslan] LONG " + syminfo.ticker + " @ " + str.tostring(close) +
+         " | band " + str.tostring(effMult, "#.00") + " x ATR" + str.tostring(effLen, "#") +
+         " | regime " + str.tostring(regimeScore * 100, "#") + "%", alert.freq_once_per_bar_close)
+if sigShort
+    alert("ML Supertrenmd [Aslan] SHORT " + syminfo.ticker + " @ " + str.tostring(close) +
+         " | band " + str.tostring(effMult, "#.00") + " x ATR" + str.tostring(effLen, "#") +
+         " | regime " + str.tostring(regimeScore * 100, "#") + "%", alert.freq_once_per_bar_close)
+if flipUp
+    alert("ML Supertrenmd [Aslan] trend flipped bullish " + syminfo.ticker, alert.freq_once_per_bar_close)
+if flipDn
+    alert("ML Supertrenmd [Aslan] trend flipped bearish " + syminfo.ticker, alert.freq_once_per_bar_close)

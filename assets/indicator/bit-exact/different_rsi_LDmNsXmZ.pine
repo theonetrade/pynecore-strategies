@@ -1,0 +1,52 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © MisinkoMaster
+
+//@version=6
+indicator("Different RSI", overlay = false)
+////////////////////////////////////////////////////////////////////////
+//Import Libraries
+import TradingView/ta/14
+////////////////////////////////////////////////////////////////////////
+//Get User Defined Inputs
+src = input.source(close, "Source", group = "Different RSI")
+len = input.int(45, "Lookback", minval = 2, group = "Different RSI")
+sml = input.int(12, "Smoothing", minval = 2, group = "Different RSI")
+////////////////////////////////////////////////////////////////////////
+//Calculations
+g = 0.0
+l = 0.0
+for i = 1 to len-1
+    g += math.pow(math.max(0, src-src[i]), 2)
+    l += math.pow(math.abs(math.min(0, src-src[i])), 2)
+
+rsi = g == 0 ? 0 : l == 0 ? 100 : 100 - 100 / (1 + math.sqrt(g)/math.sqrt(l))
+ma = ta.ema(rsi, sml)
+////////////////////////////////////////////////////////////////////////
+//Trend Logic
+var trend = 0
+if rsi > 50 and rsi > ma
+    trend := 1
+if rsi < 50 and rsi < ma
+    trend := -1
+////////////////////////////////////////////////////////////////////////
+//Plotting
+var col = color.rgb(72, 72, 72)
+var colT = color.rgb(72, 72, 72, 50)
+if trend == 1
+    col := color.rgb(0, 255, 187)
+    colT := color.rgb(0, 255, 187, 50)
+if trend == -1
+    col := color.rgb(255, 0, 157)
+    colT := color.rgb(255, 0, 157, 50)
+
+n = plot(50, title = "Middle", color = color.rgb(71, 70, 70), display = display.pane, linewidth = 3)
+obp = plot(80, title = "OB Treshhold", color = color.rgb(0, 255, 187), display = display.pane, linewidth = 3)
+osp = plot(20, title = "OS Treshhold", color = color.rgb(255, 0, 157), display = display.pane, linewidth = 3)
+
+fill(n, obp, color.rgb(0, 195, 237, 85))
+fill(n, osp, color.rgb(255, 0, 157, 85))
+
+plotcandle(open, high, low, close, bordercolor = col, color = col, force_overlay = true, display = display.pane)
+
+rsip = plot(rsi, "Different RSI | MisinkoMaster", color = col, linewidth = 2)
+plot(ma, "MA", color = color.yellow, linewidth = 1)

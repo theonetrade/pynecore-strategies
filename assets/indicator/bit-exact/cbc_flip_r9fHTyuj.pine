@@ -1,0 +1,22 @@
+// This Pine Script™️ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// ©️ friksa & AsiaRoo
+
+//@version=5
+indicator("CBC Flip", timeframe = "", timeframe_gaps = true, overlay = true)
+
+cbc = false
+cbc := cbc[1]
+if cbc and close < low[1]
+    cbc := false
+if not cbc and close > high[1]
+    cbc := true
+
+plotshape(not cbc and cbc[1], style=shape.triangledown, location=location.abovebar, color=color.rgb(228, 102, 102), size=size.small, title='Bears', display=display.all - display.status_line)
+plotshape(cbc and not cbc[1], style=shape.triangleup, location=location.belowbar, color=color.rgb(120, 206, 176), size=size.small, title='Bulls', display=display.all - display.status_line)
+
+
+// Background colour
+bgcolor(cbc and not cbc[1] ? color.rgb(255, 235, 59, 71)  : not cbc and cbc[1] ? color.rgb(5, 185, 240, 59) : na) 
+
+alertcondition(not cbc and cbc[1], 'Bears', 'Bears in Control')
+alertcondition(cbc and not cbc[1], 'Bulls', 'Bulls in Control')

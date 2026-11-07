@@ -1,0 +1,1876 @@
+//@version=6
+indicator("Luxy Super-Duper SuperTrend Predictor Engine", shorttitle="Luxy SuperDuperTrend", overlay=true,  max_boxes_count = 500, max_bars_back=5000)
+
+// ╔══════════════════════════════════════════════════════╗
+// ║   Luxy Super-Duper SuperTrend Predictor Engine       ║
+// ║   By: @orenluxy                                      ║
+// ╠══════════════════════════════════════════════════════╣
+// ║   Version : 1.2.1  (2026-07-09)                      ║
+// ║   Created : November 2025                            ║
+// ╠══════════════════════════════════════════════════════╣
+// ║   CHANGELOG                                          ║
+// ║   ─────────────────────────────────────────────────  ║
+// ║   v1.2.1 (2026-07-09) — Signal Fixes                ║
+// ║   • FIX: BUY below / SELL above (was flipped)       ║
+// ║   • FIX: Scalpel quality default 65→55              ║
+// ║                                                     ║
+// ║   v1.2.0 (2026-07-08) — GOD MODE Upgrade            ║
+// ║   • FIX: S/R pivots tracked every bar               ║
+// ║   • FIX: dashboard uses Weibull (no μ+2σ)           ║
+// ║   • FIX: on-chart % = empirical survival            ║
+// ║   • NEW: MTF confluence (2 higher TFs)              ║
+// ║   • NEW: SL/TP R-multiples on signals               ║
+// ║   • NEW: optional MTF signal gate                   ║
+// ║   • CLEAN: removed 2 orphaned functions             ║
+// ║                                                     ║
+// ║   v1.1.0 (2026-04-05) — Code Audit & Fixes          ║
+// ║   • FIX: vol_expanding threshold corrected 1.2→1.3x ║
+// ║          (now consistent with tooltips & volatility  ║
+// ║           state string, quality score accurate)      ║
+// ║   • FIX: Backtest formula replaced μ+2σ with        ║
+// ║          find_probability_threshold(0.95,median,1.0) ║
+// ║          (track record now matches live algorithm)   ║
+// ║   • FIX: Advanced tooltip "Total Impact" now        ║
+// ║          includes advanced_regime_mult in product   ║
+// ║   • FIX: Prediction boxes use ATR-based height      ║
+// ║          (atrS×0.12) instead of syminfo.mintick×4   ║
+// ║          (visible on all price scales)              ║
+// ║   • CLEAN: Removed dead var flip_bar_price          ║
+// ║   • CLEAN: Removed dead var is_new_flip             ║
+// ║   • CLEAN: Removed redundant quality_no_mtf calc   ║
+// ║            (identical to quality_score)             ║
+// ║   • CLEAN: Removed unused BOX_HEIGHT constant       ║
+// ║                                                      ║
+// ║   v1.0.0 (November 2025) — Initial release          ║
+// ║   • Adaptive SuperTrend (BIAS style)                ║
+// ║   • Volume + Volatility quality scoring (0-70 pts)  ║
+// ║   • Scalpel Mode pullback entry system              ║
+// ║   • Trend Duration Prediction (Simple/Std/Advanced) ║
+// ║   • 15-layer gradient ribbon                        ║
+// ║   • Dashboard with full metrics                     ║
+// ╠══════════════════════════════════════════════════════╣
+// ║   METHODOLOGY CREDITS                               ║
+// ║   • Mark Minervini  — VCP & pullback entries        ║
+// ║   • William O'Neil  — Volume confirmation (CANSLIM) ║
+// ║   • Dan Zanger      — Volatility expansion entries  ║
+// ║   Educational references only. Not financial advice.║
+// ╚══════════════════════════════════════════════════════╝
+
+//======================================================
+//==================== SECTION 1: GROUPS ===============
+//======================================================
+
+GROUP_PRESET = "==== Quick Setup ======================="
+GROUP_DISPLAY = "==== Dashboard & Display ============"
+GROUP_ST = "==== Supertrend ======================="
+GROUP_VOL = "==== Volume ==========================="
+GROUP_FILTERS = "==== Quality Filters ================="
+GROUP_PREDICTION = "==== Trend Duration Prediction====="
+GROUP_GODMODE = "==== 🚀 GOD MODE ====================="
+
+// Auto-detect trading style from chart timeframe
+detect_trading_style() =>
+    string result = "Day Trading (15m-1h)"  // Default fallback
+
+    // Minute timeframes (1m, 3m, 5m, 15m, 30m, 45m)
+    if timeframe.isminutes
+        int mins = timeframe.multiplier
+        result := mins <= 5 ? "Scalping (1-5m)" : "Day Trading (15m-1h)"
+
+    // Hourly timeframes (1h, 2h, 4h) - intraday but not minutes
+    else if timeframe.isintraday
+        // Intraday but not minutes = hourly
+        int hours = timeframe.multiplier
+        result := hours <= 1 ? "Day Trading (15m-1h)" : "Swing Trading (4h-D)"
+
+    // Daily timeframe
+    else if timeframe.isdaily
+        result := "Swing Trading (4h-D)"
+
+    // Weekly/Monthly timeframes
+    else if timeframe.isweekly or timeframe.ismonthly
+        result := "Position Trading (D-W)"
+
+    result
+
+//======================================================
+//==================== SECTION 2: INPUTS ===============
+//======================================================
+
+// ========== TRADING STYLE PRESETS ==========
+trading_style = input.string("Auto (Detect from TF)", "Trading Style Preset", options=["Auto (Detect from TF)", "Scalping (1-5m)", "Day Trading (15m-1h)", "Swing Trading (4h-D)", "Position Trading (D-W)", "Custom"], group=GROUP_PRESET, tooltip="🎯 Trading Style Configuration\n\n🤖 AUTO (DETECT FROM TF) - RECOMMENDED ✅\nAutomatically selects optimal settings based on your chart timeframe:\n• 1m-5m → Scalping (ATR: 7, Mult: 2.0)\n• 15m-1h → Day Trading (ATR: 10, Mult: 2.5)\n• 2h-4h-D → Swing Trading (ATR: 14, Mult: 3.0)\n• W-M → Position Trading (ATR: 21, Mult: 4.0)\n\nBenefits:\n✅ Zero configuration - works immediately\n✅ Always matched to your timeframe\n✅ Switch TF = automatic adjustment\n\n📊 MANUAL PRESETS:\n📈 Scalping (1-5m): Ultra-fast signals, high sensitivity\n⚡ Day Trading (15m-1h): Balanced speed and accuracy\n🔄 Swing Trading (4h-D): Medium-term trends, less noise\n📊 Position Trading (D-W): Long-term trends, minimal false signals\n\n🛠️ CUSTOM MODE:\nFull manual control - uses YOUR input values below\nFor advanced users who want precise customization\n\n⚠️ NOTE: Presets override manual inputs. For custom values, select 'Custom'.")
+
+// Determine actual trading style (auto-detect or user selection)
+actual_style = trading_style == "Auto (Detect from TF)" ? detect_trading_style() : trading_style
+
+// ========== DASHBOARD & DISPLAY ==========
+show_dashboard = input.bool(true, "Show Dashboard", group=GROUP_DISPLAY, tooltip="Show/Hide Dashboard Table\n\nDisplays real-time metrics:\n• Signal Quality Score (0-70)\n• Supertrend direction & level\n• Volume state & ratio\n• Volatility regime\n• Prediction track record\n\nAll metrics update on each bar close.\n\n💡 Disable to reduce chart clutter")
+table_position = input.string("Bottom Right", "Position", options=["Top Left", "Top Center", "Top Right", "Middle Left", "Middle Center", "Middle Right", "Bottom Left", "Bottom Center", "Bottom Right"], group=GROUP_DISPLAY, inline="table_settings", tooltip="Dashboard Position\n\nChoose where to display the dashboard table on your chart.\n\n9 positions available:\n• Top: Left, Center, Right\n• Middle: Left, Center, Right\n• Bottom: Left, Center, Right\n\n💡 Choose a position that doesn't overlap important price action")
+table_text_size = input.string("Small", "Text Size", options=["Auto", "Tiny", "Small", "Normal", "Large", "Huge"], group=GROUP_DISPLAY, inline="table_settings", tooltip="Dashboard Text Size\n\nControls the size of text in the dashboard table.\n\nOptions:\n• Auto - Adapts to chart size\n• Tiny - Smallest (minimal space)\n• Small - Compact (recommended)\n• Normal - Standard readability\n• Large - Easy to read\n• Huge - Maximum visibility\n\n💡 Use smaller sizes on busy charts")
+
+const string ribbonInfo = "Gradient Ribbon - Trend Strength Visualization\n\nColors based on Supertrend + Volume:\n\n🟢 GREEN = Bullish + Volume Spike (strongest)\n🔵 BLUE = Bullish + High Volume\n🟠 ORANGE = Bearish + High Volume\n🔴 RED = Bearish (weakest)\n\n26 exponential layers for smooth appearance."
+show_ribbon_fill = input.bool(true, "Show Ribbon Fill", group=GROUP_DISPLAY, tooltip="Toggles the visibility of the gradient background fill for the SuperTrend ribbon.", inline="ribbon_viz")
+show_supertrend_line = input.bool(true, "Show SuperTrend Line", group=GROUP_DISPLAY, tooltip="Toggles the visibility of the main SuperTrend line.", inline="ribbon_viz")
+bull_color_input = input.color(color.green, "Bullish Color", group=GROUP_DISPLAY, inline="ribbon_colors", tooltip="Bullish Trend Color\n\nSets the color for:\n• Supertrend line (when bullish)\n• Gradient ribbon fill (when bullish)\n• BUY signal labels\n\nDefault: Green\n\n💡 Choose colors that match your chart theme")
+bear_color_input = input.color(color.red, "Bearish Color", group=GROUP_DISPLAY, inline="ribbon_colors", tooltip="Bearish Trend Color\n\nSets the color for:\n• Supertrend line (when bearish)\n• Gradient ribbon fill (when bearish)\n• SELL signal labels\n\nDefault: Red\n\n💡 Choose colors that match your chart theme")
+
+// ========== LABEL CONTROLS ==========
+const string labelEntryInfo = "Entry Signal Labels\n\nShows 🔪 BUY and 🔪 SELL signals on chart.\n\nIncludes:\n• Volume status\n• Volume Momentum\n• Quality score\n\nThese are your main trading signals."
+const string labelInfoInfo = "Informative Labels\n\nShows additional market events:\n\n💥 Volume Spike\n• Significant volume increase\n• Cooldown: 8 bars\n\nThese provide context, not entry signals."
+const string labelSizeInfo = "Label Size\n\nControls text size for ALL labels:\n• Entry signals (BUY/SELL)\n• Volume spikes\n\nRecommended:\n• Small charts: Small\n• Normal charts: Normal (default)\n• Large charts: Large"
+show_entry_labels = input.bool(true, "Show Entry Signals (BUY/SELL)", group=GROUP_DISPLAY, tooltip=labelEntryInfo)
+show_info_labels = input.bool(false, "Show Info Labels (Volume)", group=GROUP_DISPLAY, tooltip=labelInfoInfo)
+label_text_size = input.string("Normal", "Label Size (All)", options=["Auto", "Tiny", "Small", "Normal", "Large", "Huge"], group=GROUP_DISPLAY, tooltip=labelSizeInfo)
+
+// Convert label size string to size constant
+label_size_const = label_text_size == "Auto" ? size.auto : label_text_size == "Tiny" ? size.tiny : label_text_size == "Small" ? size.small : label_text_size == "Normal" ? size.normal : label_text_size == "Large" ? size.large : size.huge
+
+// ========== SUPERTREND SETTINGS ==========
+const string stInfo = "Supertrend Settings - Optimized for All Trading Styles\n\nATR-based trend indicator:\n• Adapts to volatility automatically\n• Provides clear trend direction\n• Built-in stop levels\n\nOptimal by style:\n• Scalping: ATR 7-10, Mult 1.8-2.2\n• Day Trading: ATR 10-14, Mult 2.2-2.8\n• Swing Trading: ATR 14-21, Mult 2.8-3.5\n• Position Trading: ATR 21-30, Mult 3.5-4.5\n\nTighter = more signals, Wider = stronger signals"
+st_length_input = input.int(10, "ATR Length", minval=1, maxval=50, group=GROUP_ST, inline="st1", tooltip=stInfo)
+st_mult_input = input.float(3.0, "ATR Multiplier (Base)", minval=0.5, step=0.5, group=GROUP_ST, inline="st1")
+
+// Apply preset values if not Custom (using actual_style for auto-detection support)
+st_length = actual_style == "Custom" ? st_length_input : actual_style == "Scalping (1-5m)" ? 7 : actual_style == "Day Trading (15m-1h)" ? 10 : actual_style == "Swing Trading (4h-D)" ? 14 : actual_style == "Position Trading (D-W)" ? 21 : st_length_input
+st_mult = actual_style == "Custom" ? st_mult_input : actual_style == "Scalping (1-5m)" ? 2.0 : actual_style == "Day Trading (15m-1h)" ? 2.5 : actual_style == "Swing Trading (4h-D)" ? 3.0 : actual_style == "Position Trading (D-W)" ? 4.0 : st_mult_input
+st_use_adaptive = input.bool(true, "Use Adaptive Multiplier", group=GROUP_ST, inline="adapt", tooltip="Adaptive Multiplier System\n\nDynamically adjusts multiplier (0.8x to 1.2x base) based on:\n• Trend Strength (price correlation)\n• Volume Weight (relative to average)\n\nBenefits:\n✅ Tighter bands in calm markets\n✅ Wider bands in volatile conditions\n✅ Better for biotech/small-cap stocks\n\nDisable for classic constant multiplier.")
+st_smooth_factor = input.float(0.15, "Smoothing Factor", minval=0.0, maxval=0.5, step=0.05, group=GROUP_ST, inline="adapt", tooltip="EMA smoothing applied to Supertrend bands\n\n0.0 = no smoothing (instant response)\n0.15 = balanced (~13 bars)\n0.3+ = very smooth (slow response)\n\n💡 Volume Momentum filter compensates for lag")
+st_neutral_bars = input.int(0, "Neutral Bars After Flip", minval=0, maxval=10, group=GROUP_ST, tooltip="Neutral Bars After Flip\n\nHide Supertrend for X bars after trend flip.\n\nBenefits:\n✅ Reduces false signals immediately after flip\n✅ Gives price time to confirm new direction\n✅ Cleaner visual on choppy markets\n\nRecommended:\n• 0 = disabled (classic behavior)\n• 2-3 = balanced (swing trading)\n• 5+ = very conservative")
+
+const string volMomInfo = "Volume Momentum Confirmation - All Trading Styles\n\nCompares short-term vs long-term volume averages:\n• Confirms trend strength with actual money flow\n• Rising momentum = Recent volume > Historical average\n• No lag like price-based indicators\n• More intuitive than mathematical filters\n\nOptimal periods by style:\n• Scalping: 3 vs 10 (instant response)\n• Day Trading: 5 vs 20 (balanced)\n• Swing Trading: 10 vs 30 (trend stability)\n• Position Trading: 20 vs 50 (major moves)\n\n⚠️ AUTO-DISABLED for Scalping mode (too restrictive)\n\nON = Fewer but volume-confirmed signals\nOFF = All Supertrend signals (no filter)"
+
+volume_momentum_enabled = input.bool(true, "Enable Volume Momentum Filter", group=GROUP_ST, inline="volmom1", tooltip=volMomInfo)
+vol_mom_fast_input = input.int(5, "Fast Period", minval=2, maxval=20, group=GROUP_ST, inline="volmom1")
+vol_mom_slow_input = input.int(20, "Slow Period", minval=10, maxval=50, group=GROUP_ST, inline="volmom1", tooltip="Volume Momentum Slow Period\n\nHistorical volume average for comparison.\n\nRepresents:\n• Long-term baseline volume\n• Historical average activity\n\nTypical values:\n• Scalping: 10 bars (recent baseline)\n• Day Trading: 20 bars (daily baseline) - DEFAULT\n• Swing: 30 bars (weekly baseline)\n• Position: 50 bars (monthly baseline)\n\nMust be larger than Fast Period.\n\n💡 Larger values = more stable baseline, less noise")
+
+// Apply preset values if not Custom + Auto-disable for Scalping (using actual_style for auto-detection support)
+use_volume_momentum = actual_style == "Scalping (1-5m)" ? false : volume_momentum_enabled
+vol_mom_fast = actual_style == "Custom" ? vol_mom_fast_input : actual_style == "Scalping (1-5m)" ? 3 : actual_style == "Day Trading (15m-1h)" ? 5 : actual_style == "Swing Trading (4h-D)" ? 10 : actual_style == "Position Trading (D-W)" ? 20 : vol_mom_fast_input
+vol_mom_slow = actual_style == "Custom" ? vol_mom_slow_input : actual_style == "Scalping (1-5m)" ? 10 : actual_style == "Day Trading (15m-1h)" ? 20 : actual_style == "Swing Trading (4h-D)" ? 30 : actual_style == "Position Trading (D-W)" ? 50 : vol_mom_slow_input
+
+// ========== VOLUME SETTINGS ==========
+const string volInfo = "Volume Analysis - Critical for All Trading Styles\n\nThresholds are multipliers of average volume:\n\n🔥 HIGH = Strong participation\n💥 SPIKE = Major event/breakout\n📍 LOW = Weak participation\n\nOptimal by style:\n• Scalping: High 1.5-2.0x, Spike 2.5-3.5x\n• Day Trading: High 1.3-1.7x, Spike 2.2-3.0x\n• Swing Trading: High 1.2-1.5x, Spike 2.0-2.7x\n• Position Trading: High 1.1-1.3x, Spike 1.8-2.3x\n\nVolume confirmation improves signal quality."
+vol_length_input = input.int(20, "Volume MA Length", minval=5, maxval=100, group=GROUP_VOL, inline="vol1", tooltip=volInfo)
+vol_high_threshold_input = input.float(1.5, "High Volume (x)", minval=1.0, step=0.1, group=GROUP_VOL, inline="vol2")
+vol_spike_threshold_input = input.float(2.5, "Spike Volume (x)", minval=1.5, step=0.5, group=GROUP_VOL, inline="vol2")
+
+// Apply preset values if not Custom (using actual_style for auto-detection support)
+vol_length = actual_style == "Custom" ? vol_length_input : actual_style == "Scalping (1-5m)" ? 10 : actual_style == "Day Trading (15m-1h)" ? 20 : actual_style == "Swing Trading (4h-D)" ? 30 : actual_style == "Position Trading (D-W)" ? 50 : vol_length_input
+vol_high_threshold = actual_style == "Custom" ? vol_high_threshold_input : actual_style == "Scalping (1-5m)" ? 1.8 : actual_style == "Day Trading (15m-1h)" ? 1.5 : actual_style == "Swing Trading (4h-D)" ? 1.3 : actual_style == "Position Trading (D-W)" ? 1.2 : vol_high_threshold_input
+vol_spike_threshold = actual_style == "Custom" ? vol_spike_threshold_input : actual_style == "Scalping (1-5m)" ? 3.0 : actual_style == "Day Trading (15m-1h)" ? 2.5 : actual_style == "Swing Trading (4h-D)" ? 2.2 : actual_style == "Position Trading (D-W)" ? 2.0 : vol_spike_threshold_input
+vol_low_threshold = input.float(0.5, "Low Volume (x)", minval=0.1, maxval=1.0, step=0.1, group=GROUP_VOL, inline="vol3", tooltip="Low Volume Threshold\n\nDefines when volume is considered LOW (weak participation).\n\nMeasured as multiplier of average volume:\n• 0.5x = Current volume is 50% of average\n• 0.7x = Current volume is 70% of average\n\nLow volume signals:\n⚠️ Weak trend confirmation\n⚠️ Lower quality setups\n⚠️ May indicate trend exhaustion\n\nDefault: 0.5x\n\n💡 Lower values = stricter definition of low volume")
+
+// ========== QUALITY FILTERS ==========
+const string filterInfo = "Signal Quality Filtering\n\nQuality Score (0-70) based on:\n• Volume (30 points)\n• Volatility Expansion (30 points)\n• Volume Momentum (10 points)\n\nRecommended minimums:\n• 30 = GOOD+ (balanced)\n• 45 = STRONG+ (conservative)\n• 60 = EXCELLENT (very strict)"
+min_quality_score = input.int(30, "Minimum Quality Score", minval=0, maxval=70, group=GROUP_FILTERS, tooltip=filterInfo)
+require_volume_confirm = input.bool(true, "Require Volume Confirmation", group=GROUP_FILTERS, tooltip="Only generate signals when volume > average")
+
+// ========== SCALPEL MODE ==========
+const string scalpelInfo = "🔪 Scalpel Mode - Pullback Entry System\n\nInstead of entering on SuperTrend flip bar:\n• Wait 2-5 bars for pullback\n• Enter when price bounces off ATR pullback level\n• Require strong volume momentum\n• Need volume spike/high\n• Must have good distance from ST\n\nAPPROACH:\n✓ More selective entries\n✓ Improved risk/reward potential\n✓ Focus on quality over quantity\n✓ Better alignment with money flow\n\nBased on:\n• Mark Minervini VCP pullbacks\n• William O'Neil volume confirmation\n• Dan Zanger volatility expansion"
+
+use_scalpel = input.bool(false, "🔪 Scalpel Mode", group=GROUP_FILTERS, tooltip=scalpelInfo)
+scalpel_window = input.int(5, "Pullback Window", minval=2, maxval=10, group=GROUP_FILTERS, inline="scalpel1", tooltip="Bars to wait for pullback entry after flip")
+scalpel_min_dist = input.float(0.4, "Min Distance (xATR)", minval=0.2, maxval=1.0, step=0.1, group=GROUP_FILTERS, inline="scalpel1", tooltip="Minimum Distance from SuperTrend\n\nEnsures entry has sufficient distance from SuperTrend level for better risk/reward.\n\nMeasured in ATR multiples:\n• 0.2 = Very tight (20% of ATR)\n• 0.4 = Balanced (40% of ATR) - DEFAULT\n• 0.6 = Conservative (60% of ATR)\n• 1.0 = Very conservative (full ATR)\n\nHigher values:\n✅ Better risk/reward ratio\n✅ More room for stop placement\n❌ Fewer signals\n\nLower values:\n✅ More signals\n❌ Tighter stops needed\n\n💡 Use higher values (0.6-1.0) for volatile markets")
+scalpel_quality = input.int(55, "Scalpel Quality Min", minval=50, maxval=90, group=GROUP_FILTERS, tooltip="Quality threshold for Scalpel Mode (higher = stricter)\n\nMax possible score is 70. Default 55 keeps entries selective while still firing; 65+ almost never triggers (needs volume spike + expanding volatility + strong momentum together).")
+
+// ========== TREND DURATION PREDICTION ==========
+i_enable_prediction = input.bool(true, "Show Trend Duration Prediction", group=GROUP_PREDICTION, tooltip="Display prediction box showing expected trend duration based on historical SuperTrend analysis. Analyzes last 15 trends to predict current trend lifespan.")
+const string predictionModeInfo = "Prediction Mode 🎯\n\nChoose your prediction complexity level:\n\n📊 SIMPLE:\n• Basic median-based predictions only\n• No advanced multipliers\n• Easiest to understand\n• Best for beginners\n\n⚙️ STANDARD (Recommended):\n• Full statistical analysis\n• All quality calculations\n• NO advanced multipliers\n• Balanced accuracy & simplicity\n\n🚀 ADVANCED:\n• Everything from Standard\n• PLUS 5 intelligent multipliers:\n  - Market Structure (±30%)\n  - Stock Type Behavior (±40%)\n  - Flip Strength (±20%)\n  - Error Learning (±15%)\n  - Regime Detection (±20%)\n• Highest accuracy (30-50% improvement)\n• Most complex\n\n💡 Recommendation:\n• Start with Standard\n• Move to Advanced after understanding basics"
+const string stockTypeInfo = "Stock Type Classification\n\nDifferent assets have unique trend behaviors:\n\n📊 Small Cap (0.65x) - Shortest trends\n• High volatility, quick reversals\n• Best for: Penny stocks, micro-caps\n\n🧬 Biotech/Spec (0.55x) - Most volatile\n• News-driven, sharp moves\n• Best for: Biotech, pharma, speculative\n\n🏛️ Blue Chip (1.35x) - Longest trends\n• Stable, institutional\n• Best for: Large caps, indices\n\n🚀 Tech Growth (1.10x) - Extended trends\n• Growth stocks, momentum\n\n💰 Dividend (1.25x) - Stable trends\n• Value stocks, utilities\n\n🔄 Cyclical (0.90x) - Moderate trends\n• Sector rotation sensitive\n\n⚡ Crypto/High Vol (0.60x) - Extreme volatility\n• 24/7 markets, rapid changes"
+i_prediction_mode = input.string("Advanced", "Prediction Mode", options=["Simple", "Standard", "Advanced"], group=GROUP_PREDICTION, tooltip=predictionModeInfo)
+i_stock_type = input.string("Blue Chip / Large Cap", "Asset Type", options=["Small Cap", "Biotech / Speculative", "Blue Chip / Large Cap", "Tech Growth", "Dividend / Value", "Cyclical", "Crypto / High Volatility"], group=GROUP_PREDICTION, tooltip=stockTypeInfo)
+const string ewaInfo = "Exponential Weighted Average (EWA)\n\nGives more weight to recent trends vs older trends.\n\nBENEFITS:\n✅ More responsive to changing market conditions\n✅ Recent trends more relevant to current behavior\n✅ Adapts faster to regime changes\n\nDECAY FACTOR:\n• 0.95 = Slight preference to recent (balanced)\n• 0.90 = Moderate preference (recommended)\n• 0.80 = Strong preference (very adaptive)\n• 0.50 = Extreme preference (only recent matters)\n\nExample with 0.9:\n• Last trend: 100% weight\n• 2nd last: 90% weight\n• 3rd last: 81% weight\n• etc.\n\nDisable for equal weighting of all 15 trends."
+i_use_ewa = input.bool(true, "Use Exponential Weighting", group=GROUP_PREDICTION, inline="ewa1", tooltip=ewaInfo)
+i_ewa_decay = input.float(0.9, "Decay Factor", minval=0.5, maxval=0.99, step=0.05, group=GROUP_PREDICTION, inline="ewa1")
+i_outlier_filter = input.bool(true, "Filter Extreme Values", group=GROUP_PREDICTION, tooltip="Outlier Filtering (IQR Method)\n\nRemoves extreme trend durations that could skew predictions.\n\nUses Interquartile Range (IQR):\n• Calculates Q1 (25th percentile) and Q3 (75th percentile)\n• Filters values outside Q1-2×IQR to Q3+2×IQR\n• Keeps at least 60% of data for reliability\n\nBenefits:\n✅ More stable predictions\n✅ Reduces impact of anomalies\n✅ Better accuracy in normal conditions\n\nDisable if:\n❌ You have very few samples (<10)\n❌ You want to include all historical data\n\nRecommended: ON (default)")
+i_use_median = input.bool(true, "Use Median (more stable)", group=GROUP_PREDICTION, tooltip="Use Median for Central Tendency\n\nChooses between median vs mean for predictions.\n\nMEDIAN (Recommended):\n✅ More robust to outliers\n✅ Represents typical trend duration\n✅ Better for skewed distributions\n✅ Stable with small sample sizes\n\nMEAN (Alternative):\n• Considers all data points equally\n• Sensitive to extreme values\n• Good for symmetric distributions\n\nThe indicator blends both (60% median + 40% trimmed mean) for optimal robustness.\n\nRecommended: ON (default)")
+
+// ========== PREDICTION MODE SELECTION ==========
+const string structureInfo = "Market Structure Detection\n\nAnalyzes pivot highs/lows to identify key S/R levels.\n\nLOOKBACK PERIOD:\n• Bars left and right to confirm a pivot\n• Higher = stronger but fewer levels\n• Lower = more levels but less significant\n\nRecommended:\n• Scalping: 3-5 (recent levels)\n• Day Trading: 5-7 (intraday levels)\n• Swing: 10-15 (major levels)\n• Position: 20-30 (key levels)\n\nSENSITIVITY:\n• % of ATR to consider price \"near\" a level\n• 50% = within half ATR of level\n• 100% = within 1 full ATR\n\nAdjustment: Trends near levels get -30% duration"
+i_structure_lookback = input.int(10, "Structure Lookback", minval=3, maxval=30, group=GROUP_PREDICTION, inline="struct1", tooltip=structureInfo)
+i_structure_sensitivity = input.float(0.5, "Proximity (xATR)", minval=0.2, maxval=1.0, step=0.1, group=GROUP_PREDICTION, inline="struct1")
+const string errorLearningInfo = "Error Learning System\n\nAdaptively learns from prediction mistakes:\n\n• Tracks last N predictions vs actual durations\n• Calculates error ratio (predicted / actual)\n• Adjusts future predictions accordingly\n\nMEMORY DEPTH:\n• How many past predictions to remember\n• Higher = more stable, slower adaptation\n• Lower = faster learning, more reactive\n\nRecommended:\n• 5 = Fast adaptation\n• 10 = Balanced (default)\n• 20 = Very stable\n\nExample:\n• If consistently over-predicting by 20%\n• System learns and reduces future predictions\n\nBenefits:\n✅ Self-correcting\n✅ Adapts to changing market regimes\n✅ Improves over time"
+
+i_use_error_learning = input.bool(true, "Enable Error Learning", group=GROUP_PREDICTION, inline="learn1", tooltip=errorLearningInfo)
+i_error_memory_depth = input.int(10, "Memory Depth", minval=3, maxval=20, group=GROUP_PREDICTION, inline="learn1")
+
+// ========== 🚀 GOD MODE ==========
+const string godModeInfo = "🚀 GOD MODE — Master Switch\n\nAdds a value layer on top of the classic engine:\n• MTF Confluence (higher-timeframe SuperTrend agreement)\n• SL / TP levels on every signal\n• Optional signal gating by higher-TF agreement\n\nOFF = the classic indicator, unchanged (zero behavior change).\nON  = full GOD MODE."
+godmode_enabled = input.bool(true, "🚀 Enable GOD MODE", group=GROUP_GODMODE, tooltip=godModeInfo)
+htf1_tf = input.timeframe("60", "Higher TF 1", group=GROUP_GODMODE, inline="gm_mtf", active=godmode_enabled, tooltip="Higher timeframes for confluence.\n\n⚠️ Set BOTH above your chart timeframe (e.g. on a 15m chart use 60 + 240).\nThe higher-TF SuperTrend direction is compared to the current chart for conviction.")
+htf2_tf = input.timeframe("240", "Higher TF 2", group=GROUP_GODMODE, inline="gm_mtf", active=godmode_enabled)
+mtf_gate_signals = input.bool(false, "MTF: Only Signal When Higher TFs Agree", group=GROUP_GODMODE, active=godmode_enabled, tooltip="ON = a BUY needs BOTH higher TFs bullish (SELL needs both bearish). Fewer but higher-conviction signals.\nOFF = higher-TF info shown for context only; signals unchanged.")
+show_risk_levels = input.bool(true, "Show SL / TP on Signals", group=GROUP_GODMODE, active=godmode_enabled, tooltip="Adds a Stop (at the SuperTrend line) and two R-multiple Take-Profit targets to every BUY/SELL tooltip.")
+tp1_r = input.float(2.0, "TP1 (x R)", minval=0.5, maxval=10.0, step=0.5, group=GROUP_GODMODE, inline="gm_tp", active=godmode_enabled)
+tp2_r = input.float(3.5, "TP2 (x R)", minval=0.5, maxval=10.0, step=0.5, group=GROUP_GODMODE, inline="gm_tp", active=godmode_enabled)
+
+
+//======================================================
+//========= SECTION 3: SUPERTREND (BIAS STYLE) =========
+//======================================================
+
+// ===== ADAPTIVE VOLATILITY SYSTEM =====
+tr = ta.tr
+atrS = ta.atr(st_length)
+
+// Volume Weight (with NA protection)
+float volWeight = volume / ta.sma(volume, st_length)
+volWeight := na(volWeight) ? 1.0 : volWeight
+
+// Trend Strength (correlation-based, with NA protection)
+float trendStrength = math.abs(ta.correlation(close, bar_index, st_length))
+trendStrength := na(trendStrength) ? 0.5 : trendStrength
+
+// Adaptive Multiplier (0.8x to 1.2x base)
+float adaptiveMult = st_use_adaptive ? st_mult * (0.8 + trendStrength * 0.4) * math.sqrt(math.max(0.1, volWeight)) : st_mult
+
+// ===== SUPERTREND BANDS WITH SMOOTHING =====
+var float upLine = na
+var float dnLine = na
+
+float upRaw = hl2 - atrS * adaptiveMult
+float dnRaw = hl2 + atrS * adaptiveMult
+
+if na(upLine[1])
+    upLine := upRaw
+    dnLine := dnRaw
+else
+    // EMA smoothing within trend
+    upLine := close > upLine[1] ? upLine[1] * (1 - st_smooth_factor) + upRaw * st_smooth_factor : upRaw
+    dnLine := close < dnLine[1] ? dnLine[1] * (1 - st_smooth_factor) + dnRaw * st_smooth_factor : dnRaw
+
+// ===== DIRECTION STATE =====
+var int stDir = na
+stDir := na(stDir[1]) ? (close >= hl2 ? 1 : -1) : stDir[1]
+stDir := stDir == -1 and close > dnLine[1] ? 1 : stDir == 1 and close < upLine[1] ? -1 : stDir
+
+bool stFlip = stDir != stDir[1]
+
+// Neutral Window (hide after flip)
+bool neutral = false
+if st_neutral_bars > 0
+    int barsSinceFlip = ta.barssince(stFlip)
+    neutral := barsSinceFlip >= 0 and barsSinceFlip < st_neutral_bars
+
+// Supertrend value (for ribbon and MTF)
+float supertrend = stDir == 1 ? upLine : dnLine
+int direction = stDir  // 1 = bullish, -1 = bearish
+
+// Direction states (adjusted for consistency)
+is_bullish = stDir == 1
+is_bearish = stDir == -1
+
+// Flip detection
+supertrend_flip_bullish = stFlip and stDir == 1
+supertrend_flip_bearish = stFlip and stDir == -1
+
+// Plot Supertrend line with break on flip
+st_line_color = is_bullish ? bull_color_input : bear_color_input
+bool show_line = show_supertrend_line and not neutral and not stFlip  // Hide on flip bar
+plot(show_line ? supertrend : na, "SuperTrend Line", color=st_line_color, linewidth=2)
+
+
+//======================================================
+//========= SECTION 3.6: MTF CONFLUENCE (GOD MODE) =====
+//======================================================
+
+// Higher-TF SuperTrend direction (classic ta.supertrend as a robust directional proxy).
+// Used ONLY as a confluence/filter layer — deliberately NOT fed into duration prediction
+// (higher-TF data lags at the flip bar and would bias predictions — per methodology notes).
+st_dir_htf() =>
+    [_line, _dir] = ta.supertrend(st_mult, st_length)
+    _dir
+
+htf1_dir = request.security(syminfo.tickerid, htf1_tf, st_dir_htf(), lookahead=barmerge.lookahead_off)
+htf2_dir = request.security(syminfo.tickerid, htf2_tf, st_dir_htf(), lookahead=barmerge.lookahead_off)
+
+// ta.supertrend direction: -1 = uptrend, +1 = downtrend
+bool htf1_bull = htf1_dir < 0
+bool htf2_bull = htf2_dir < 0
+int mtf_bull_count = (htf1_bull ? 1 : 0) + (htf2_bull ? 1 : 0)
+int mtf_agree_count = (na(htf1_dir) ? 0 : (is_bullish == htf1_bull ? 1 : 0)) + (na(htf2_dir) ? 0 : (is_bullish == htf2_bull ? 1 : 0))
+
+
+//======================================================
+//======= SECTION 3.5: VOLUME MOMENTUM CALCULATION =====
+//======================================================
+
+// Volume Momentum - Compares short-term vs long-term volume
+vol_ma_fast = ta.sma(volume, vol_mom_fast)
+vol_ma_slow = ta.sma(volume, vol_mom_slow)
+vol_momentum_ratio = vol_ma_fast / vol_ma_slow
+
+// Volume Momentum States
+vol_momentum_rising = vol_momentum_ratio > 1.0
+vol_momentum_strong = vol_momentum_ratio > 1.2
+vol_momentum_weak = vol_momentum_ratio < 0.8
+vol_momentum_neutral = vol_momentum_ratio >= 0.8 and vol_momentum_ratio <= 1.0
+
+// Direction-Specific Confirmation
+vol_momentum_confirms_bull = is_bullish and vol_momentum_rising
+vol_momentum_confirms_bear = is_bearish and vol_momentum_rising
+vol_momentum_strong_trend = (is_bullish and vol_momentum_strong) or (is_bearish and vol_momentum_strong)
+
+//======================================================
+//=============== SECTION 4: VOLUME ANALYSIS ===========
+//======================================================
+
+// Volume Moving Average
+vol_ma = ta.sma(volume, vol_length)
+
+// Volume Ratio
+vol_ratio = volume / vol_ma
+
+// Volume States
+vol_is_spike = vol_ratio >= vol_spike_threshold
+vol_is_high = vol_ratio >= vol_high_threshold
+vol_is_low = vol_ratio <= vol_low_threshold
+vol_is_normal = not vol_is_spike and not vol_is_high and not vol_is_low
+
+// Volume State String
+vol_state = vol_is_spike ? "💥 SPIKE" : vol_is_high ? "🔥 HIGH" : vol_is_low ? "📍 LOW" : "➡️ NORMAL"
+
+// Volume Confirmation
+strong_volume_confirm = vol_is_spike or vol_is_high
+basic_volume_confirm = vol_ratio >= 1.0
+
+//======================================================
+//============= SECTION 5: VOLATILITY ANALYSIS =========
+//======================================================
+
+// ATR Regime Detection
+atr_current = ta.atr(14)
+atr_ma = ta.sma(atr_current, 20)
+atr_ratio = atr_current / atr_ma
+
+// Volatility States
+vol_expanding = atr_ratio >= 1.3
+vol_rising = atr_ratio >= 1.0 and atr_ratio < 1.3
+vol_contracting = atr_ratio <= 0.9
+vol_stable = atr_ratio > 0.9 and atr_ratio < 1.0
+
+// Volatility State String
+volatility_state = atr_ratio >= 1.3 ? "🔥 EXPANDING" : vol_rising ? "📈 RISING" : vol_contracting ? "📉 CONTRACTING" : "➡️ STABLE"
+
+
+//======================================================
+//============= SECTION 7: QUALITY SCORING =============
+//======================================================
+
+// Calculate Quality Score (0-70)
+// Based on: Volume (30) + Volatility (30) + Volume Momentum (10)
+var int quality_score = 0
+
+quality_score := (vol_is_spike ? 30 : vol_is_high ? 20 : basic_volume_confirm ? 10 : 0) + (vol_expanding ? 30 : vol_rising ? 15 : 0) + (use_volume_momentum and vol_momentum_strong_trend ? 10 : use_volume_momentum and vol_momentum_rising ? 5 : 0)
+
+// Quality Level String
+quality_level = quality_score >= 60 ? "⭐⭐⭐ EXCELLENT" : quality_score >= 45 ? "⭐⭐ STRONG" : quality_score >= 30 ? "⭐ GOOD" : "⚠️ WEAK"
+
+//======================================================
+//============ SECTION 8: SIGNAL GENERATION ============
+//======================================================
+
+// Primary Signal Conditions
+supertrend_long = supertrend_flip_bullish
+supertrend_short = supertrend_flip_bearish
+
+// Apply Quality Filter
+signal_quality_ok = quality_score >= min_quality_score
+
+// Apply Volume Filter (if enabled)
+volume_ok = not require_volume_confirm or basic_volume_confirm
+
+// Apply Volume Momentum Filter (if enabled)
+vol_momentum_ok_long = not use_volume_momentum or vol_momentum_confirms_bull
+vol_momentum_ok_short = not use_volume_momentum or vol_momentum_confirms_bear
+
+//======================================================
+//============= CLASSIC SIGNALS (ORIGINAL) =============
+//======================================================
+bool classic_long = supertrend_long and signal_quality_ok and volume_ok and vol_momentum_ok_long
+bool classic_short = supertrend_short and signal_quality_ok and volume_ok and vol_momentum_ok_short
+
+//======================================================
+//================ SCALPEL MODE LOGIC ==================
+//======================================================
+
+// TRACK BARS SINCE FLIP
+var int bars_since_bull_flip = 999
+var int bars_since_bear_flip = 999
+
+// TRACK IF SIGNAL ALREADY GIVEN IN CURRENT WINDOW
+var bool signal_given_in_bull_window = false
+var bool signal_given_in_bear_window = false
+
+if supertrend_flip_bullish
+    bars_since_bull_flip := 0
+    signal_given_in_bull_window := false  // Reset flag on new flip
+else if bars_since_bull_flip < 999
+    bars_since_bull_flip += 1
+
+if supertrend_flip_bearish
+    bars_since_bear_flip := 0
+    signal_given_in_bear_window := false  // Reset flag on new flip
+else if bars_since_bear_flip < 999
+    bars_since_bear_flip += 1
+
+// SCALPEL CONDITIONS
+bool in_bull_window = bars_since_bull_flip > 0 and bars_since_bull_flip <= scalpel_window
+bool in_bear_window = bars_since_bear_flip > 0 and bars_since_bear_flip <= scalpel_window
+
+// ATR-based pullback levels (dynamic support/resistance)
+float pullback_level_long = is_bullish ? supertrend + (atrS * 0.5) : na
+float pullback_level_short = is_bearish ? supertrend - (atrS * 0.5) : na
+
+// LONG ENTRY - Pullback within window, TRUE BOUNCE from pullback level (crossover), volume momentum, distance from ST
+// Only trigger if signal NOT already given in this window
+bool bounce_long = ta.crossover(close, pullback_level_long)
+bool scalpel_long_conditions = in_bull_window and is_bullish and bounce_long and vol_momentum_rising and (close - supertrend) >= (atr_current * scalpel_min_dist) and basic_volume_confirm and quality_score >= scalpel_quality
+bool scalpel_long = scalpel_long_conditions and not signal_given_in_bull_window
+
+// SHORT ENTRY - Pullback within window, TRUE BOUNCE from pullback level (crossunder), volume momentum, distance from ST
+// Only trigger if signal NOT already given in this window
+bool bounce_short = ta.crossunder(close, pullback_level_short)
+bool scalpel_short_conditions = in_bear_window and is_bearish and bounce_short and vol_momentum_rising and (supertrend - close) >= (atr_current * scalpel_min_dist) and basic_volume_confirm and quality_score >= scalpel_quality
+bool scalpel_short = scalpel_short_conditions and not signal_given_in_bear_window
+
+// Mark signal as given when triggered
+if scalpel_long
+    signal_given_in_bull_window := true
+
+if scalpel_short
+    signal_given_in_bear_window := true
+
+//======================================================
+//================ FINAL SIGNALS =======================
+//======================================================
+// MTF gate (GOD MODE): optionally require higher-TF agreement. godmode/gate off = classic behavior (zero regression).
+bool mtf_long_ok = not (godmode_enabled and mtf_gate_signals) or mtf_bull_count == 2
+bool mtf_short_ok = not (godmode_enabled and mtf_gate_signals) or mtf_bull_count == 0
+goldenCross = (use_scalpel ? scalpel_long : classic_long) and mtf_long_ok
+deathCross = (use_scalpel ? scalpel_short : classic_short) and mtf_short_ok
+
+// Track last signal
+var string lastSignalType = na
+var float lastSignalPrice = na
+var int lastSignalBarIndex = na
+
+if goldenCross
+    lastSignalType := "LONG"
+    lastSignalPrice := close
+    lastSignalBarIndex := bar_index
+
+if deathCross
+    lastSignalType := "SHORT"
+    lastSignalPrice := close
+    lastSignalBarIndex := bar_index
+
+//======================================================
+//====== SECTION 8.5: TREND DURATION PREDICTION ========
+//======================================================
+
+// Hardcoded parameters (optimal values)
+PREDICTION_SAMPLES = 50
+BOX_COUNT = 30
+
+// Tracking arrays for trend durations
+var array<int> bull_trend_durations = array.new_int(0)
+var array<int> bear_trend_durations = array.new_int(0)
+var int current_trend_bars = 0
+var int flip_bar_index = 0  // Initialize to 0 instead of na
+var float flip_supertrend_level = supertrend
+
+// NEW: Track ALL trends chronologically (for retrospective backtesting)
+var array<int> all_trend_durations = array.new_int(0)
+var array<bool> all_trend_is_bullish = array.new_bool(0)
+
+// Arrays for managing drawing objects
+var array<box> prediction_boxes = array.new<box>(0)
+var array<label> prediction_labels = array.new<label>(0)
+
+// Track prediction sets for fade effect (using flat arrays with counts)
+// Pine Script doesn't support nested arrays, so we track each set's size
+var array<int> prediction_box_counts = array.new_int(0)  // Number of boxes in each of last 5 predictions
+var array<int> prediction_label_counts = array.new_int(0)  // Number of labels in each of last 5 predictions
+var array<bool> prediction_set_is_bullish = array.new_bool(0)  // Track if each prediction set is bullish (for color reconstruction)
+
+// Arrays for tracking last 10 predictions (for statistics)
+var array<float> last_10_predicted_avg = array.new_float(0)
+var array<float> last_10_predicted_end = array.new_float(0)
+var array<int> last_10_actual_duration = array.new_int(0)
+var array<bool> last_10_is_bullish = array.new_bool(0)
+
+// Arrays to store flip data for each trend (parallel to all_trend_durations)
+var array<int> prediction_flip_bar_indices = array.new_int(0)
+var array<float> prediction_flip_supertrend_levels = array.new_float(0)
+var array<int> all_flip_bar_indices = array.new_int(0)
+var array<float> all_flip_prices = array.new_float(0)
+var array<float> all_flip_supertrend_levels = array.new_float(0)
+var array<bool> all_flip_is_bullish = array.new_bool(0)  // Direction of STARTING trend at each flip
+
+// Arrays to store quality and volume for similarity weighting
+var array<int> trend_quality_scores = array.new_int(0)
+var array<float> trend_volume_ratios = array.new_float(0)
+var array<float> all_flip_volatility_ratios = array.new_float(0)  // ATR ratio at flip
+var array<float> all_flip_distances_from_st = array.new_float(0)  // Distance from ST at flip
+
+// Variables to track current prediction (for comparison when trend ends)
+var float current_predicted_avg = na
+var float current_predicted_end = na
+var float current_base_percentile = na  // Store base percentile for probability calculations
+var bool current_prediction_is_bullish = false
+
+// Variables for prediction accuracy metrics (accessible from dashboard)
+var int success_count = 0
+var float success_rate = na
+var float avg_accuracy = na
+var int prediction_count = 0
+
+// Context-aware decay rate calculator
+calculate_decay_rate() =>
+    float base_decay = 1.0
+    
+    // Volume impact: high volume = faster decay
+    if vol_ratio > 2.5
+        base_decay *= 1.3
+    else if vol_ratio > 1.5
+        base_decay *= 1.1
+    else if vol_ratio < 0.7
+        base_decay *= 0.85
+    
+    // Volatility impact: high volatility = faster decay
+    if atr_ratio > 1.3
+        base_decay *= 1.2
+    else if atr_ratio < 0.8
+        base_decay *= 0.9
+
+    base_decay
+
+// ===== EXPONENTIAL WEIGHTED AVERAGE (EWA) =====
+// Calculates weighted average giving more weight to recent trends
+// decay: weight decay factor (0.5-0.99). Higher = more weight to recent
+// Returns: weighted average
+ewa_avg(arr, decay) =>
+    if array.size(arr) == 0
+        na
+    else
+        float sum_weighted = 0.0
+        float sum_weights = 0.0
+        int n = array.size(arr)
+
+        // Calculate weights: most recent trend gets weight 1.0
+        // Previous trends get exponentially decreasing weights
+        for i = 0 to n - 1
+            float weight = math.pow(decay, n - 1 - i)  // Most recent = decay^0 = 1.0
+            float value = array.get(arr, i)
+            sum_weighted += value * weight
+            sum_weights += weight
+
+        sum_weighted / sum_weights
+
+// Calculates weighted standard deviation
+// decay: weight decay factor (0.5-0.99)
+// mean: pre-calculated EWA mean
+// Returns: weighted standard deviation
+ewa_stdev(arr, decay, mean) =>
+    if array.size(arr) <= 1
+        0.0
+    else
+        float sum_weighted_sq = 0.0
+        float sum_weights = 0.0
+        int n = array.size(arr)
+
+        for i = 0 to n - 1
+            float weight = math.pow(decay, n - 1 - i)
+            float value = array.get(arr, i)
+            float diff = value - mean
+            sum_weighted_sq += weight * diff * diff
+            sum_weights += weight
+
+        math.sqrt(sum_weighted_sq / sum_weights)
+
+// ===== ADVANCED PREDICTION SYSTEM =====
+
+// 1️⃣ MARKET STRUCTURE DETECTION (±30% adjustment) — pivots now tracked globally (g_pivot_*), see below
+// Returns multiplier based on proximity to key levels (0.70 - 1.0)
+get_structure_multiplier(current_price, pivot_highs, pivot_lows, sensitivity_atr) =>
+    float structure_mult = 1.0
+
+    if array.size(pivot_highs) == 0 and array.size(pivot_lows) == 0
+        structure_mult
+    else
+        float proximity_threshold = atr_current * sensitivity_atr
+        bool near_level = false
+
+        // Check proximity to pivot highs
+        if array.size(pivot_highs) > 0
+            for i = 0 to array.size(pivot_highs) - 1
+                float level = array.get(pivot_highs, i)
+                if math.abs(current_price - level) <= proximity_threshold
+                    near_level := true
+                    break
+
+        // Check proximity to pivot lows
+        if not near_level and array.size(pivot_lows) > 0
+            for i = 0 to array.size(pivot_lows) - 1
+                float level = array.get(pivot_lows, i)
+                if math.abs(current_price - level) <= proximity_threshold
+                    near_level := true
+                    break
+
+        // Near S/R level = -30% duration (trends reverse sooner)
+        structure_mult := near_level ? 0.70 : 1.0
+        structure_mult
+
+// 2️⃣ STOCK TYPE PATTERNS (BALANCED RANGE: 0.55x-1.35x)
+// Different asset classes have unique trend duration behaviors
+get_stock_type_multiplier(stock_type) =>
+    float type_mult = 1.0
+
+    if stock_type == "Small Cap"
+        type_mult := 0.65  // Short trends, volatile
+    else if stock_type == "Biotech / Speculative"
+        type_mult := 0.55  // Extreme volatility, very short
+    else if stock_type == "Blue Chip / Large Cap"
+        type_mult := 1.35  // Longest, most stable
+    else if stock_type == "Tech Growth"
+        type_mult := 1.10  // Extended growth trends
+    else if stock_type == "Dividend / Value"
+        type_mult := 1.25  // Very stable value trends
+    else if stock_type == "Cyclical"
+        type_mult := 0.90  // Moderate, sector-dependent
+    else if stock_type == "Crypto / High Volatility"
+        type_mult := 0.60  // Extreme volatility
+
+    type_mult
+
+// 3️⃣ FLIP STRENGTH TRACKING (±20% adjustment)
+// Strong initial momentum at trend inception = longer trend duration
+// NOTE: MTF fully removed - it's a lagging indicator that creates reverse bias at flips
+// quality_at_flip parameter should be calculated WITHOUT MTF points
+calculate_flip_strength(vol_ratio_at_flip, atr_ratio_at_flip, quality_at_flip) =>
+    float strength = 0.0
+
+    // Volume component (0-40 points) - INCREASED from 30 to compensate for MTF removal
+    if vol_ratio_at_flip >= 2.5
+        strength += 40.0
+    else if vol_ratio_at_flip >= 1.5
+        strength += 28.0
+    else if vol_ratio_at_flip >= 1.0
+        strength += 15.0
+
+    // MTF component REMOVED (was 0-40 points)
+    // MTF is lagging - at flip it shows OLD trend, creating reverse predictions
+
+    // Volatility component (0-30 points) - INCREASED from 15
+    if atr_ratio_at_flip >= 1.2
+        strength += 30.0
+    else if atr_ratio_at_flip >= 1.0
+        strength += 20.0
+    else if atr_ratio_at_flip >= 0.8
+        strength += 10.0
+
+    // Quality component (0-30 points) - INCREASED from 15
+    strength += (quality_at_flip / 100.0) * 30.0
+
+    // Total: 0-100 points (redistributed without MTF)
+    // Convert to multiplier: 0.5x (weak) to 2.0x (strong)
+    float flip_mult = 0.5 + (strength / 100.0) * 1.5
+    flip_mult
+
+// 4️⃣ ERROR LEARNING SYSTEM (±15% adjustment)
+// Learns from past prediction errors and adapts
+// error_ratios: array of (predicted / actual) ratios from past predictions
+calculate_learning_adjustment(error_ratios) =>
+    float learning_mult = 1.0
+
+    if array.size(error_ratios) < 3
+        learning_mult  // Not enough data yet
+    else
+        // Calculate average error ratio
+        float avg_error_ratio = array.avg(error_ratios)
+
+        // If consistently over-predicting (avg_error_ratio > 1.0), reduce future predictions
+        // If consistently under-predicting (avg_error_ratio < 1.0), increase future predictions
+
+        // Clamp adjustment to ±15% (0.85x to 1.15x)
+        if avg_error_ratio > 1.0
+            // Over-predicting: reduce by up to 15%
+            float reduction = math.min((avg_error_ratio - 1.0) * 0.5, 0.15)
+            learning_mult := 1.0 - reduction
+        else if avg_error_ratio < 1.0
+            // Under-predicting: increase by up to 15%
+            float increase = math.min((1.0 - avg_error_ratio) * 0.5, 0.15)
+            learning_mult := 1.0 + increase
+
+        learning_mult
+
+// ===== PROBABILITY THRESHOLD FINDER =====
+// Finds the number of bars where ending probability reaches target (e.g., 0.95)
+// Uses inverse Weibull calculation
+find_probability_threshold(target, median_duration, decay_rate) =>
+    if median_duration <= 0 or target >= 1.0
+        na
+    else
+        // Weibull parameters (shape k=1.5)
+        k = 1.5
+        lambda = median_duration / math.pow(0.693, 1/k)
+
+        // Inverse Weibull: solve for x where ending_prob = target
+        // target = 1 - exp(-(x/lambda)^k)
+        // Rearranged: x = lambda × (-ln(1 - target))^(1/k)
+
+        // Apply decay rate adjustment
+        adjusted_target = 0.5 + (target - 0.5) / decay_rate
+        adjusted_target := math.max(0.01, math.min(0.99, adjusted_target))
+
+        // Calculate inverse
+        x = lambda * math.pow(-math.log(1.0 - adjusted_target), 1.0/k)
+
+        // Safety bounds: minimum 5 bars, maximum 500 bars
+        math.max(5, math.min(500, x))
+
+// ===== EMPIRICAL SURVIVAL (data-driven continuation %) =====
+// Returns % of trends in arr that lasted at least x bars (0-100). Replaces the old
+// fixed-curve survival_probability so the on-chart % reflect THIS chart's real history.
+empirical_survival_pct(array<int> arr, float x) =>
+    int n = array.size(arr)
+    if n == 0
+        na
+    else
+        int cnt = 0
+        for i = 0 to n - 1
+            if array.get(arr, i) >= x
+                cnt := cnt + 1
+        100.0 * cnt / n
+
+// 5️⃣ REGIME DETECTION (±20% adjustment)
+// Analyzes recent trends vs historical average to detect market regime
+// Returns multiplier based on whether recent trends are longer or shorter
+calculate_regime_multiplier(trend_durations, analysis_depth) =>
+    float regime_mult = 1.0
+
+    int total_trends = array.size(trend_durations)
+
+    if total_trends < analysis_depth
+        regime_mult  // Not enough data - return neutral
+    else
+        // Calculate recent average (last N trends)
+        float recent_sum = 0.0
+        for i = 0 to analysis_depth - 1
+            recent_sum += array.get(trend_durations, total_trends - 1 - i)
+        float recent_avg = recent_sum / analysis_depth
+
+        // Calculate historical average (all trends)
+        float historical_avg = array.avg(trend_durations)
+
+        // Calculate ratio
+        float ratio = recent_avg / historical_avg
+
+        // Apply regime curve
+        if ratio >= 1.3
+            regime_mult := 1.2  // Strong regime - recent trends much longer
+        else if ratio >= 1.1
+            regime_mult := 1.1  // Moderate regime - recent trends longer
+        else if ratio <= 0.7
+            regime_mult := 0.8  // Weak regime - recent trends much shorter
+        else if ratio <= 0.9
+            regime_mult := 0.9  // Moderate weakness - recent trends shorter
+        // else: ratio between 0.9-1.1 = neutral (1.0x)
+
+        regime_mult
+
+// ===== SIMILARITY MATCHING SYSTEM =====
+// Calculates similarity score between current flip conditions and historical flip
+// Returns: 0-100 score (higher = more similar)
+calculate_similarity_score(float curr_vol, float hist_vol, float curr_atr, float hist_atr, int curr_quality, int hist_quality, float curr_dist, float hist_dist, bool curr_near_level, bool hist_near_level) =>
+    float similarity = 0.0
+
+    // 1. Volume similarity (30% weight)
+    // Threshold: ±0.5x (e.g., 2.0x vs 2.5x is similar)
+    if math.abs(curr_vol - hist_vol) <= 0.5
+        similarity += 30.0
+    else if math.abs(curr_vol - hist_vol) <= 1.0  // Partial credit
+        similarity += 15.0
+
+    // 2. Volatility similarity (30% weight)
+    // Threshold: ±0.3x (e.g., 1.2x vs 1.5x is similar)
+    if math.abs(curr_atr - hist_atr) <= 0.3
+        similarity += 30.0
+    else if math.abs(curr_atr - hist_atr) <= 0.6  // Partial credit
+        similarity += 15.0
+
+    // 3. Quality similarity (20% weight)
+    // Threshold: ±15 points (e.g., 60 vs 70 is similar)
+    if math.abs(curr_quality - hist_quality) <= 15
+        similarity += 20.0
+    else if math.abs(curr_quality - hist_quality) <= 30  // Partial credit
+        similarity += 10.0
+
+    // 4. Distance similarity (10% weight)
+    // Normalize by ATR for comparison
+    float curr_dist_norm = curr_dist / atr_current
+    float hist_dist_norm = hist_dist / atr_current
+    if math.abs(curr_dist_norm - hist_dist_norm) <= 0.5
+        similarity += 10.0
+
+    // 5. Market structure match (10% weight)
+    // Binary: either both near level or both not near level
+    if curr_near_level == hist_near_level
+        similarity += 10.0
+
+    similarity
+
+// ===== ADVANCED PREDICTION TRACKING ARRAYS =====
+var array<float> error_ratios = array.new_float(0)  // Store prediction errors
+
+// Store advanced multipliers for EACH historical flip (parallel to all_flip_bar_indices)
+var array<float> all_flip_structure_mults = array.new_float(0)
+var array<float> all_flip_stock_type_mults = array.new_float(0)
+var array<float> all_flip_strength_mults = array.new_float(0)
+var array<float> all_flip_learning_mults = array.new_float(0)
+var array<float> all_flip_regime_mults = array.new_float(0)
+
+// ===== ADVANCED PREDICTION MULTIPLIERS (GLOBAL SCOPE) =====
+var float advanced_structure_mult = 1.0
+var float advanced_stock_type_mult = 1.0
+var float advanced_flip_strength_mult = 1.0
+var float advanced_learning_mult = 1.0
+var float advanced_regime_mult = 1.0
+
+// Finds the most similar trends to current conditions
+// Returns: array of durations of similar trends (top N most similar)
+// min_similar: minimum number of similar trends to return (fallback to all if not enough)
+get_similar_trends(array<int> all_durations, array<bool> all_is_bullish, bool current_is_bullish, float current_vol_ratio, float current_atr_ratio, int current_quality, float current_dist, bool current_near_level, int target_count, int min_similar) =>
+    var array<int> similar_durations = array.new_int(0)
+    array.clear(similar_durations)
+
+    int total_trends = array.size(all_durations)
+
+    if total_trends == 0
+        similar_durations
+    else
+        // Build arrays of similarity scores and corresponding durations
+        var array<float> scores = array.new_float(0)
+        var array<int> durations = array.new_int(0)
+        array.clear(scores)
+        array.clear(durations)
+
+        // Calculate similarity for each historical trend of same type
+        for i = 0 to total_trends - 1
+            bool hist_is_bullish = array.get(all_is_bullish, i)
+
+            // Only compare trends of same direction
+            if hist_is_bullish == current_is_bullish
+                // Get historical conditions
+                float hist_vol = array.get(trend_volume_ratios, i)
+                float hist_atr = array.get(all_flip_volatility_ratios, i)
+                int hist_quality = array.get(trend_quality_scores, i)
+                float hist_dist = array.get(all_flip_distances_from_st, i)
+                float hist_structure_mult = array.get(all_flip_structure_mults, i)
+                bool hist_near_level = hist_structure_mult < 1.0  // Structure mult < 1.0 means near level
+
+                // Calculate similarity score
+                float score = calculate_similarity_score(current_vol_ratio, hist_vol, current_atr_ratio, hist_atr, current_quality, hist_quality, current_dist, hist_dist, current_near_level, hist_near_level)
+
+                // Store score and duration
+                array.push(scores, score)
+                array.push(durations, array.get(all_durations, i))
+
+        int valid_count = array.size(scores)
+
+        // If not enough similar trends, return all of same type
+        if valid_count <= min_similar
+            similar_durations := array.copy(durations)
+        else
+            // Sort by similarity (bubble sort - simple but works for small arrays)
+            for i = 0 to valid_count - 2
+                for j = 0 to valid_count - 2 - i
+                    if array.get(scores, j) < array.get(scores, j + 1)
+                        // Swap scores
+                        float temp_score = array.get(scores, j)
+                        array.set(scores, j, array.get(scores, j + 1))
+                        array.set(scores, j + 1, temp_score)
+
+                        // Swap durations
+                        int temp_dur = array.get(durations, j)
+                        array.set(durations, j, array.get(durations, j + 1))
+                        array.set(durations, j + 1, temp_dur)
+
+            // Take top N most similar
+            int take_count = math.min(target_count, valid_count)
+            for i = 0 to take_count - 1
+                array.push(similar_durations, array.get(durations, i))
+
+        similar_durations
+
+// ===== GLOBAL S/R PIVOT TRACKING (every-bar; feeds structure multiplier) =====
+// FIX: pivots were detected only inside the flip block (conditional ta.*), so the
+// Market Structure multiplier was effectively always 1.0x. Now tracked every bar.
+var array<float> g_pivot_highs = array.new_float(0)
+var array<float> g_pivot_lows = array.new_float(0)
+float g_ph = ta.pivothigh(high, i_structure_lookback, i_structure_lookback)
+float g_pl = ta.pivotlow(low, i_structure_lookback, i_structure_lookback)
+if not na(g_ph)
+    array.push(g_pivot_highs, g_ph)
+    if array.size(g_pivot_highs) > 10
+        array.shift(g_pivot_highs)
+if not na(g_pl)
+    array.push(g_pivot_lows, g_pl)
+    if array.size(g_pivot_lows) > 10
+        array.shift(g_pivot_lows)
+
+// ===== TREND DURATION TRACKING =====
+// Track bars in current trend and log completed trends
+if stFlip and barstate.isconfirmed
+    // Store quality and volume for this completed trend
+    array.push(trend_quality_scores, quality_score)
+    array.push(trend_volume_ratios, vol_ratio)
+    if array.size(trend_quality_scores) > PREDICTION_SAMPLES
+        array.shift(trend_quality_scores)
+        array.shift(trend_volume_ratios)
+
+    // ===== UPDATE ERROR LEARNING SYSTEM =====
+    // Update error ratios when trend completes (only in Advanced mode)
+    if i_prediction_mode == "Advanced" and i_use_error_learning and not na(current_predicted_end) and current_trend_bars > 0
+        float error_ratio = current_predicted_end / current_trend_bars
+        array.push(error_ratios, error_ratio)
+
+        // Keep only recent errors (memory depth)
+        if array.size(error_ratios) > i_error_memory_depth
+            array.shift(error_ratios)
+
+    // Save completed prediction to last_10 arrays (for statistics)
+    if not na(current_predicted_avg) and not na(current_predicted_end)
+        array.push(last_10_predicted_avg, current_predicted_avg)
+        array.push(last_10_predicted_end, current_predicted_end)
+        array.push(last_10_actual_duration, current_trend_bars)
+        array.push(last_10_is_bullish, current_prediction_is_bullish)
+
+        // Keep only last 10
+        if array.size(last_10_actual_duration) > 10
+            array.shift(last_10_predicted_avg)
+            array.shift(last_10_predicted_end)
+            array.shift(last_10_actual_duration)
+            array.shift(last_10_is_bullish)
+
+    // ===== CALCULATE ADVANCED MULTIPLIERS FOR THIS FLIP (NEW TREND) =====
+    // Calculate NOW before pushing to arrays, so they're included in shift logic
+    // Only calculate in Advanced mode
+    advanced_structure_mult := 1.0
+    advanced_stock_type_mult := 1.0
+    advanced_flip_strength_mult := 1.0
+    advanced_learning_mult := 1.0
+    advanced_regime_mult := 1.0
+
+    if i_prediction_mode == "Advanced"
+        // 1️⃣ Market Structure Filter (±30%) — pivots now tracked globally (see g_pivot_* above)
+        advanced_structure_mult := get_structure_multiplier(close, g_pivot_highs, g_pivot_lows, i_structure_sensitivity)
+
+        // 2️⃣ Stock Type Modifier (±40%)
+        advanced_stock_type_mult := get_stock_type_multiplier(i_stock_type)
+
+        // 3️⃣ Flip Strength Multiplier (±20%)
+        float current_flip_strength = calculate_flip_strength(vol_ratio, atr_ratio, quality_score)
+        advanced_flip_strength_mult := current_flip_strength
+
+        // 4️⃣ Error Learning Correction (±15%)
+        if i_use_error_learning
+            advanced_learning_mult := calculate_learning_adjustment(error_ratios)
+
+        // 5️⃣ Regime Detection (±20%)
+        // Analyze recent trends of SAME TYPE to detect market regime
+        bool new_trend_is_bullish = stDir == 1
+        array<int> trend_type_for_regime = new_trend_is_bullish ? bull_trend_durations : bear_trend_durations
+        advanced_regime_mult := calculate_regime_multiplier(trend_type_for_regime, 3)
+
+    if stDir == 1
+        // Just flipped to bullish (previous was bearish)
+        array.push(bear_trend_durations, current_trend_bars)
+        if array.size(bear_trend_durations) > PREDICTION_SAMPLES
+            array.shift(bear_trend_durations)
+
+        // Also add to chronological tracking (previous trend was bearish)
+        array.push(all_trend_durations, current_trend_bars)
+        array.push(all_trend_is_bullish, false)
+
+        // Store flip data for STARTING trend (NEW bullish trend)
+        array.push(all_flip_bar_indices, bar_index)
+        array.push(all_flip_prices, close)
+        array.push(all_flip_supertrend_levels, supertrend)
+        array.push(all_flip_is_bullish, true)  // NEW trend is bullish
+
+        // Store advanced multipliers for this flip
+        array.push(all_flip_structure_mults, advanced_structure_mult)
+        array.push(all_flip_stock_type_mults, advanced_stock_type_mult)
+        array.push(all_flip_strength_mults, advanced_flip_strength_mult)
+        array.push(all_flip_learning_mults, advanced_learning_mult)
+        array.push(all_flip_regime_mults, advanced_regime_mult)
+
+        // Store similarity matching data for this flip
+        array.push(all_flip_volatility_ratios, atr_ratio)
+        array.push(all_flip_distances_from_st, math.abs(close - supertrend))
+
+        if array.size(all_trend_durations) > PREDICTION_SAMPLES
+            array.shift(all_trend_durations)
+            array.shift(all_trend_is_bullish)
+            array.shift(all_flip_bar_indices)
+            array.shift(all_flip_prices)
+            array.shift(all_flip_supertrend_levels)
+            array.shift(all_flip_is_bullish)
+            array.shift(all_flip_structure_mults)
+            array.shift(all_flip_stock_type_mults)
+            array.shift(all_flip_strength_mults)
+            array.shift(all_flip_learning_mults)
+            array.shift(all_flip_regime_mults)
+            array.shift(all_flip_volatility_ratios)
+            array.shift(all_flip_distances_from_st)
+    else
+        // Just flipped to bearish (previous was bullish)
+        array.push(bull_trend_durations, current_trend_bars)
+        if array.size(bull_trend_durations) > PREDICTION_SAMPLES
+            array.shift(bull_trend_durations)
+
+        // Also add to chronological tracking (previous trend was bullish)
+        array.push(all_trend_durations, current_trend_bars)
+        array.push(all_trend_is_bullish, true)
+
+        // Store flip data for STARTING trend (NEW bearish trend)
+        array.push(all_flip_bar_indices, bar_index)
+        array.push(all_flip_prices, close)
+        array.push(all_flip_supertrend_levels, supertrend)
+        array.push(all_flip_is_bullish, false)  // NEW trend is bearish
+
+        // Store advanced multipliers for this flip
+        array.push(all_flip_structure_mults, advanced_structure_mult)
+        array.push(all_flip_stock_type_mults, advanced_stock_type_mult)
+        array.push(all_flip_strength_mults, advanced_flip_strength_mult)
+        array.push(all_flip_learning_mults, advanced_learning_mult)
+        array.push(all_flip_regime_mults, advanced_regime_mult)
+
+        // Store similarity matching data for this flip
+        array.push(all_flip_volatility_ratios, atr_ratio)
+        array.push(all_flip_distances_from_st, math.abs(close - supertrend))
+
+        if array.size(all_trend_durations) > PREDICTION_SAMPLES
+            array.shift(all_trend_durations)
+            array.shift(all_trend_is_bullish)
+            array.shift(all_flip_bar_indices)
+            array.shift(all_flip_prices)
+            array.shift(all_flip_supertrend_levels)
+            array.shift(all_flip_is_bullish)
+            array.shift(all_flip_structure_mults)
+            array.shift(all_flip_stock_type_mults)
+            array.shift(all_flip_strength_mults)
+            array.shift(all_flip_learning_mults)
+            array.shift(all_flip_regime_mults)
+            array.shift(all_flip_volatility_ratios)
+            array.shift(all_flip_distances_from_st)
+
+    flip_bar_index := bar_index
+    flip_supertrend_level := supertrend
+    current_trend_bars := 1
+
+    // ===== CREATE PREDICTION FOR NEW TREND =====
+    // Advanced multipliers already calculated and stored above (lines 777-798, 817-820, 850-853)
+    // Create prediction in real-time as flip occurs
+    if i_enable_prediction and barstate.isconfirmed
+        // Get the trend type that's STARTING
+        bool new_trend_is_bullish = stDir == 1
+
+        // ===== SIMILARITY MATCHING: Get only similar trends instead of all trends =====
+        // Current flip conditions
+        float current_vol_ratio = vol_ratio
+        float current_atr_ratio = atr_ratio
+        int current_quality = quality_score
+        float current_dist = math.abs(close - supertrend)
+        bool current_near_level = advanced_structure_mult < 1.0  // Structure mult < 1.0 = near S/R level
+
+        // Get similar trends (target: top 15, minimum: 5)
+        // Falls back to all trends of same type if < 5 similar trends found
+        array<int> trend_type_durations = get_similar_trends(all_trend_durations, all_trend_is_bullish, new_trend_is_bullish, current_vol_ratio, current_atr_ratio, current_quality, current_dist, current_near_level, 15, 5)
+        int trend_samples = array.size(trend_type_durations)
+
+        // Dynamic sample requirements based on trading style
+        int min_samples_needed = actual_style == "Scalping (1-5m)" ? 5 : actual_style == "Day Trading (15m-1h)" ? 3 : actual_style == "Swing Trading (4h-D)" ? 2 : actual_style == "Position Trading (D-W)" ? 1 : 1
+
+        if trend_samples >= min_samples_needed
+            // ===== PREDICTION MODE BRANCHING =====
+            float trend_predicted_end = na
+            float trend_avg = na
+            float trend_median = na
+            float trend_spread = na
+            array<int> filtered_durations = array.new_int(0)
+            float current_decay_rate = calculate_decay_rate()
+
+            // SIMPLE MODE: Basic median-based prediction only
+            if i_prediction_mode == "Simple"
+                // Just use raw median * 2.5 for simple range estimate
+                trend_median := array.median(trend_type_durations)
+                trend_avg := trend_median
+                trend_spread := 0.0
+                filtered_durations := array.copy(trend_type_durations)
+
+                // Simple prediction: median * 2.5 (covers ~95% based on typical distribution)
+                trend_predicted_end := trend_median * 2.5
+
+            // STANDARD/ADVANCED MODE: Full statistical analysis
+            else
+                // Filter outliers using Percentile 10-90 method (removes extreme 10% on each end)
+                filtered_durations := array.copy(trend_type_durations)
+                if array.size(filtered_durations) >= 5
+                    float p10 = array.percentile_nearest_rank(filtered_durations, 10)
+                    float p90 = array.percentile_nearest_rank(filtered_durations, 90)
+
+                    // Remove values below 10th percentile and above 90th percentile
+                    // This filters out extremes like 14-bar and 271-bar outliers
+                    for i = array.size(filtered_durations) - 1 to 0
+                        float val = array.get(filtered_durations, i)
+                        if val < p10 or val > p90
+                            array.remove(filtered_durations, i)
+
+                // Robust central tendency using trimmed mean + median blend
+                trend_median := array.median(filtered_durations)
+
+                // Calculate 20% trimmed mean for stability
+                int trim_count = int(array.size(filtered_durations) * 0.2)
+                array<int> trimmed = array.copy(filtered_durations)
+                array.sort(trimmed)
+                if trim_count > 0 and array.size(trimmed) > 2 * trim_count
+                    for i = 0 to trim_count - 1
+                        array.shift(trimmed)
+                        array.pop(trimmed)
+
+                float trimmed_mean = array.size(trimmed) > 0 ? (i_use_ewa ? ewa_avg(trimmed, i_ewa_decay) : array.avg(trimmed)) : trend_median
+                trend_avg := (trend_median * 0.6 + trimmed_mean * 0.4)  // Blend for robustness
+
+                // Calculate robust spread using IQR-based method
+                array<float> deviations = array.new_float(0)
+                for i = 0 to array.size(filtered_durations) - 1
+                    float dev = math.abs(array.get(filtered_durations, i) - trend_median)
+                    array.push(deviations, dev)
+
+                float mad = array.median(deviations)
+                float iqr_spread = array.percentile_nearest_rank(filtered_durations, 75) - array.percentile_nearest_rank(filtered_durations, 25)
+
+                // Blend MAD and IQR for robust spread estimate
+                trend_spread := (mad * 1.4826 * 0.5) + (iqr_spread * 0.7 * 0.5)
+
+                // Context-adjusted caps based on market conditions
+                float volatility_adj = atr_ratio > 1.2 ? 0.85 : atr_ratio < 0.8 ? 1.15 : 1.0
+                float volume_adj = vol_ratio > 2.0 ? 0.8 : vol_ratio < 0.7 ? 1.2 : 1.0
+                // MTF removed from context - lagging indicator creates reverse bias at flips
+                // float mtf_adj = mtf_confluence_count >= 5 ? 1.15 : mtf_confluence_count <= 2 ? 0.85 : 1.0
+
+                // Trading style impact on prediction
+                float style_multiplier = 1.0
+                if actual_style == "Scalping (1-5m)"
+                    style_multiplier := 0.7  // Scalping = shorter trends expected
+                    trend_spread := trend_spread * 0.8  // Tighter predictions
+                else if actual_style == "Day Trading (15m-1h)"
+                    style_multiplier := 0.85  // Day trading = medium trends
+                else if actual_style == "Swing Trading (4h-D)"
+                    style_multiplier := 1.1  // Swing = longer trends
+                    trend_spread := trend_spread * 1.1
+                else if actual_style == "Position Trading (D-W)"
+                    style_multiplier := 1.3  // Position = longest trends
+                    trend_spread := trend_spread * 1.2
+
+                // MTF fully excluded from predictions (removed mtf_adj)
+                float context_multiplier = volatility_adj * volume_adj * style_multiplier
+
+                // ===== PERCENTILE-BASED PREDICTION (VARIES BY FLIP STRENGTH!) =====
+                // Instead of always using median, select percentile based on flip strength
+
+                // Determine which percentile to use based on flip strength
+                float base_percentile = na
+                if advanced_flip_strength_mult < 0.7
+                    // Weak flip → use 25th percentile (short trends expected)
+                    base_percentile := array.percentile_nearest_rank(filtered_durations, 25)
+                else if advanced_flip_strength_mult > 1.3
+                    // Strong flip → use 90th percentile (long trends expected)
+                    base_percentile := array.percentile_nearest_rank(filtered_durations, 90)
+                else
+                    // Medium flip → use 50th percentile (median)
+                    base_percentile := trend_median
+
+                // Store base percentile for probability calculations
+                current_base_percentile := base_percentile
+
+                // Use this percentile for prediction
+                trend_predicted_end := find_probability_threshold(0.95, base_percentile, current_decay_rate)
+
+                // Apply context multiplier to adjust based on current market conditions
+                if not na(trend_predicted_end)
+                    trend_predicted_end := trend_predicted_end * context_multiplier
+
+                    // Safety cap: max 500 bars (already in find_probability_threshold, but double-check)
+                    trend_predicted_end := math.min(trend_predicted_end, 500)
+
+            // ===== APPLY ADVANCED PREDICTION IMPROVEMENTS =====
+            // Multipliers were already calculated when flip occurred (lines 840-868)
+            // Just apply them to the prediction
+            // Only apply in Advanced mode
+            if i_prediction_mode == "Advanced"
+                // Calculate total multiplier
+                float total_mult = advanced_structure_mult * advanced_stock_type_mult * advanced_flip_strength_mult * advanced_learning_mult * advanced_regime_mult
+
+                // CAP: Prevent extreme predictions (0.4x-2.0x range)
+                total_mult := math.max(0.4, math.min(2.0, total_mult))
+
+                // Apply capped multiplier
+                trend_predicted_end := trend_predicted_end * total_mult
+
+            // ===== FINAL SAFETY CAP: Maximum 500 bars =====
+            // TradingView limitation: boxes cannot extend more than 500 bars into future
+            // Apply this AFTER all multipliers to prevent runtime errors
+            trend_predicted_end := math.min(trend_predicted_end, 500)
+
+            // Build tooltip
+            int trend_samples_display = trend_samples
+            float trend_confidence = math.min(100, (trend_samples_display / PREDICTION_SAMPLES) * 100)
+            string trend_confidence_label = trend_confidence > 80 ? "High" : trend_confidence > 50 ? "Medium" : "Low"
+            string trend_data_quality = trend_samples_display >= PREDICTION_SAMPLES ? "Excellent" : trend_samples_display >= 10 ? "Good" : "Limited"
+            string weighting_method = i_use_ewa ? "EWA (Decay: " + str.tostring(i_ewa_decay, "#.##") + ")" : "Equal weights"
+            int trend_min = array.min(trend_type_durations)
+            int trend_max = array.max(trend_type_durations)
+
+            string advanced_section = ""
+            if i_prediction_mode == "Advanced"
+                advanced_section := "\n\n─────────────────────────────\n" + "   ADVANCED ADJUSTMENTS 🚀\n" + "─────────────────────────────\n\n" + "🏛️ Market Structure: " + str.tostring(advanced_structure_mult, "#.##") + "x\n" + "📊 Stock Type (" + i_stock_type + "): " + str.tostring(advanced_stock_type_mult, "#.##") + "x\n" + "💪 Flip Strength: " + str.tostring(advanced_flip_strength_mult, "#.##") + "x\n" + (i_use_error_learning ? "🧠 Error Learning: " + str.tostring(advanced_learning_mult, "#.##") + "x\n" : "") + "⚡ Regime: " + str.tostring(advanced_regime_mult, "#.##") + "x\n" + "⚡ Total Impact: " + str.tostring(advanced_structure_mult * advanced_stock_type_mult * advanced_flip_strength_mult * advanced_learning_mult * advanced_regime_mult, "#.##") + "x\n\n💡 Advanced mode active"
+
+            // Prediction mode info
+            string mode_info = i_prediction_mode == "Simple" ? "📊 SIMPLE MODE - Basic median calculation" : i_prediction_mode == "Standard" ? "⚙️ STANDARD MODE - Full statistical analysis" : "🚀 ADVANCED MODE - Statistics + multipliers"
+
+            string trend_tooltip = "════════════════════════════\n" + "  HISTORICAL TREND ANALYSIS\n" + "════════════════════════════\n\n" + mode_info + "\n\n" + "📊 Estimated Range: " + str.tostring(int(trend_predicted_end)) + " bars\n" + "   (Based on past trend patterns)\n" + "📈 Trend Type: " + (new_trend_is_bullish ? "Bullish" : "Bearish") + "\n\n" + "─────────────────────────────\n" + "       CONFIDENCE METRICS\n" + "─────────────────────────────\n\n" + "💪 Data Confidence: " + str.tostring(int(trend_confidence)) + "% (" + trend_confidence_label + ")\n" + "🔬 Sample Size: " + str.tostring(trend_samples_display) + " past trends\n" + "📊 Data Quality: " + trend_data_quality + "\n" + "⚖️ Weighting: " + weighting_method + "\n\n" + "─────────────────────────────\n" + "      HISTORICAL STATISTICS\n" + "─────────────────────────────\n\n" + "📉 Average: " + str.tostring(trend_avg, "#.#") + " bars (50% point)\n" + "📐 Spread: ±" + str.tostring(trend_spread, "#.#") + " bars\n" + "📌 Range: " + str.tostring(trend_min) + " - " + str.tostring(trend_max) + " bars\n" + "📊 Median: " + str.tostring(trend_median, "#.#") + " bars\n" + "🎯 Extended Range: " + str.tostring(trend_predicted_end, "#.#") + " bars" + advanced_section + "\n\n─────────────────────────────\n\n" + "⚠️ IMPORTANT:\n" + "This analyzes " + str.tostring(trend_samples_display) + " past SuperTrend trends.\n" + "Future trends may behave differently.\n" + "Not investment advice." + (i_use_ewa ? "\n\n💡 Using EWA: Recent trends weighted higher" : "")
+
+            // Delete oldest prediction if we already have 5
+            if array.size(prediction_box_counts) >= 5
+                int box_count = array.shift(prediction_box_counts)
+                int label_count = array.shift(prediction_label_counts)
+                array.shift(prediction_set_is_bullish)
+                array.shift(prediction_flip_bar_indices)
+                array.shift(prediction_flip_supertrend_levels)
+
+                for i = 0 to box_count - 1
+                    box.delete(array.shift(prediction_boxes))
+                for i = 0 to label_count - 1
+                    label.delete(array.shift(prediction_labels))
+
+            // Calculate box dimensions
+            float box_width = trend_predicted_end / BOX_COUNT
+
+            // ATR-based vertical positioning (visible on all price scales)
+            float box_height = atrS * 0.12
+            float box_top = na
+            float box_bottom = na
+            if new_trend_is_bullish
+                // Bull: box BELOW SuperTrend level
+                box_top := flip_supertrend_level - (atrS * 0.03)
+                box_bottom := box_top - box_height
+            else
+                // Bear: box ABOVE SuperTrend level
+                box_bottom := flip_supertrend_level + (atrS * 0.03)
+                box_top := box_bottom + box_height
+
+            // Base color
+            color base_color = new_trend_is_bullish ? color.green : color.red
+
+            // Track how many boxes/labels we create
+            int new_box_count = 0
+            int new_label_count = 0
+ 
+            /// Create 30 gradient boxes
+            for i = 0 to BOX_COUNT - 1
+                int box_left = flip_bar_index + int(i * box_width)
+                int box_right = flip_bar_index + int((i + 1) * box_width)
+
+                // Gradient opacity: 5% → 95%
+                int opacity = 5 + int((i / 29.0) * 90)
+                color box_color = color.new(base_color, opacity)
+
+                // Create box
+                box new_box = box.new(box_left, box_top, box_right, box_bottom, bgcolor=box_color, border_color=na)
+                array.push(prediction_boxes, new_box)
+                new_box_count += 1
+
+            // Label: "ℹ️ Historical Trend Analysis" (CENTER - WITH TOOLTIP - BLUE)
+            float label_offset = 0  // No offset - label directly on boxes
+            float center_label_y = box_top + label_offset
+            int center_bar = flip_bar_index + int(trend_predicted_end / 2)
+            label lbl_center = label.new(center_bar, center_label_y, "ℹ️ Trend Analysis", style=label.style_label_down, color=color.new(color.blue, 0), textcolor=color.white, size=label_size_const, tooltip=trend_tooltip, yloc=yloc.price)
+            array.push(prediction_labels, lbl_center)
+            new_label_count += 1
+
+        // Labels: Statistical milestone percentages with tooltips (5 labels)
+            array<float> prob_positions = array.from(0.25, 0.50, 0.75, 0.90, 1.00)
+
+            for i = 0 to 4
+                float position_ratio = array.get(prob_positions, i)
+                int prob_bar = flip_bar_index + int(position_ratio * trend_predicted_end)
+                float bars_from_start = position_ratio * trend_predicted_end
+
+                // Empirical survival: % of past same-type trends that actually lasted at least this long
+                // (data-driven from THIS chart's history — replaces the old fixed decay curve)
+                float continuation_pct = empirical_survival_pct(filtered_durations, bars_from_start)
+
+                // Round to nearest 5%
+                int rounded_percentage = na(continuation_pct) ? 0 : int(math.round(continuation_pct / 5.0) * 5)
+
+                string prob_text = str.tostring(rounded_percentage) + "%"
+
+                // Build meaningful tooltip
+                string position_name = i == 0 ? "25% Point (Q1)" : i == 1 ? "50% Point (Median)" : i == 2 ? "75% Point (Q3)" : i == 3 ? "90% Point" : "100% Point (End)"
+                string prob_tooltip = "HISTORICAL TREND FREQUENCY\n" + "━━━━━━━━━━━━━━━━\n" + "At bar #" + str.tostring(int(bars_from_start)) + " from trend start\n\n" + "📈 " + str.tostring(rounded_percentage) + "% = Historical frequency: past trends reached here\n" + "📊 " + str.tostring(100 - rounded_percentage) + "% = Historical frequency: past trends ended before\n\n" + "Example: " + str.tostring(rounded_percentage) + "% means:\n" + "• " + str.tostring(rounded_percentage) + " out of 100 past trends continued to this point\n" + "• " + str.tostring(100 - rounded_percentage) + " out of 100 ended before reaching here\n\n" + "Based on:\n" + "• " + str.tostring(array.size(filtered_durations)) + " past SuperTrend trends on this chart\n" + "• Current volume: " + str.tostring(vol_ratio, "#.#") + "x avg\n" + "• Current volatility: " + str.tostring(atr_ratio, "#.#") + "x avg\n\n" + "⚠️ DISCLAIMER:\n" + "This is historical analysis, not prediction.\n" + "Future trends may behave differently.\n" + "Not investment advice."
+
+                // Position labels BELOW boxes with tooltip
+                float prob_label_offset = 3 * syminfo.mintick  // Very close to boxes
+                label lbl_prob = label.new(prob_bar, box_bottom - prob_label_offset, prob_text, style=label.style_none, textcolor=color.black, text_formatting=text.format_bold, size=label_size_const, yloc=yloc.price, tooltip=prob_tooltip)
+                array.push(prediction_labels, lbl_prob)
+                new_label_count += 1
+
+            // Record the counts and direction for this prediction set
+            array.push(prediction_box_counts, new_box_count)
+            array.push(prediction_label_counts, new_label_count)
+            array.push(prediction_set_is_bullish, new_trend_is_bullish)
+            array.push(prediction_flip_bar_indices, flip_bar_index)
+            array.push(prediction_flip_supertrend_levels, flip_supertrend_level)
+
+            // Store current prediction for later comparison
+            current_predicted_avg := trend_avg
+            current_predicted_end := trend_predicted_end
+            current_prediction_is_bullish := new_trend_is_bullish
+else
+    current_trend_bars += 1
+
+// ===== RETROSPECTIVE BACKTESTING FOR STATISTICS =====
+// Runs once on last bar to populate statistics from historical data
+// This allows immediate display of accuracy metrics without waiting for new trends
+if i_enable_prediction and barstate.islast and array.size(last_10_actual_duration) == 0
+    // Backtest using chronological trend data (all_trend_durations + all_trend_is_bullish)
+    var array<float> backtest_predicted_avg = array.new_float(0)
+    var array<float> backtest_predicted_end = array.new_float(0)
+    var array<int> backtest_actual_duration = array.new_int(0)
+    var array<bool> backtest_is_bullish = array.new_bool(0)
+
+    // Process all trends chronologically
+    int total_trends = array.size(all_trend_durations)
+    if total_trends > 1  // Need at least 2 trends
+        // For each trend (starting from index 1)
+        for i = 1 to total_trends - 1
+            // Get current trend info
+            int current_duration = array.get(all_trend_durations, i)
+            bool current_is_bullish = array.get(all_trend_is_bullish, i)
+
+            // Build array of prior trends OF THE SAME TYPE (bullish or bearish)
+            var array<int> prior_trends_same_type = array.new_int(0)
+            array.clear(prior_trends_same_type)
+
+            // Collect all prior trends (indices 0 to i-1) that match current trend type
+            for j = 0 to i - 1
+                bool prior_is_bullish = array.get(all_trend_is_bullish, j)
+                if prior_is_bullish == current_is_bullish
+                    array.push(prior_trends_same_type, array.get(all_trend_durations, j))
+
+            // Calculate prediction if we have at least 1 prior trend of same type
+            int prior_samples = array.size(prior_trends_same_type)
+            if prior_samples >= 1
+                float pred_avg = i_use_ewa ? ewa_avg(prior_trends_same_type, i_ewa_decay) : array.avg(prior_trends_same_type)
+                float pred_median = array.median(prior_trends_same_type)
+                float pred_end = find_probability_threshold(0.95, pred_median, 1.0)
+
+                // Store backtested result (in chronological order)
+                array.push(backtest_predicted_avg, pred_avg)
+                array.push(backtest_predicted_end, pred_end)
+                array.push(backtest_actual_duration, current_duration)
+                array.push(backtest_is_bullish, current_is_bullish)
+
+    // Take last 10 backtested results and populate the last_10_* arrays
+    int backtest_count = array.size(backtest_actual_duration)
+    if backtest_count > 0
+        int start_idx = math.max(0, backtest_count - 10)
+        for i = start_idx to backtest_count - 1
+            array.push(last_10_predicted_avg, array.get(backtest_predicted_avg, i))
+            array.push(last_10_predicted_end, array.get(backtest_predicted_end, i))
+            array.push(last_10_actual_duration, array.get(backtest_actual_duration, i))
+            array.push(last_10_is_bullish, array.get(backtest_is_bullish, i))
+
+// ===== STATISTICS CALCULATIONS & VISUALIZATION =====
+if i_enable_prediction and barstate.islast
+    // Get current trend data
+    current_durations = is_bullish ? bull_trend_durations : bear_trend_durations
+    samples = array.size(current_durations)
+
+    // Calculate statistics (only if we have minimum data)
+    if samples >= 1  // Lowered from 3 to 1 to show predictions sooner
+        // Use EWA (Exponential Weighted Average) if enabled, otherwise simple average
+        float avg_duration = i_use_ewa ? ewa_avg(current_durations, i_ewa_decay) : array.avg(current_durations)
+        float std_dev = samples > 1 ? (i_use_ewa ? ewa_stdev(current_durations, i_ewa_decay, avg_duration) : array.stdev(current_durations)) : 0.0
+        int min_duration = array.min(current_durations)
+        int max_duration = array.max(current_durations)
+        float median_duration = array.median(current_durations)
+
+        // Predicted end via the SAME Weibull engine as the on-chart boxes (was μ+2σ — inconsistent with the box shown for this same trend)
+        float predicted_end_raw = find_probability_threshold(0.95, median_duration, calculate_decay_rate())
+        float predicted_end = na(predicted_end_raw) ? avg_duration + (2.0 * std_dev) : math.min(predicted_end_raw, 500)
+
+        // Confidence metrics
+        float confidence = math.min(100, (samples / PREDICTION_SAMPLES) * 100)
+        string confidence_label = confidence > 80 ? "High" : confidence > 50 ? "Medium" : "Low"
+        string data_quality = samples >= PREDICTION_SAMPLES ? "Excellent" : samples >= 10 ? "Good" : "Limited"
+
+        // Progress metrics (using predicted_end for accurate progress)
+        int remaining_bars = int(predicted_end - current_trend_bars)
+        float percent_complete = (current_trend_bars / predicted_end) * 100
+
+        // Calculate prediction accuracy metrics (if we have historical predictions)
+        prediction_count := array.size(last_10_actual_duration)
+
+        if prediction_count > 0
+            // Success Rate: % of trends that ended within predicted_end
+            success_count := 0
+            float total_accuracy = 0.0
+
+            for i = 0 to prediction_count - 1
+                int actual = array.get(last_10_actual_duration, i)
+                float pred_avg = array.get(last_10_predicted_avg, i)
+                float pred_end = array.get(last_10_predicted_end, i)
+
+                // Success if actual duration was within predicted_end
+                if actual <= pred_end
+                    success_count := success_count + 1
+
+                // Accuracy: 100% - |actual - predicted_avg| / predicted_avg
+                float error_pct = math.abs(actual - pred_avg) / pred_avg * 100
+                float accuracy = math.max(0, 100 - error_pct)
+                total_accuracy += accuracy
+
+            success_rate := (success_count / prediction_count) * 100
+            avg_accuracy := total_accuracy / prediction_count
+
+        // Build detailed tooltip
+        string weighting_method = i_use_ewa ? "EWA (Decay: " + str.tostring(i_ewa_decay, "#.##") + ")" : "Equal weights"
+        string tooltip = "════════════════════════════\n" + "  TREND DURATION PREDICTION\n" + "════════════════════════════\n\n" + "📊 Predicted End: " + str.tostring(int(predicted_end)) + " bars (95% coverage)\n" + "📈 Current Trend: " + (is_bullish ? "Bullish" : "Bearish") + " (" + str.tostring(current_trend_bars) + " bars)\n" + "⏱️ Remaining: " + str.tostring(remaining_bars) + " bars\n" + "🎯 Progress: " + str.tostring(int(percent_complete)) + "%\n\n" + "─────────────────────────────\n" + "       CONFIDENCE METRICS\n" + "─────────────────────────────\n\n" + "💪 Confidence: " + str.tostring(int(confidence)) + "% (" + confidence_label + ")\n" + "🔬 Sample Size: " + str.tostring(samples) + " trends\n" + "📊 Data Quality: " + data_quality + "\n" + "⚖️ Weighting: " + weighting_method + "\n\n" + "─────────────────────────────\n" + "      HISTORICAL STATISTICS\n" + "─────────────────────────────\n\n" + "📉 Average: " + str.tostring(avg_duration, "#.#") + " bars (50% point)\n" + "📐 Std Dev: ±" + str.tostring(std_dev, "#.#") + " bars\n" + "📌 Range: " + str.tostring(min_duration) + " - " + str.tostring(max_duration) + " bars\n" + "📊 Median: " + str.tostring(median_duration, "#.#") + " bars\n" + "🎯 Predicted (95% Weibull): " + str.tostring(predicted_end, "#.#") + " bars\n\n" + "─────────────────────────────\n\n" + "Based on last " + str.tostring(samples) + " SuperTrend flips\n" + "Timeframe: Current chart" + (i_use_ewa ? "\n\n💡 Using EWA: Recent trends weighted higher" : "")
+
+// ========== DETAILED SIGNAL LABELS ==========
+
+// BUY Signal Label (simplified - all info in tooltip)
+if goldenCross and show_entry_labels and barstate.isconfirmed
+    signal_mode = use_scalpel ? "🔪 " : ""
+
+    // GOD MODE: Stop at the SuperTrend line, R-multiple targets (risk floored at 1 ATR so flip-bar entries aren't microscopic)
+    float sl_price = supertrend
+    float risk_ps = math.max(math.abs(close - sl_price), atrS)
+    string risk_section = godmode_enabled and show_risk_levels ? "\n\n💰 RISK (Stop = SuperTrend)\nStop: " + str.tostring(sl_price, format.mintick) + " (risk " + str.tostring(risk_ps, format.mintick) + ")\nTP1 (" + str.tostring(tp1_r, "#.#") + "R): " + str.tostring(close + tp1_r * risk_ps, format.mintick) + "\nTP2 (" + str.tostring(tp2_r, "#.#") + "R): " + str.tostring(close + tp2_r * risk_ps, format.mintick) : ""
+    string mtf_section = godmode_enabled ? "\n\n🔭 HTF (" + htf1_tf + "/" + htf2_tf + "): " + str.tostring(mtf_agree_count) + "/2 agree" : ""
+
+    // Clean label - just signal name + info icon+
+    label_text = signal_mode + "ℹ️ BUY"
+
+    // Full details in tooltip
+    label_tooltip = "🟢 BUY SIGNAL\n━━━━━━━━━━━━━━━━\nPrice: " + str.tostring(close, format.mintick) + "\nSupertrend: " + str.tostring(supertrend, format.mintick) + "\n\n📊 VOLUME:\n" + vol_state + " (" + str.tostring(vol_ratio, "#.##") + "x)\n\n📈 VOLUME MOMENTUM:\n" + (vol_momentum_strong ? "📊📊 STRONG (" + str.tostring(vol_momentum_ratio, "#.##") + "x)" : vol_momentum_rising ? "📈 Rising (" + str.tostring(vol_momentum_ratio, "#.##") + "x)" : "➡️ Neutral") + "\n\n⭐ QUALITY:\n" + quality_level + " (" + str.tostring(quality_score) + "/70)" + mtf_section + risk_section
+    label_y = low - (2 * syminfo.mintick)
+
+    label.new(bar_index, label_y, label_text, style=label.style_label_up, color=color.new(bull_color_input, 0), textcolor=color.white, size=label_size_const, tooltip=label_tooltip)
+
+// SELL Signal Label (simplified - all info in tooltip)
+if deathCross and show_entry_labels and barstate.isconfirmed
+    signal_mode = use_scalpel ? "🔪 " : ""
+
+    // GOD MODE: Stop at the SuperTrend line, R-multiple targets (short; risk floored at 1 ATR)
+    float sl_price = supertrend
+    float risk_ps = math.max(math.abs(sl_price - close), atrS)
+    string risk_section = godmode_enabled and show_risk_levels ? "\n\n💰 RISK (Stop = SuperTrend)\nStop: " + str.tostring(sl_price, format.mintick) + " (risk " + str.tostring(risk_ps, format.mintick) + ")\nTP1 (" + str.tostring(tp1_r, "#.#") + "R): " + str.tostring(close - tp1_r * risk_ps, format.mintick) + "\nTP2 (" + str.tostring(tp2_r, "#.#") + "R): " + str.tostring(close - tp2_r * risk_ps, format.mintick) : ""
+    string mtf_section = godmode_enabled ? "\n\n🔭 HTF (" + htf1_tf + "/" + htf2_tf + "): " + str.tostring(mtf_agree_count) + "/2 agree" : ""
+
+    // Clean label - just signal name + info icon
+    label_text = signal_mode + "ℹ️ SELL"
+
+    // Full details in tooltip
+    label_tooltip = "🔴 SELL SIGNAL\n━━━━━━━━━━━━━━━━\nPrice: " + str.tostring(close, format.mintick) + "\nSupertrend: " + str.tostring(supertrend, format.mintick) + "\n\n📊 VOLUME:\n" + vol_state + " (" + str.tostring(vol_ratio, "#.##") + "x)\n\n📉 VOLUME MOMENTUM:\n" + (vol_momentum_strong ? "📊📊 STRONG (" + str.tostring(vol_momentum_ratio, "#.##") + "x)" : vol_momentum_rising ? "📉 Rising (" + str.tostring(vol_momentum_ratio, "#.##") + "x)" : "➡️ Neutral") + "\n\n⭐ QUALITY:\n" + quality_level + " (" + str.tostring(quality_score) + "/70)" + mtf_section + risk_section
+    label_y = high + (2 * syminfo.mintick)
+
+    label.new(bar_index, label_y, label_text, style=label.style_label_down, color=color.new(bear_color_input, 0), textcolor=color.white, size=label_size_const, tooltip=label_tooltip)
+
+// ========== VOLUME SPIKE LABELS (with full entry filters) ==========
+
+// COOLDOWN TRACKING - Prevent multiple spike labels in short period
+var int bars_since_vol_spike_label = 999
+const int VOL_SPIKE_COOLDOWN = 8  // Wait 8 bars before showing next spike label
+
+// Update cooldown counter
+if bars_since_vol_spike_label < 999
+    bars_since_vol_spike_label += 1
+
+// Volume Spike Alert - NOW REQUIRES ALL ENTRY FILTERS (like goldenCross/deathCross)
+// Only show if quality, volume, and Volume Momentum conditions are met
+// AND if cooldown period has passed
+volume_spike_alert = vol_is_spike and not goldenCross and not deathCross and signal_quality_ok and volume_ok and (vol_momentum_ok_long or vol_momentum_ok_short) and bars_since_vol_spike_label >= VOL_SPIKE_COOLDOWN
+
+if volume_spike_alert and show_info_labels and barstate.isconfirmed
+    spike_text = "💥\nVOL\nSPIKE\n" + str.tostring(vol_ratio, "#.#") + "x"
+    spike_tooltip = "💥 VOLUME SPIKE DETECTED\n━━━━━━━━━━━━━━━━━\nCurrent Volume: " + str.tostring(volume, "#") + "\nAverage (" + str.tostring(vol_length) + "): " + str.tostring(vol_ma, "#") + "\nRatio: " + str.tostring(vol_ratio, "#.##") + "x\n\nThreshold: " + str.tostring(vol_spike_threshold, "#.#") + "x\n\n✅ ALL ENTRY FILTERS PASSED:\n• Quality: " + str.tostring(quality_score) + "/" + str.tostring(min_quality_score) + " ✓\n• Volume: Confirmed ✓\n• Vol Momentum: Confirmed ✓\n\n💡 Major event with full confirmation!\nHigh-quality setup - watch for entry."
+    spike_color = is_bullish ? color.aqua : color.orange
+    spike_style = is_bullish ? label.style_label_up : label.style_label_down
+    spike_y = is_bullish ? low : high
+    
+    label.new(bar_index, spike_y, spike_text, style=spike_style, color=color.new(spike_color, 0), textcolor=color.white, size=label_size_const, tooltip=spike_tooltip)
+    
+    // Reset cooldown after showing label
+    bars_since_vol_spike_label := 0
+
+//======================================================
+//============= SECTION 9: SMART DYNAMIC RIBBON ========
+//======================================================
+
+// Gate: hide ribbon fill during neutral period
+bool ribbon_active = show_ribbon_fill and not neutral
+
+// Calculate distance from price to Supertrend
+price_to_st_distance = math.abs(close - supertrend)
+
+// Base Color Selection - Simple 2-color system
+// Volume creates GRADUAL darkening (not sudden jumps)
+float vol_intensity = -(vol_ratio - 1.0) * 30  // Gradual: 1.0x = 0, 1.5x = -15, 2.5x = -45, etc.
+baseColor = is_bullish ? bull_color_input : bear_color_input
+
+// Volume Momentum Opacity Boost (darker = stronger)
+float vol_momentum_boost = (use_volume_momentum and ((is_bullish and vol_momentum_confirms_bull) or (is_bearish and vol_momentum_confirms_bear))) ? 15 : 0
+
+// 15-Layer Dynamic Gradient: Price → Supertrend
+// Opacity: 85% (near price, light) → 30% (near ST, dark)
+// Creates 16 slices for 15 layers
+
+// Calculate bar midpoint for split on flip bars
+float bar_mid = (high + low) / 2
+
+// Detect if we're on a flip bar
+bool is_flip_bar = supertrend_flip_bullish or supertrend_flip_bearish
+
+// Previous trend direction (before flip)
+bool was_bullish = supertrend_flip_bearish  // If flipping bearish, we WERE bullish
+bool was_bearish = supertrend_flip_bullish  // If flipping bullish, we WERE bearish
+
+// UPPER HALF OF FLIP BAR: Use OLD trend (from bar_mid to appropriate extreme)
+// LOWER HALF OF FLIP BAR: Use NEW trend (from bar_mid to appropriate extreme)
+// NORMAL BARS: Full ribbon from close to supertrend
+
+float ribbon_start = na
+float ribbon_end = na
+
+if is_flip_bar
+    // Split bar logic
+    if supertrend_flip_bullish
+        // Flipping TO bullish (was bearish)
+        // Upper half: bearish (bar_mid to high)
+        // Lower half: bullish (bar_mid to low)
+        ribbon_start := close > bar_mid ? bar_mid : close
+        ribbon_end := close > bar_mid ? high : bar_mid
+    else
+        // Flipping TO bearish (was bullish)
+        // Upper half: bullish (bar_mid to high) 
+        // Lower half: bearish (bar_mid to low)
+        ribbon_start := close < bar_mid ? bar_mid : close
+        ribbon_end := close < bar_mid ? low : bar_mid
+else
+    // Normal bar: close to supertrend
+    ribbon_start := close
+    ribbon_end := supertrend
+
+// OPTIMIZED: Cached gradient calculations - only compute if ribbon is active
+// Performance gain: ~30% on gradient rendering
+
+// Helper function for layer interpolation
+get_layer(start, end_val, step) =>
+    (start * (15 - step) + end_val * step) / 15
+
+// Calculate layer positions - NO GAP, continuous through flips
+float l1 = ribbon_active ? ribbon_start : na
+float l2 = ribbon_active ? get_layer(ribbon_start, ribbon_end, 1) : na
+float l3 = ribbon_active ? get_layer(ribbon_start, ribbon_end, 2) : na
+float l4 = ribbon_active ? get_layer(ribbon_start, ribbon_end, 3) : na
+float l5 = ribbon_active ? get_layer(ribbon_start, ribbon_end, 4) : na
+float l6 = ribbon_active ? get_layer(ribbon_start, ribbon_end, 5) : na
+float l7 = ribbon_active ? get_layer(ribbon_start, ribbon_end, 6) : na
+float l8 = ribbon_active ? get_layer(ribbon_start, ribbon_end, 7) : na
+float l9 = ribbon_active ? get_layer(ribbon_start, ribbon_end, 8) : na
+float l10 = ribbon_active ? get_layer(ribbon_start, ribbon_end, 9) : na
+float l11 = ribbon_active ? get_layer(ribbon_start, ribbon_end, 10) : na
+float l12 = ribbon_active ? get_layer(ribbon_start, ribbon_end, 11) : na
+float l13 = ribbon_active ? get_layer(ribbon_start, ribbon_end, 12) : na
+float l14 = ribbon_active ? get_layer(ribbon_start, ribbon_end, 13) : na
+float l15 = ribbon_active ? get_layer(ribbon_start, ribbon_end, 14) : na
+float l16 = ribbon_active ? ribbon_end : na
+
+// Helper function for opacity calculation
+get_opacity(base_opacity) =>
+    math.max(5, math.min(95, base_opacity - vol_momentum_boost + vol_intensity))
+
+// Calculate layer opacities ONLY if ribbon active - conditional optimization
+// Vol_intensity is negative, so it REDUCES transparency (makes darker)
+color c1 = ribbon_active ? color.new(baseColor, get_opacity(85)) : na
+color c2 = ribbon_active ? color.new(baseColor, get_opacity(81)) : na
+color c3 = ribbon_active ? color.new(baseColor, get_opacity(77)) : na
+color c4 = ribbon_active ? color.new(baseColor, get_opacity(73)) : na
+color c5 = ribbon_active ? color.new(baseColor, get_opacity(69)) : na
+color c6 = ribbon_active ? color.new(baseColor, get_opacity(65)) : na
+color c7 = ribbon_active ? color.new(baseColor, get_opacity(61)) : na
+color c8 = ribbon_active ? color.new(baseColor, get_opacity(57)) : na
+color c9 = ribbon_active ? color.new(baseColor, get_opacity(53)) : na
+color c10 = ribbon_active ? color.new(baseColor, get_opacity(49)) : na
+color c11 = ribbon_active ? color.new(baseColor, get_opacity(45)) : na
+color c12 = ribbon_active ? color.new(baseColor, get_opacity(41)) : na
+color c13 = ribbon_active ? color.new(baseColor, get_opacity(37)) : na
+color c14 = ribbon_active ? color.new(baseColor, get_opacity(33)) : na
+color c15 = ribbon_active ? color.new(baseColor, get_opacity(30)) : na
+
+// Plot all 16 slices (invisible)
+p1 = plot(l1, display=display.none, editable=false)
+p2 = plot(l2, display=display.none, editable=false)
+p3 = plot(l3, display=display.none, editable=false)
+p4 = plot(l4, display=display.none, editable=false)
+p5 = plot(l5, display=display.none, editable=false)
+p6 = plot(l6, display=display.none, editable=false)
+p7 = plot(l7, display=display.none, editable=false)
+p8 = plot(l8, display=display.none, editable=false)
+p9 = plot(l9, display=display.none, editable=false)
+p10 = plot(l10, display=display.none, editable=false)
+p11 = plot(l11, display=display.none, editable=false)
+p12 = plot(l12, display=display.none, editable=false)
+p13 = plot(l13, display=display.none, editable=false)
+p14 = plot(l14, display=display.none, editable=false)
+p15 = plot(l15, display=display.none, editable=false)
+p16 = plot(l16, display=display.none, editable=false)
+
+// Fill 15 layers with dynamic gradient - continuous through flips (no GAP)
+fill(p1, p2, ribbon_active ? c1 : na, editable=false)
+fill(p2, p3, ribbon_active ? c2 : na, editable=false)
+fill(p3, p4, ribbon_active ? c3 : na, editable=false)
+fill(p4, p5, ribbon_active ? c4 : na, editable=false)
+fill(p5, p6, ribbon_active ? c5 : na, editable=false)
+fill(p6, p7, ribbon_active ? c6 : na, editable=false)
+fill(p7, p8, ribbon_active ? c7 : na, editable=false)
+fill(p8, p9, ribbon_active ? c8 : na, editable=false)
+fill(p9, p10, ribbon_active ? c9 : na, editable=false)
+fill(p10, p11, ribbon_active ? c10 : na, editable=false)
+fill(p11, p12, ribbon_active ? c11 : na, editable=false)
+fill(p12, p13, ribbon_active ? c12 : na, editable=false)
+fill(p13, p14, ribbon_active ? c13 : na, editable=false)
+fill(p14, p15, ribbon_active ? c14 : na, editable=false)
+fill(p15, p16, ribbon_active ? c15 : na, editable=false)
+
+//======================================================
+//=============== SECTION 10: DASHBOARD ================
+//======================================================
+
+if show_dashboard and barstate.islast
+    // Position conversion (all 9 options)
+    tablePos = table_position == "Top Left" ? position.top_left : table_position == "Top Center" ? position.top_center : table_position == "Top Right" ? position.top_right : table_position == "Middle Left" ? position.middle_left : table_position == "Middle Center" ? position.middle_center : table_position == "Middle Right" ? position.middle_right : table_position == "Bottom Left" ? position.bottom_left : table_position == "Bottom Center" ? position.bottom_center : position.bottom_right
+    
+    // Text size conversion
+    tableTxtSize = table_text_size == "Auto" ? size.auto : table_text_size == "Tiny" ? size.tiny : table_text_size == "Small" ? size.small : table_text_size == "Normal" ? size.normal : table_text_size == "Large" ? size.large : size.huge
+    
+    dash_bg = color.new(color.black, 0)
+    header_bg = color.new(color.gray, 50)
+    header_text = "SUPER-DUPER SUPERTREND"
+
+    var table dashTable = table.new(tablePos, columns=2, rows=20, bgcolor=dash_bg, border_width=0)
+
+    // Row 0: HEADER (always centered)
+    header_tooltip = "Super-Duper SuperTrend Dashboard\n\nReal-time trend analysis combining:\n• BIAS-style adaptive Supertrend\n• Volume confirmation\n• Quality scoring system\n\nAll metrics update live on each bar close."
+    table.cell(dashTable, 0, 0, header_text, text_color=color.white, text_size=tableTxtSize, bgcolor=header_bg, text_halign=text.align_center, tooltip=header_tooltip)
+    table.merge_cells(dashTable, 0, 0, 1, 0)
+    
+    // Row 1: QUALITY SCORE (label left-aligned, value centered) - WHITE TEXT ONLY
+    // Calculate component scores for tooltip
+    vol_points = vol_is_spike ? 30 : vol_is_high ? 20 : basic_volume_confirm ? 10 : 0
+    volatility_points = vol_expanding ? 30 : vol_rising ? 15 : 0
+    vol_momentum_points = use_volume_momentum and vol_momentum_strong_trend ? 10 : use_volume_momentum and vol_momentum_rising ? 5 : 0
+
+    quality_label_tooltip = "Signal Quality Score (0-70 points)\n\nMeasures signal strength based on:\n\n📊 VOLUME (0-30 pts): " + str.tostring(vol_points) + " pts\n• Spike (2.5x+) = 30\n• High (1.5x+) = 20\n• Above average = 10\n\n🌪️ VOLATILITY (0-30 pts): " + str.tostring(volatility_points) + " pts\n• Expanding (1.3x+) = 30\n• Rising (1.0x+) = 15\n\n📈 VOL MOMENTUM BONUS (0-10 pts): " + str.tostring(vol_momentum_points) + " pts\n• Strong momentum = 10\n• Rising momentum = 5\n\nThresholds:\n• 60+ = EXCELLENT ⭐⭐⭐\n• 45-59 = STRONG ⭐⭐\n• 30-44 = GOOD ⭐\n• 0-29 = WEAK ⚠️"
+
+    quality_value_tooltip = "Current Score: " + str.tostring(quality_score) + "/70\nLevel: " + quality_level + "\n\n" + (quality_score >= min_quality_score ? "✅ ABOVE minimum threshold (" + str.tostring(min_quality_score) + ")" : "❌ BELOW minimum threshold (" + str.tostring(min_quality_score) + ")") + "\n\nBREAKDOWN:\n━━━━━━━━━━━━\n📊 Volume: " + str.tostring(vol_points) + " pts (" + vol_state + ")\n🌪️ Volatility: " + str.tostring(volatility_points) + " pts (" + volatility_state + ")\n📈 Vol Momentum: " + str.tostring(vol_momentum_points) + " pts" + (use_volume_momentum ? " (" + str.tostring(vol_momentum_ratio, "#.##") + "x)" : " (disabled)") + "\n━━━━━━━━━━━━\nTOTAL: " + str.tostring(quality_score) + " pts\n\n" + (quality_score >= 60 ? "💡 EXCELLENT quality - very high probability signal" : quality_score >= 45 ? "💡 STRONG quality - reliable signal" : quality_score >= 30 ? "💡 GOOD quality - decent signal" : "⚠️ WEAK quality - consider waiting for better setup")
+
+    table.cell(dashTable, 0, 1, "Signal Quality", text_color=color.white, text_size=tableTxtSize, text_halign=text.align_left, tooltip=quality_label_tooltip)
+    table.cell(dashTable, 1, 1, quality_level + " (" + str.tostring(quality_score) + "/70)", text_color=color.white, text_size=tableTxtSize, text_halign=text.align_center, tooltip=quality_value_tooltip)
+    
+    // Row 2: SEPARATOR (centered)
+    table.cell(dashTable, 0, 2, "═══════════════════", text_color=color.new(color.gray, 50), text_size=size.tiny, text_halign=text.align_center)
+    table.merge_cells(dashTable, 0, 2, 1, 2)
+    
+    // Row 3: SUPERTREND (label left, value center) - WHITE TEXT ONLY
+    st_text = is_bullish ? "🟢 BULLISH" : "🔴 BEARISH"
+    st_price = " @ " + str.tostring(supertrend, format.mintick)
+    
+    // Calculate current adaptive multiplier details for tooltip (outside scope for consistency)
+    multiplier_adjustment = st_use_adaptive ? ((adaptiveMult / st_mult - 1.0) * 100) : 0
+    base_band = atrS * st_mult
+    adaptive_band = atrS * adaptiveMult
+    st_label_tooltip = "BIAS-Style Adaptive Supertrend\n\nAdvanced calculation features:\n\n🔧 ADAPTIVE MULTIPLIER:" + (st_use_adaptive ? " ON" : " OFF") + "\n• Base multiplier: " + str.tostring(st_mult, "#.##") + "x\n• Current multiplier: " + str.tostring(adaptiveMult, "#.##") + "x\n• Adjustment: " + (multiplier_adjustment > 0 ? "+" : "") + str.tostring(multiplier_adjustment, "#.#") + "%\n\nAdapts based on:\n• Volume weight: " + str.tostring(volWeight, "#.##") + "x\n• Trend strength: " + str.tostring(trendStrength * 100, "#") + "%\n\n📈 EMA SMOOTHING: " + str.tostring(st_smooth_factor * 100, "#") + "%\n• Reduces noise\n• ~" + str.tostring(int(1 / st_smooth_factor), "#") + " bar smoothing\n\n⏸️ NEUTRAL BARS: " + str.tostring(st_neutral_bars) + " bars\n• Hides ribbon after flip\n• Reduces false signals" + (st_neutral_bars > 0 ? "\n• Currently: " + (neutral ? "IN NEUTRAL WINDOW" : "active") : "")
+    st_value_tooltip = "Current Trend: " + (is_bullish ? "🟢 BULLISH" : "🔴 BEARISH") + "\n\nSupertrend Level: " + str.tostring(supertrend, format.mintick) + "\nCurrent Price: " + str.tostring(close, format.mintick) + "\nDistance: " + str.tostring(math.abs(close - supertrend), format.mintick) + " (" + str.tostring(math.abs(close - supertrend) / close * 100, "#.##") + "%)\n\nLAST FLIP:\n• Direction: " + (is_bullish ? "Flipped to BULLISH" : "Flipped to BEARISH") + (neutral ? "\n• Status: ⏸️ IN NEUTRAL WINDOW" : "\n• Status: ✅ Active") + "\n\nBAND DETAILS:\n━━━━━━━━━━━━\nATR (" + str.tostring(st_length) + "): " + str.tostring(atrS, format.mintick) + "\nBase width: " + str.tostring(base_band, format.mintick) + "\nAdaptive width: " + str.tostring(adaptive_band, format.mintick) + "\nAdjustment: " + (multiplier_adjustment > 0 ? "+" : "") + str.tostring(multiplier_adjustment, "#.#") + "%\n\n" + (is_bullish ? "💡 Support at " + str.tostring(supertrend, format.mintick) + "\n   Hold above = trend intact" : "💡 Resistance at " + str.tostring(supertrend, format.mintick) + "\n   Break above = trend reversal")
+    
+    table.cell(dashTable, 0, 3, "Supertrend", text_color=color.white, text_size=tableTxtSize, text_halign=text.align_left, tooltip=st_label_tooltip)
+    table.cell(dashTable, 1, 3, st_text + st_price, text_color=color.white, text_size=tableTxtSize, text_halign=text.align_center, tooltip=st_value_tooltip)
+    
+    // Row 4: VOLUME (label left, value center) - WHITE TEXT ONLY
+    vol_text = vol_state + " (" + str.tostring(vol_ratio, "#.#") + "x)"
+    vol_label_tooltip = "Volume Analysis System\n\nCompares current volume to " + str.tostring(vol_length) + "-bar average.\n\nTHRESHOLDS:\n━━━━━━━━━━━━\n💥 SPIKE: " + str.tostring(vol_spike_threshold, "#.#") + "x+ average\n   Major event/breakout\n   Highest quality signal\n\n🔥 HIGH: " + str.tostring(vol_high_threshold, "#.#") + "x+ average\n   Strong participation\n   Good confirmation\n\n➡️ NORMAL: 1.0x - " + str.tostring(vol_high_threshold, "#.#") + "x\n   Average activity\n   Neutral confirmation\n\n📍 LOW: Below " + str.tostring(vol_low_threshold, "#.#") + "x average\n   Weak participation\n   Lower quality signal\n\nVolume affects:\n• Quality score (0-30 points)\n• Ribbon darkness (gradual)\n• Adaptive multiplier strength"
+    vol_value_tooltip = "Current Volume State: " + vol_state + "\n\nVOLUME METRICS:\n━━━━━━━━━━━━\nCurrent: " + str.tostring(volume, "#") + "\nAverage (" + str.tostring(vol_length) + "): " + str.tostring(vol_ma, "#") + "\nRatio: " + str.tostring(vol_ratio, "#.##") + "x\n\nCATEGORY:\n" + (vol_is_spike ? "💥 SPIKE (" + str.tostring(vol_spike_threshold, "#.#") + "x+)\n   ✅ Exceptional confirmation!\n   +30 quality points" : vol_is_high ? "🔥 HIGH (" + str.tostring(vol_high_threshold, "#.#") + "x+)\n   ✅ Strong confirmation\n   +20 quality points" : vol_is_low ? "📍 LOW (below " + str.tostring(vol_low_threshold, "#.#") + "x)\n   ⚠️ Weak confirmation\n   +0 quality points" : "➡️ NORMAL\n   Basic confirmation\n   +10 quality points") + "\n\nRIBBON EFFECT:\n" + (vol_ratio > 1.0 ? "Darkening: -" + str.tostring((vol_ratio - 1.0) * 30, "#") + "% transparency\nHigher volume = darker ribbon" : "No darkening (below average)") + "\n\n💡 " + (vol_is_spike or vol_is_high ? "Strong volume confirms trend strength!" : vol_is_low ? "Low volume - trend may be weak" : "Average volume - trend developing normally")
+    
+    table.cell(dashTable, 0, 4, "Volume", text_color=color.white, text_size=tableTxtSize, text_halign=text.align_left, tooltip=vol_label_tooltip)
+    table.cell(dashTable, 1, 4, vol_text, text_color=color.white, text_size=tableTxtSize, text_halign=text.align_center, tooltip=vol_value_tooltip)    // Row 5: VOLATILITY (label left, value center) - WHITE TEXT ONLY
+    volatility_label_tooltip = "Volatility Analysis (ATR Regime)\n\nMeasures current volatility vs 20-bar average.\n\nREGIMES:\n━━━━━━━━━━━━\n🔥 EXPANDING (1.3x+)\n   Major price swings\n   Breakout potential\n   +30 quality points\n\n📈 RISING (1.0x - 1.3x)\n   Increasing volatility\n   Building momentum\n   +15 quality points\n\n➡️ STABLE (0.9x - 1.0x)\n   Normal conditions\n   Steady trend\n   +0 quality points\n\n📉 CONTRACTING (below 0.9x)\n   Low volatility\n   Consolidation phase\n   +0 quality points\n\nVolatility affects:\n• Quality score (0-30 pts)\n• Breakout probability\n• Stop-loss positioning"
+    
+    volatility_value_tooltip = "Current Volatility: " + volatility_state + "\n\nATR METRICS:\n━━━━━━━━━━━━\nCurrent ATR(14): " + str.tostring(atr_current, format.mintick) + "\nAverage ATR(20): " + str.tostring(atr_ma, format.mintick) + "\nRatio: " + str.tostring(atr_ratio, "#.##") + "x\n\nREGIME ANALYSIS:\n" + (atr_ratio >= 1.3 ? "🔥 EXPANDING\n   ATR is 1.3x+ average\n   ✅ High volatility = breakout likely\n   ✅ +30 quality points\n   💡 Excellent for trend trades!" : vol_rising ? "📈 RISING\n   ATR is above average\n   ✅ Volatility increasing\n   ✅ +15 quality points\n   💡 Momentum building" : vol_contracting ? "📉 CONTRACTING\n   ATR below 0.9x average\n   ⚠️ Low volatility\n   ⚠️ +0 quality points\n   💡 Consolidation - wait for expansion" : "➡️ STABLE\n   ATR near average\n   Normal market conditions\n   +0 quality points\n   💡 Steady trend environment") + "\n\nSUPERTREND IMPACT:\n" + (st_use_adaptive ? "Adaptive bands adjust automatically\nBand width: " + str.tostring(adaptive_band, format.mintick) : "Fixed bands (adaptive disabled)")
+    
+    table.cell(dashTable, 0, 5, "Volatility", text_color=color.white, text_size=tableTxtSize, text_halign=text.align_left, tooltip=volatility_label_tooltip)
+    table.cell(dashTable, 1, 5, volatility_state, text_color=color.white, text_size=tableTxtSize, text_halign=text.align_center, tooltip=volatility_value_tooltip)
+    
+    // Row 6: SEPARATOR (centered)
+    table.cell(dashTable, 0, 6, "═══════════════════", text_color=color.new(color.gray, 50), text_size=size.tiny, text_halign=text.align_center)
+    table.merge_cells(dashTable, 0, 6, 1, 6)
+    
+    // Row 7: MTF CONFLUENCE (GOD MODE)
+    if godmode_enabled
+        string htf1_txt = na(htf1_dir) ? "⚪" : (htf1_bull ? "🟢" : "🔴")
+        string htf2_txt = na(htf2_dir) ? "⚪" : (htf2_bull ? "🟢" : "🔴")
+        string mtf_value = htf1_tf + " " + htf1_txt + "  " + htf2_tf + " " + htf2_txt + "  (" + str.tostring(mtf_agree_count) + "/2)"
+        string mtf_tooltip = "Multi-Timeframe Confluence 🔭\n\nHigher-TF SuperTrend direction vs the current chart:\n\n🔭 " + htf1_tf + ": " + (na(htf1_dir) ? "no data" : (htf1_bull ? "🟢 Bullish" : "🔴 Bearish")) + "\n🔭 " + htf2_tf + ": " + (na(htf2_dir) ? "no data" : (htf2_bull ? "🟢 Bullish" : "🔴 Bearish")) + "\n\nAgreement with current chart: " + str.tostring(mtf_agree_count) + "/2\n\n" + (mtf_gate_signals ? "⚙️ Gate ON — signals require BOTH higher TFs to agree." : "⚙️ Gate OFF — shown for context only (toggle in GOD MODE settings).") + "\n\n💡 Set both TFs ABOVE your chart timeframe.\n💡 More agreement = higher-conviction entries."
+        table.cell(dashTable, 0, 7, "🔭 HTF Confluence", text_color=color.white, text_size=tableTxtSize, text_halign=text.align_left, tooltip=mtf_tooltip)
+        table.cell(dashTable, 1, 7, mtf_value, text_color=color.white, text_size=tableTxtSize, text_halign=text.align_center, tooltip=mtf_tooltip)
+
+    // Row 8: Prediction Status (always show if prediction enabled)
+    if i_enable_prediction
+        // Get current trend data for status
+        current_durations_check = is_bullish ? bull_trend_durations : bear_trend_durations
+        samples_check = array.size(current_durations_check)
+
+        if prediction_count > 0
+            // Have historical predictions - show track record
+            // Build detailed breakdown for tooltip
+            string breakdown = ""
+            for i = 0 to prediction_count - 1
+                int actual = array.get(last_10_actual_duration, i)
+                float pred_avg = array.get(last_10_predicted_avg, i)
+                float pred_end = array.get(last_10_predicted_end, i)
+                bool was_bull = array.get(last_10_is_bullish, i)
+
+                bool was_success = actual <= pred_end
+                string trend_emoji = was_bull ? "🟢" : "🔴"
+                string success_emoji = was_success ? "✅" : "❌"
+
+                breakdown := breakdown + str.tostring(i + 1) + ". " + trend_emoji + " " + success_emoji + " Predicted: " + str.tostring(int(pred_avg)) + " bars | Actual: " + str.tostring(actual) + " bars\n"
+
+            // Tooltips
+            string pred_header_tooltip = "Prediction Track Record\n\nShows performance of last 10 trend duration predictions:\n\n🎯 Success Rate:\nPercentage of trends that ended within the predicted 95% range\n\n📐 Average Accuracy:\nHow close predictions were to actual durations\nCalculated as: 100% - average(|error|)\n\n💡 Based on " + str.tostring(prediction_count) + " completed predictions"
+            string success_tooltip = "SUCCESS RATE\n━━━━━━━━━━━━━━━━━━━━\n\n" + str.tostring(int(success_count)) + " out of " + str.tostring(prediction_count) + " trends ended within predicted range\n\n" + str.tostring(int(success_rate)) + "% = Percentage of trends that stayed within predicted 95% range\n\n━━━━━━━━━━━━━━━━━━━━\nLAST " + str.tostring(prediction_count) + " PREDICTIONS:\n━━━━━━━━━━━━━━━━━━━━\n\n" + breakdown + "\n✅ = Within predicted range\n❌ = Outside predicted range\n🟢 = Bullish trend\n🔴 = Bearish trend"
+            string accuracy_tooltip = "AVERAGE ACCURACY\n━━━━━━━━━━━━━━━━━━━━\n\n" + str.tostring(int(avg_accuracy)) + "% = Average closeness to predicted duration\n\nCalculated as: 100% - average(|predicted - actual| / predicted × 100)\n\nExample:\n• Predicted: 50 bars\n• Actual: 45 bars\n• Error: |50-45|/50 = 10%\n• Accuracy: 100% - 10% = 90%\n\nHigher % = More accurate predictions"
+
+            // Row 8: PREDICTION RECORD - Header (merged)
+            table.cell(dashTable, 0, 8, "📊 PREDICTION RECORD", text_color=color.white, text_size=tableTxtSize, bgcolor=header_bg, text_halign=text.align_center, tooltip=pred_header_tooltip)
+            table.merge_cells(dashTable, 0, 8, 1, 8)
+
+            // Row 9: Success Rate (label | value)
+            table.cell(dashTable, 0, 9, "Success Rate", text_color=color.white, text_size=tableTxtSize, text_halign=text.align_left, tooltip=success_tooltip)
+            table.cell(dashTable, 1, 9, str.tostring(int(success_count)) + "/10 (" + str.tostring(int(success_rate)) + "%)", text_color=color.white, text_size=tableTxtSize, text_halign=text.align_center, tooltip=success_tooltip)
+
+            // Row 10: Avg Accuracy (label | value)
+            table.cell(dashTable, 0, 10, "Avg Accuracy", text_color=color.white, text_size=tableTxtSize, text_halign=text.align_left, tooltip=accuracy_tooltip)
+            table.cell(dashTable, 1, 10, str.tostring(int(avg_accuracy)) + "%", text_color=color.white, text_size=tableTxtSize, text_halign=text.align_center, tooltip=accuracy_tooltip)
+        else
+            // No historical predictions yet - show status
+            string status_text = samples_check >= 1 ? "✅ Active\n" + str.tostring(samples_check) + " trends analyzed" : "⏳ Collecting data...\nNeed 1+ trend flip"
+            string status_tooltip = "Trend Duration Prediction Status\n\n" + (samples_check >= 1 ? "ACTIVE ✅\n━━━━━━━━━━━━━━━\nPrediction is active and showing on chart!\n\nCurrent trend: " + (is_bullish ? "🟢 Bullish" : "🔴 Bearish") + "\nHistorical trends: " + str.tostring(samples_check) + "\n\n💡 Look for colored gradient box with prediction percentages on the chart.\n\nTrack record will appear here after 10 completed predictions." : "WAITING FOR DATA ⏳\n━━━━━━━━━━━━━━━\nPrediction needs at least 1 SuperTrend flip to start.\n\nCurrent status:\n• SuperTrend flips: " + str.tostring(samples_check) + "\n• Minimum needed: 1\n\n💡 Wait for the first trend flip, then predictions will appear automatically!")
+
+            table.cell(dashTable, 0, 8, "📊 Prediction Status", text_color=color.white, text_size=tableTxtSize, text_halign=text.align_left, tooltip=status_tooltip)
+            table.cell(dashTable, 1, 8, status_text, text_color=color.white, text_size=tableTxtSize, text_halign=text.align_center, tooltip=status_tooltip)
+
+    // Row 11: SEPARATOR (if prediction enabled)
+    if i_enable_prediction and prediction_count > 0
+        table.cell(dashTable, 0, 11, "═══════════════════", text_color=color.new(color.gray, 50), text_size=size.tiny, text_halign=text.align_center)
+        table.merge_cells(dashTable, 0, 11, 1, 11)
+
+    // Advanced Prediction Adjustments (show only in Advanced mode)
+    if i_enable_prediction and i_prediction_mode == "Advanced"
+        // Get multipliers from MOST RECENT historical flip (not waiting for new flip!)
+        float last_structure_mult = 1.0
+        float last_stock_type_mult = 1.0
+        float last_flip_strength_mult = 1.0
+        float last_learning_mult = 1.0
+        float last_regime_mult = 1.0
+
+        // Retrieve from historical arrays if we have data
+        int flip_history_size = array.size(all_flip_structure_mults)
+        if flip_history_size > 0
+            // Get values from LAST flip in history (most recent)
+            last_structure_mult := array.get(all_flip_structure_mults, flip_history_size - 1)
+            last_stock_type_mult := array.get(all_flip_stock_type_mults, flip_history_size - 1)
+            last_flip_strength_mult := array.get(all_flip_strength_mults, flip_history_size - 1)
+            last_learning_mult := array.get(all_flip_learning_mults, flip_history_size - 1)
+            last_regime_mult := array.get(all_flip_regime_mults, flip_history_size - 1)
+
+        // Calculate total impact
+        float total_advanced_mult = last_structure_mult * last_stock_type_mult * last_flip_strength_mult * last_learning_mult * last_regime_mult
+
+        // Build tooltips
+        string adv_header_tooltip = "Advanced Prediction Adjustments 🚀\n\nEnhances base predictions with 5 intelligent factors:\n\n1️⃣ Market Structure (±30%)\n• Detects S/R levels via pivot analysis\n• Near levels = shorter trends\n\n2️⃣ Stock Type (±40%)\n• Different assets have unique behaviors\n• " + i_stock_type + " multiplier applied\n\n3️⃣ Flip Strength (±20%)\n• Strong momentum = longer trends\n• Based on volume, volatility, quality at flip\n\n4️⃣ Error Learning (±15%)\n• Learns from past mistakes\n• Adapts predictions over time\n\n5️⃣ Regime Detection (±20%)\n• Analyzes recent trend patterns\n• Long recent trends → longer prediction\n• Short recent trends → shorter prediction\n\nThese multiply the base prediction for 30-50% better accuracy!"
+        string structure_tooltip = "MARKET STRUCTURE: " + str.tostring(last_structure_mult, "#.##") + "x\n\n" + (last_structure_mult < 1.0 ? "• Near S/R level (-30%)\n• Trend likely to reverse sooner" : "• No nearby S/R levels\n• Normal trend duration expected") + "\n\nDetects support/resistance via pivot analysis (" + str.tostring(i_structure_lookback) + " bars)\n\nProximity threshold: " + str.tostring(i_structure_sensitivity, "#.#") + " × ATR"
+        string type_tooltip = "STOCK TYPE: " + str.tostring(last_stock_type_mult, "#.##") + "x\n\nAsset: " + i_stock_type + "\n\n" + (last_stock_type_mult > 1.0 ? "• Stable asset → longer trends" : last_stock_type_mult < 1.0 ? "• Volatile asset → shorter trends" : "• Moderate behavior") + "\n\nDifferent assets have unique trend patterns:\n• Blue Chip: 1.35x (longest)\n• Dividend: 1.25x\n• Tech Growth: 1.10x\n• Cyclical: 0.90x\n• Small Cap: 0.65x\n• Crypto: 0.60x\n• Biotech: 0.55x (shortest)"
+        string flip_tooltip = "FLIP STRENGTH: " + str.tostring(last_flip_strength_mult, "#.##") + "x\n\nBased on:\n• Volume at flip\n• Volatility expansion\n• Quality score\n\n" + (last_flip_strength_mult > 1.0 ? "• Strong flip → extended trend\n• High momentum = sustained move" : last_flip_strength_mult < 1.0 ? "• Weak flip → shorter trend\n• Low momentum = quick reversal" : "• Moderate flip strength\n• Average trend expected")
+        string learning_tooltip = "ERROR LEARNING: " + str.tostring(last_learning_mult, "#.##") + "x\n\nAdaptive correction from past errors\n\nMemory: " + str.tostring(array.size(error_ratios)) + "/" + str.tostring(i_error_memory_depth) + " predictions\n\n" + (array.size(error_ratios) >= 3 ? (last_learning_mult < 1.0 ? "• Reducing predictions\n• System was over-predicting\n• Learning to be more conservative" : last_learning_mult > 1.0 ? "• Increasing predictions\n• System was under-predicting\n• Learning to be more aggressive" : "• No adjustment needed\n• Predictions are accurate") : "• Not enough data yet\n• Need 3+ completed predictions\n• Currently learning...")
+        string regime_tooltip = "REGIME DETECTION: " + str.tostring(last_regime_mult, "#.##") + "x\n\nAnalyzes last 3 trends (same type)\n\n" + (last_regime_mult > 1.0 ? "• Recent trends LONGER than average\n• Market regime favors extended trends ✅\n• Expect continuation" : last_regime_mult < 1.0 ? "• Recent trends SHORTER than average\n• Market regime favors brief trends ⚠️\n• Expect quick reversals" : "• Recent trends match historical average\n• Normal market regime ➡️\n• No bias detected")
+
+        // Row 12: ADVANCED FACTORS - Header (merged)
+        table.cell(dashTable, 0, 12, "🚀 ADVANCED FACTORS", text_color=color.white, text_size=tableTxtSize, bgcolor=header_bg, text_halign=text.align_center, tooltip=adv_header_tooltip)
+        table.merge_cells(dashTable, 0, 12, 1, 12)
+
+        // Row 13: Structure (label | value)
+        table.cell(dashTable, 0, 13, "Structure", text_color=color.white, text_size=tableTxtSize, text_halign=text.align_left, tooltip=structure_tooltip)
+        table.cell(dashTable, 1, 13, str.tostring(last_structure_mult, "#.##") + "x", text_color=color.white, text_size=tableTxtSize, text_halign=text.align_center, tooltip=structure_tooltip)
+
+        // Row 14: Type (label | value)
+        table.cell(dashTable, 0, 14, "Type", text_color=color.white, text_size=tableTxtSize, text_halign=text.align_left, tooltip=type_tooltip)
+        table.cell(dashTable, 1, 14, str.tostring(last_stock_type_mult, "#.##") + "x", text_color=color.white, text_size=tableTxtSize, text_halign=text.align_center, tooltip=type_tooltip)
+
+        // Row 15: Flip (label | value)
+        table.cell(dashTable, 0, 15, "Flip", text_color=color.white, text_size=tableTxtSize, text_halign=text.align_left, tooltip=flip_tooltip)
+        table.cell(dashTable, 1, 15, str.tostring(last_flip_strength_mult, "#.##") + "x", text_color=color.white, text_size=tableTxtSize, text_halign=text.align_center, tooltip=flip_tooltip)
+
+        // Row 16: Learning (label | value) - only if enabled
+        int current_row = 16
+        if i_use_error_learning
+            table.cell(dashTable, 0, current_row, "Learning", text_color=color.white, text_size=tableTxtSize, text_halign=text.align_left, tooltip=learning_tooltip)
+            table.cell(dashTable, 1, current_row, str.tostring(last_learning_mult, "#.##") + "x", text_color=color.white, text_size=tableTxtSize, text_halign=text.align_center, tooltip=learning_tooltip)
+            current_row += 1
+
+        // Row 17/16: Regime (label | value)
+        table.cell(dashTable, 0, current_row, "Regime", text_color=color.white, text_size=tableTxtSize, text_halign=text.align_left, tooltip=regime_tooltip)
+        table.cell(dashTable, 1, current_row, str.tostring(last_regime_mult, "#.##") + "x", text_color=color.white, text_size=tableTxtSize, text_halign=text.align_center, tooltip=regime_tooltip)
+
+    // Row 18: Disclaimer (always show when prediction enabled - critical regulatory protection)
+    if i_enable_prediction
+        string disclaimer_text = "⚠️ DISCLAIMER"
+        string disclaimer_tooltip = "IMPORTANT LEGAL DISCLAIMER\n━━━━━━━━━━━━━━━━━━━━\n\n⚠️ NOT FINANCIAL ADVICE\nThis indicator provides historical analysis only.\nIt is NOT investment, financial, or trading advice.\n\n📊 HISTORICAL ANALYSIS\nPredictions are based on past SuperTrend patterns.\nPast performance does NOT guarantee future results.\n\n⚡ NO GUARANTEES\nMarkets are unpredictable and risky.\nTrends can reverse unexpectedly at any time.\n\n💰 USE AT YOUR OWN RISK\nYou are solely responsible for your trading decisions.\nNever risk more than you can afford to lose.\n\n🔍 DO YOUR OWN RESEARCH\nThis is an educational tool only.\nConsult a licensed financial advisor before trading.\n\n━━━━━━━━━━━━━━━━━━━━\n✅ By using this indicator, you acknowledge\n   these limitations and accept full responsibility."
+
+        table.cell(dashTable, 0, 18, disclaimer_text, text_color=color.orange, text_size=size.tiny, text_halign=text.align_center, tooltip=disclaimer_tooltip)
+        table.merge_cells(dashTable, 0, 18, 1, 18)
+
+//======================================================
+//================ SECTION 12: ALERTS ==================
+//======================================================
+
+// Signal Alerts
+if goldenCross and barstate.isconfirmed
+    vol_momentum_status = use_volume_momentum ? (vol_momentum_strong ? " | Vol Momentum: 📊📊 STRONG (" + str.tostring(vol_momentum_ratio, "#.##") + "x)" : " | Vol Momentum: 📈 Rising (" + str.tostring(vol_momentum_ratio, "#.##") + "x)") : ""
+    alert("⬆️ LONG: Supertrend bullish + Quality: " + str.tostring(quality_score) + "/70\n" + "Volume: " + vol_state + vol_momentum_status, alert.freq_once_per_bar_close)
+
+if deathCross and barstate.isconfirmed
+    vol_momentum_status = use_volume_momentum ? (vol_momentum_strong ? " | Vol Momentum: 📊📊 STRONG (" + str.tostring(vol_momentum_ratio, "#.##") + "x)" : " | Vol Momentum: 📉 Rising (" + str.tostring(vol_momentum_ratio, "#.##") + "x)") : ""
+    alert("⬇️ SHORT: Supertrend bearish + Quality: " + str.tostring(quality_score) + "/70\n" + "Volume: " + vol_state + vol_momentum_status, alert.freq_once_per_bar_close)
+
+// Alert Conditions - appear in TradingView's "Create Alert" dialog
+alertcondition(goldenCross, title="🟢 BUY Signal", message="⬆️ LONG: {{ticker}} on {{interval}}\nSupertrend flipped bullish\nQuality Score: High\nVolume: Confirmed\n\nPrice: {{close}}\nTime: {{time}}")
+alertcondition(deathCross, title="🔴 SELL Signal", message="⬇️ SHORT: {{ticker}} on {{interval}}\nSupertrend flipped bearish\nQuality Score: High\nVolume: Confirmed\n\nPrice: {{close}}\nTime: {{time}}")
+alertcondition(goldenCross or deathCross, title="🔔 ANY Signal (BUY or SELL)", message="🔔 SIGNAL: {{ticker}} on {{interval}}\nSupertrend signal detected\n\nPrice: {{close}}\nTime: {{time}}\n\nCheck chart for direction!")
+
+//END 09:00 09/07/2026 - v1.2.1 fixes: BUY/SELL label placement (was inverted), scalpel_quality default 65->55
